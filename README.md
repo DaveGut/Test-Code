@@ -8,7 +8,7 @@ For a new (or clean) installation, the procedure is very simple.
 
 a.  Device Driver Installation (for each driver)
 
-    1.  Determine the GitHub files from the Device Drivers folder you will need.  \nSee list at bottom of page.  Copy these files to your PC or MAC (or whatever).
+    1.  Determine the GitHub files from the Device Drivers folder you will need.  See list at bottom of page.  Copy these files to your PC or MAC (or whatever).
     
     2.  Open Hubitat Environment and the "Drivers Code".  Select New Driver.
     
@@ -43,4 +43,45 @@ c.  Run the application
     7.  Select Done.  Your devices should now be installed.
     
     
-# Installation Instructions - New Manual Installation
+# Upgrade Instructions:
+Generally, the upgrade instructions are relatively simple:
+
+a.  Replace the contents of the existing driver and (if applicable) application.
+
+b.  If you have an application, Run the application (this will update some of the data elements.
+
+c.  For each device:
+
+    1.  Set the Bulb Preference "Default transition Time" to a desired value.
+    
+    2.  Set the Bulb Preference "Hue" to Low Rez.
+    
+    3.  For each device, "Save" the preferences.
+    
+This should work in 95% of the cases.
+
+# TP-Link Device and GitHub file names
+
+Model	Driver GitHub File Name
+HS100	TP-Link Plug-Switch (Hubitat).groovy
+HS103	TP-Link Plug-Switch (Hubitat).groovy
+HS105	TP-Link Plug-Switch (Hubitat).groovy
+HS107	TP-Link Multi-Plug (Hubitat).groovy
+HS110	TP-Link Plug-Switch (Hubitat).groovy
+HS110	TP-Link Plug-Switch (Hubitat).groovy
+HS200	TP-Link Plug-Switch (Hubitat).groovy
+HS210	TP-Link Plug-Switch (Hubitat).groovy
+HS220	TP-Link Dimming Switch (Hubitat).groovy
+HS300	TP-Link Multi-Plug (Hubitat).groovy
+KB100	TP-Link Soft White Bulb (Hubitat).groovy
+KB130	TP-Link Color Bulb (Hubitat).groovy
+KL110	TP-Link Soft White Bulb (Hubitat).groovy
+KL120	TP-Link Tunable White Bulb (Hubitat).groovy
+KL130	TP-Link Color Bulb (Hubitat).groovy
+KP100	TP-Link Plug-Switch (Hubitat).groovy
+LB100	TP-Link Soft White Bulb (Hubitat).groovy
+LB110	TP-Link Soft White Bulb (Hubitat).groovy
+LB120	TP-Link Tunable White Bulb (Hubitat).groovy
+LB130	TP-Link Color Bulb (Hubitat).groovy
+LB200	TP-Link Soft White Bulb (Hubitat).groovy
+LB230	TP-Link Color Bulb (Hubitat).groovy
