@@ -8,7 +8,7 @@ For a new (or clean) installation, the procedure is very simple.
 
 a.  Device Driver Installation (for each driver)
 
-    1.  Determine the GitHub files from the Device Drivers folder you will need.  See list at bottom of page.  Copy these files to your PC or MAC (or whatever).
+    1.  Determine the GitHub files from the Device Drivers folder you will need.  \nSee list at bottom of page.  Copy these files to your PC or MAC (or whatever).
     
     2.  Open Hubitat Environment and the "Drivers Code".  Select New Driver.
     
