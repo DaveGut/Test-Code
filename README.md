@@ -3,6 +3,21 @@ TP-Link devices Hubitat Integration without a need for a Node Applet nor a Kasa 
 
 Finally, a TP-Link integration without the need for a Node.js server nor the need for a Kasa Cloud login.  Uses UDP messaging on Hubitat, so the solution is cloudless and a single integration for all situations.
 
+APPLICATION FEATURES
+
+1.  Automatically installs the selected devices setting all data required to operate.
+
+2.  Automatically checks for device IP changes every 30 minutes and updates the device.
+
+3.  Whenever opened, checks for device IP changes and updates the devices.
+
+4.  Provides two Options:
+
+    a.  Install:  Installs the devices.
+    
+    b.  List Devices:  Provides a list of the devices including the device IP, alias and MAC.
+                        (Useful in setting up static IP addresses).
+
 # Installation Instructions - NEW installation using application
 For a new (or clean) installation, the procedure is very simple.
 
@@ -44,6 +59,8 @@ c.  Run the application
     
     
 # Upgrade Instructions:
+Recommendation:  Upgrade is not required until you add (in the future) a new device type.  However, the significant advantages are that the new integration is off the cloud and does not require a separate node.js server.
+
 Generally, the upgrade instructions are relatively simple:
 
 a.  Replace the contents of the existing driver and (if applicable) application.
