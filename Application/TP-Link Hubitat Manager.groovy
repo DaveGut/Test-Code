@@ -196,7 +196,7 @@ def discoverDevices() {
 	def networkPrefix = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
 	logDebug("discoverDevices: IP Segment = ${networkPrefix}")
 						  
-	for(int i = 1; i < 256; i++) {
+	for(int i = 1; i < 255; i++) {
 		def deviceIP = "${networkPrefix}.${i.toString()}"
 		sendCmd(deviceIP)
 		pauseExecution(20)
@@ -216,23 +216,25 @@ private sendCmd(ip) {
 
 def parseDevices(response) {
 	def resp = parseLanMessage(response.description)
-	if (resp.mac == "null") { return }
 	def parser = new JsonSlurper()
 	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
 	def totPlugs = cmdResp.child_num
 	def plugNo
 	def plugId
-	
+	def dni = cmdResp.mic_mac
+	if (cmdResp.mic_type != "IOT.SMARTBULB") {
+		dni = cmdResp.mac.replace(/:/, "")
+	}
 	if (totPlugs) {
 		def children = cmdResp.children
 		for (def i = 0; i < totPlugs; i++) {
 			plugNo = children[i].id
-			def plugDNI = "${resp.mac}${plugNo}"
+			def plugDNI = "${dni}${plugNo}"
 			plugId = "${cmdResp.deviceId}${plugNo}"
 			updateDevices(plugDNI, cmdResp.model.substring(0,5), convertHexToIP(resp.ip), children[i].alias, plugNo, plugId)
 		}
 	} else {
-		updateDevices(resp.mac, cmdResp.model.substring(0,5), convertHexToIP(resp.ip), cmdResp.alias, plugNo, plugId)
+		updateDevices(dni, cmdResp.model.substring(0,5), convertHexToIP(resp.ip), cmdResp.alias, plugNo, plugId)
 	}
 }
 
