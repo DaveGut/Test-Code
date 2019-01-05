@@ -25,11 +25,14 @@ TP-Link devices; primarily various users on GitHub.com.
 01.01.19	Version 4.0 device driver created.  Does not
 			require Node Applet nor Kasa Account to control
 			devices.
+01.04.19	4.0.02. Updated command response processing to
+			eliminate unnecessary refresh command and reduce
+			communications loads.
 
 //	===== Device Type Identifier ===========================*/
 //	def traceLog() { return true }
 	def traceLog() { return false }
-	def driverVer() { return "4.0.01" }
+	def driverVer() { return "4.0.02" }
 //	def deviceType() { return "Soft White Bulb" }
 //	def deviceType() { return "Tunable White Bulb" }
 	def deviceType() { return "Color Bulb" }
@@ -267,14 +270,53 @@ def setRgbData(hue){
     sendEvent(name: "colorName", value: colorName)
 }
 
+//	===== Send the Command =====
+private sendCmd(command, action) {
+	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
+	if (!getDataValue("deviceIP")) {
+		state.currentError = "No device IP. Update Preferences."
+		log.error "No device IP. Update Preferences."
+		return
+	}
+	runIn(5, createCommsError)	//	Starts 3 second timer for error.
+	
+	def myHubAction = new hubitat.device.HubAction(
+		outputXOR(command), 
+		hubitat.device.Protocol.LAN,
+		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
+		 destinationAddress: "${getDataValue("deviceIP")}:9999",
+		encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
+		callback: action])
+	sendHubCommand(myHubAction)
+}
+
+def createCommsError() {
+	state.currentError = "Comms Error. Device offline or IP has changed. Check and run Preferences."
+	log.error "Comms Error. Device offline or IP has changed. Check and run Preferences."
+}
+
+def commandResponse(response) {
+	unschedule(createCommsError)
+	state.currentError = null
+	def encrResponse = parseLanMessage(response).payload
+	def cmdResponse = parseJson(inputXOR(encrResponse))
+	logTrace("commandResponse: cmdResponse = ${cmdResponse}")
+	def status = cmdResponse["smartlife.iot.smartbulb.lightingservice"].transition_light_state
+	parseBulbState(status)
+}
+
 def refreshResponse(response){
 	unschedule(createCommsError)
 	state.currentError = null
 	def encrResponse = parseLanMessage(response).payload
 	def cmdResponse = parseJson(inputXOR(encrResponse))
-	logTrace("refreshResponse: cmdResponse = ${cmdResponse}")
-	
+	logTrace("refreshResponse: refreshResponse = ${cmdResponse}")
 	def status = cmdResponse.system.get_sysinfo.light_state
+	parseBulbState(status)
+}
+			 
+def parseBulbState(status) {
+	logTrace("parseBulbState: status = ${status}")
 	def onOff = status.on_off
 	if (onOff == 1) {
 		onOff = "on"
@@ -326,38 +368,6 @@ def refreshResponse(response){
         setColorTempData(color_temp)
 	}
 	log.info "${device.label}: Power: ${onOff} / Brightness: ${level}% / Circadian State: ${circadianState} / Color Temp: ${color_temp}K / Color: ${color}"
-}
-
-//	===== Send the Command =====
-private sendCmd(command, action) {
-	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
-	if (!getDataValue("deviceIP")) {
-		state.currentError = "No device IP. Update Preferences."
-		log.error "No device IP. Update Preferences."
-		return
-	}
-	runIn(5, createCommsError)	//	Starts 3 second timer for error.
-	
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command), 
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		callback: action])
-	sendHubCommand(myHubAction)
-}
-
-def createCommsError() {
-	state.currentError = "Comms Error. Device offline or IP has changed. Check and run Preferences."
-	log.error "Comms Error. Device offline or IP has changed. Check and run Preferences."
-}
-
-def commandResponse(response) {
-	unschedule(createCommsError)
-	state.currentError = null
-	logTrace("commandResponse")
-	refresh()
 }
 
 //	===== XOR Encode and Decode Device Data =====
