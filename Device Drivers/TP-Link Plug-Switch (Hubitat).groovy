@@ -25,11 +25,13 @@ TP-Link devices; primarily various users on GitHub.com.
 01.01.19	Version 4.0 device driver created.  Does not
 			require Node Applet nor Kasa Account to control
 			devices.
+01.05.19	Skipped version 4.0.02 to sync version with bulbs.
+01.05.19	4.0.03. Added 30 minute refresh option.  Added
+			Preference for logTrace (default is false.  Added
+			error handling sequence in device return.
 
 //	===== Device Type Identifier ===========================*/
-//	def traceLog() { return true }
-	def traceLog() { return false }
-	def driverVer() { return "4.0.01" }
+	def driverVer() { return "4.0.03" }
 	def deviceType() { return "Plug-Switch" }
 //	def deviceType() { return "Dimming Switch" }	
 //	def deviceType() { return "Multi-Plug" }
@@ -53,6 +55,7 @@ metadata {
 		refreshRate << ["5" : "Refresh every 5 minutes"]
 		refreshRate << ["10" : "Refresh every 10 minutes"]
 		refreshRate << ["15" : "Refresh every 15 minutes"]
+		refreshRate << ["30" : "Refresh every 30 minutes"]
 		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate)
 
 		if (deviceType() == "Multi-Plug") {
@@ -60,6 +63,7 @@ metadata {
 		}
 		
 		input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
+    	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
 	}
 }
 
@@ -68,7 +72,7 @@ def installed() {
 	log.info "Installing ${device.label}..."
 	state.currentError = null
 	
-	device.updateSetting("refresh_Rate",[type:"enum", value:"10"])
+	device.updateSetting("refresh_Rate",[type:"enum", value:"15"])
 	
 	updated()
 }
@@ -102,13 +106,16 @@ def updated() {
 		case "5" :
 			runEvery5Minutes(refresh)
 			break
-		case "15" :
-			runEvery15Minutes(refresh)
+		case "10" :
+			runEvery10Minutes(refresh)
+			break
+		case "30" :
+			runEvery30Minutes(refresh)
 			break
 		default:
-			runEvery10Minutes(refresh)
+			runEvery15Minutes(refresh)
 	}
-	
+
 	if (getDataValue("deviceIP")) { refresh() }
 }
 
@@ -160,44 +167,6 @@ def refresh(){
 	sendCmd('{"system" :{"get_sysinfo" :{}}}', "refreshResponse")
 }
 
-def refreshResponse(response){
-	unschedule(createCommsError)
-	state.currentError = null
-	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse = parseJson(inputXOR(encrResponse))
-	logTrace("refreshResponse: cmdResponse = ${cmdResponse}")
-	
-	def onOff
-	if (deviceType() != "Multi-Plug") {
-		def onOffState = cmdResponse.system.get_sysinfo.relay_state
-		if (onOffState == 1) {
-			onOff = "on"
-		} else {
-			onOff = "off"
-		}
-	} else {
-		def children = cmdResponse.system.get_sysinfo.children
-		def plugId = getDataValue("plugNo")
-		children.each {
-			if (it.id == plugId) {
-				if (it.state == 1) {
-					onOff = "on"
-				} else {
-					onOff = "off"
-				}
-			}
-		}
-	}
-	sendEvent(name: "switch", value: onOff)
-	if (deviceType() == "Dimming Switch") {
-		def level = cmdResponse.system.get_sysinfo.brightness
-	 	sendEvent(name: "level", value: level)
-		log.info "${device.label}: Power: ${onOff} / Dimmer Level: ${level}%"
-	} else {
-		log.info "${device.label}: Power: ${onOff}"
-	}
-}
-
 //	===== Send the Command =====
 private sendCmd(command, action) {
 	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
@@ -224,10 +193,54 @@ def createCommsError() {
 }
 
 def commandResponse(response) {
+	logTrace("commandResponse: response = ${response}")
 	unschedule(createCommsError)
 	state.currentError = null
-	logTrace("commandResponse")
 	refresh()
+}
+
+def refreshResponse(response){
+	unschedule(createCommsError)
+	state.currentError = null
+	def encrResponse = parseLanMessage(response).payload
+
+	try {
+		def cmdResponse = parseJson(inputXOR(encrResponse))
+		logTrace("refreshResponse: cmdResponse = ${cmdResponse}")
+	} catch (error) {
+		log.error "${device.label} refreshResponse fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+	}
+
+	def onOff
+	if (deviceType() != "Multi-Plug") {
+		def onOffState = cmdResponse.system.get_sysinfo.relay_state
+		if (onOffState == 1) {
+			onOff = "on"
+		} else {
+			onOff = "off"
+		}
+	} else {
+		def children = cmdResponse.system.get_sysinfo.children
+		def plugId = getDataValue("plugNo")
+		children.each {
+			if (it.id == plugId) {
+				if (it.state == 1) {
+					onOff = "on"
+				} else {
+					onOff = "off"
+				}
+			}
+		}
+	}
+	
+	sendEvent(name: "switch", value: onOff)
+	if (deviceType() == "Dimming Switch") {
+		def level = cmdResponse.system.get_sysinfo.brightness
+	 	sendEvent(name: "level", value: level)
+		log.info "${device.label}: Power: ${onOff} / Dimmer Level: ${level}%"
+	} else {
+		log.info "${device.label}: Power: ${onOff}"
+	}
 }
 
 //	===== XOR Encode and Decode Device Data =====
@@ -258,6 +271,7 @@ private inputXOR(encrResponse) {
 	}
 	//	For some reason, first character not decoding properly.
 	cmdResponse = "{" + cmdResponse.drop(1)
+	logTrace("inputXOR: cmdResponse = ${cmdResponse}")
 	return cmdResponse
 }
 
@@ -280,7 +294,7 @@ def updateInstallData(ip, appVer, plugNo) {
 }
 
 def logTrace(msg){
-	if(traceLog() == true) { log.trace msg }
+	if(traceLog == true) { log.trace msg }
 }
 
 //	end-of-file
