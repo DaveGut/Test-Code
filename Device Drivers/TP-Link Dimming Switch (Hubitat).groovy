@@ -203,9 +203,10 @@ def refreshResponse(response){
 	unschedule(createCommsError)
 	state.currentError = null
 	def encrResponse = parseLanMessage(response).payload
+	def cmdResponse
 
 	try {
-		def cmdResponse = parseJson(inputXOR(encrResponse))
+		cmdResponse = parseJson(inputXOR(encrResponse))
 		logTrace("refreshResponse: cmdResponse = ${cmdResponse}")
 	} catch (error) {
 		log.error "${device.label} refreshResponse fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
