@@ -302,7 +302,6 @@ def createCommsError() {
 }
 
 def commandResponse(response) {
-log.debug "commandResponse:  ${response}"
 	unschedule(createCommsError)
 	state.currentError = null
 	def encrResponse = parseLanMessage(response).payload
@@ -319,7 +318,6 @@ log.debug "commandResponse:  ${response}"
 }
 
 def refreshResponse(response){
-log.debug "refreshResponse:  ${response}"
 	unschedule(createCommsError)
 	state.currentError = null
 	def encrResponse = parseLanMessage(response).payload
