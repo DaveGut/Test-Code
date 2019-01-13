@@ -27,11 +27,16 @@ TP-Link devices; primarily various users on GitHub.com.
 			devices.
 01.05.19	Skipped version 4.0.02 to sync version with bulbs.
 01.05.19	4.0.03. Added 30 minute refresh option.  Added
-			Preference for logTrace (default is false.  Added
+			Preference for logTrace (default is false).  Added
 			error handling sequence in device return.
+01.13.19	4.0.04. Various enhancements:
+			a.	Hide IP preference for non-manual installs.
+			b.	Add 10 minute timeout for trace logging. Will
+				also run for 10 minutes on set preferences an
+				installation.
 
 //	===== Device Type Identifier ===========================*/
-	def driverVer() { return "4.0.03" }
+	def driverVer() { return "4.0.04" }
 	def deviceType() { return "Plug-Switch" }
 //	def deviceType() { return "Dimming Switch" }	
 //	def deviceType() { return "Multi-Plug" }
@@ -58,11 +63,13 @@ metadata {
 		refreshRate << ["30" : "Refresh every 30 minutes"]
 		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate)
 
-		if (deviceType() == "Multi-Plug") {
-			input ("plug_No", "text", title: "Number of the plug (00, 01, 02, etc.)")
+		if (!getDataValue("applicationVersion")) {
+			if (deviceType() == "Multi-Plug") {
+				input ("plug_No", "text", title: "Number of the plug (00, 01, 02, etc.)")
+			}
+			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 		}
 		
-		input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
     	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
 	}
 }
@@ -71,32 +78,43 @@ metadata {
 def installed() {
 	log.info "Installing ${device.label}..."
 	state.currentError = null
+	state.updated = false
+	state.multiPLugInstalled == false
 	
-	device.updateSetting("refresh_Rate",[type:"enum", value:"15"])
-	
-	updated()
-}
+	device.updateSetting("refresh_Rate",[type:"enum", value:"30"])
+	device.updateSetting("traceLog", [type:"bool", value: true])
+	runIn(600, stopTraceLogging)
 
-def ping() {
-	refresh()
+	runIn(2, updated)
 }
 
 def updated() {
 	log.info "Updating ${device.label}..."
 	unschedule()
 	
+	if (traceLog) {
+		device.updateSetting("traceLog", [type:"bool", value: true])
+		runIn(600, stopTraceLogging)
+	}
+	
 	updateDataValue("driverVersion", driverVer())
 	if(device_IP) {
 		updateDataValue("deviceIP", device_IP)
-		if (deviceType() == "Multi-Plug" && !getDataValue("plugNo")) {
-			updateDataValue("plugNo", plug_No)
-			if (plug_No) {
-				sendCmd('{"system" :{"get_sysinfo" :{}}}', "parsePlugId")
-			}
-		}
 	}
-	if(deviceIP) {
-		updateDataValue("deviceIP", deviceIP)
+
+	//	Get data on the plug number if Multi-plug.  Only done once.
+	if (!state.multiPlugInstalled) { state.multiPlugInstalled = false }
+	if (plug_No && deviceType() == "Multi-Plug" && state.multiPLugInstalled == false) {
+		sendCmd('{"system" :{"get_sysinfo" :{}}}', "parsePlugId")
+	}
+	
+	//	Capture legacy deviceIP on initial run of preferences.
+	if (!state.updated) { state.updated = false }
+	if (state.updated == false) {
+		state.updated = true
+		if(deviceIP) {
+			updateDataValue("deviceIP", deviceIP)
+		}
 	}
 
 	switch(refresh_Rate) {
@@ -109,23 +127,34 @@ def updated() {
 		case "10" :
 			runEvery10Minutes(refresh)
 			break
-		case "30" :
+		case "15" :
 			runEvery30Minutes(refresh)
 			break
 		default:
-			runEvery15Minutes(refresh)
+			runEvery30Minutes(refresh)
 	}
 
 	if (getDataValue("deviceIP")) { refresh() }
 }
 
+def stopTraceLogging() {
+	logTrace("stopTraceLogging")
+	device.updateSetting("traceLog", [type:"bool", value: true])
+}
+
 def parsePlugId(response) {
-	logTrace("parsePlugId: ${plugNo}")
-	def encrResponse = response.split(',')[5].drop(9)
-	def cmdResponse = parseJson(inputXOR(encrResponse))
+	def encrResponse = parseLanMessage(response).payload
+	def cmdResponse
+	try {
+		cmdResponse = parseJson(inputXOR(encrResponse))
+		logTrace("parsePlugId: plug_No = ${plug_No} / cmdResponse = ${cmdResponse}")
+	} catch (error) {
+		log.error "${device.label} parsePlugId fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+	}
 	def deviceData = cmdResponse.system.get_sysinfo
 	def plugId = "${deviceData.deviceId}${plug_No}"
 	updateDataValue("plugId", plugId)
+	state.multiPlugInstalled = true
 	log.info "${device.label}: Plug ID set to ${plugId}"
 }
 
@@ -167,29 +196,18 @@ def refresh(){
 	sendCmd('{"system" :{"get_sysinfo" :{}}}', "refreshResponse")
 }
 
-//	===== Send the Command =====
-private sendCmd(command, action) {
-	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
-	if (!getDataValue("deviceIP")) {
-		state.currentError = "No device IP. Update Preferences."
-		log.error "No device IP. Update Preferences."
-		return
+def parseInput(response) {
+	unschedule(createCommsError)
+	state.currentError = null
+	def encrResponse = parseLanMessage(response).payload
+	try {
+		def cmdResponse = parseJson(inputXOR(encrResponse))
+		logTrace("parseInput: response = ${cmdResponse}")
+		return cmdResponse
+	} catch (error) {
+		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+		state.currentError = "parseInput failed."
 	}
-	runIn(3, createCommsError)	//	Starts 3 second timer for error.
-	
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command), 
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		callback: action])
-	sendHubCommand(myHubAction)
-}
-
-def createCommsError() {
-	state.currentError = "Comms Error. Device offline or IP has changed. Check and run Preferences."
-	log.error "Comms Error. Device offline or IP has changed. Check and run Preferences."
 }
 
 def commandResponse(response) {
@@ -200,18 +218,7 @@ def commandResponse(response) {
 }
 
 def refreshResponse(response){
-	unschedule(createCommsError)
-	state.currentError = null
-	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse
-
-	try {
-		cmdResponse = parseJson(inputXOR(encrResponse))
-		logTrace("refreshResponse: cmdResponse = ${cmdResponse}")
-	} catch (error) {
-		log.error "${device.label} refreshResponse fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
-	}
-
+	def cmdResponse = parseInput(response)
 	def onOff
 	if (deviceType() != "Multi-Plug") {
 		def onOffState = cmdResponse.system.get_sysinfo.relay_state
@@ -242,6 +249,30 @@ def refreshResponse(response){
 	} else {
 		log.info "${device.label}: Power: ${onOff}"
 	}
+}
+
+//	===== Send the Command =====
+private sendCmd(command, action) {
+	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
+	if (!getDataValue("deviceIP")) {
+		state.currentError = "No device IP. Update Preferences."
+		log.error "No device IP. Update Preferences."
+		return
+	}
+	runIn(3, createCommsError)	//	Starts 3 second timer for error.
+	def myHubAction = new hubitat.device.HubAction(
+		outputXOR(command), 
+		hubitat.device.Protocol.LAN,
+		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
+		 destinationAddress: "${getDataValue("deviceIP")}:9999",
+		encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
+		callback: action])
+	sendHubCommand(myHubAction)
+}
+
+def createCommsError() {
+	state.currentError = "Comms Error. Device offline or IP has changed. Check and run Preferences."
+	log.error "Comms Error. Device offline or IP has changed. Check and run Preferences."
 }
 
 //	===== XOR Encode and Decode Device Data =====
@@ -277,20 +308,9 @@ private inputXOR(encrResponse) {
 }
 
 //	===== Other Methods =====
-def updateInstallData(ip, appVer, plugNo) {
+def updateInstallData(ip, appVer) {
 	updateDataValue("applicationVersion", appVer)
 	updateDataValue("deviceIP", ip)
-	if(device_IP) {
-		device.updateSetting("device_IP",[type:"text", value: "${ip}"])
-	}
-	updateDataValue("driverVersion", driverVer())
-	if (deviceType() == "Multi-Plug") {
-		updateDataValue("plugNo", plugNo)
-		if(plug_No) {
-			device.updateSetting("plug_No",[type:"text", value: "${plugNo}"])
-		}
-	}
-	refresh()
 	log.info "${device.label}: Updated Installation Data."
 }
 

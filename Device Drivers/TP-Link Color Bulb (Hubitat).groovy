@@ -22,7 +22,7 @@ All  development is based upon open-source data on the
 TP-Link devices; primarily various users on GitHub.com.
 
 ===== History ================================================
-01.01.19	Version 4.0 device driver created.  Does not
+01.01.19	Version 4.0 device driver created. Does not
 			require Node Applet nor Kasa Account to control
 			devices.
 01.04.19	4.0.02. Updated command response processing to
@@ -31,9 +31,14 @@ TP-Link devices; primarily various users on GitHub.com.
 01.05.19	4.0.03. Added 30 minute refresh option.  Added
 			Preference for logTrace (default is false.  Added
 			error handling sequence in device return.
+01.13.19	4.0.04. Various enhancements:
+			a.	Hide IP preference for non-manual installs.
+			b.	Add 10 minute timeout for trace logging. Will
+				also run for 10 minutes on set preferences an
+				installation.
 
 //	===== Device Type Identifier ===========================*/
-	def driverVer() { return "4.0.03" }
+	def driverVer() { return "4.0.04" }
 //	def deviceType() { return "Soft White Bulb" }
 //	def deviceType() { return "Tunable White Bulb" }
 	def deviceType() { return "Color Bulb" }
@@ -76,7 +81,10 @@ metadata {
 	        input ("hue_Scale", "enum", title: "High or Low Res Hue", options: hueScale)
         }
 		
-		input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
+		if (!getDataValue("applicationVersion")) {
+			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
+		}
+		
     	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
 	}
 }
@@ -85,32 +93,41 @@ metadata {
 def installed() {
 	log.info "Installing ${device.label}..."
 	state.currentError = null
+	state.updated = false
 
-	device.updateSetting("refresh_Rate",[type:"enum", value:"15"])
-	device.updateSetting("transition_Time",[type:"num", value:0])
+	device.updateSetting("refresh_Rate", [type: "enum", value: "30"])
+	device.updateSetting("transition_Time", [type: "num", value: 0])
 	if (deviceType() == "Color Bulb") {
-		device.updateSetting("hue_Scale",[type:"enum", value:"lowRez"])
+		device.updateSetting("hue_Scale", [type: "enum", value: "lowRez"])
 	}
+	device.updateSetting("traceLog", [type:"bool", value: true])
+	runIn(600, stopTraceLogging)
 
-	updated()
-}
-
-def ping() {
-	refresh()
+	runIn(2, updated)
 }
 
 def updated() {
 	log.info "Updating ${device.label}..."
 	unschedule()
+	
+	if (traceLog) {
+		device.updateSetting("traceLog", [type:"bool", value: true])
+		runIn(600, stopTraceLogging)
+	}
 
 	updateDataValue("driverVersion", driverVer())
 	if(device_IP) {
 		updateDataValue("deviceIP", device_IP)
 	}
-	if(deviceIP) {
-		updateDataValue("deviceIP", deviceIP)
-	}
 
+	//	Capture legacy deviceIP on initial run of preferences.
+	if (!state.updated) { state.updated = false }
+	if (state.updated == false) {
+		state.updated = true
+		if(deviceIP) {
+			updateDataValue("deviceIP", deviceIP)
+		}
+	}
 
 	switch(refresh_Rate) {
 		case "1" :
@@ -122,14 +139,19 @@ def updated() {
 		case "10" :
 			runEvery10Minutes(refresh)
 			break
-		case "30" :
-			runEvery30Minutes(refresh)
+		case "15" :
+			runEvery15Minutes(refresh)
 			break
 		default:
-			runEvery15Minutes(refresh)
+			runEvery30Minutes(refresh)
 	}
 
 	if (getDataValue("deviceIP")) { refresh() }
+}
+
+def stopTraceLogging() {
+	logTrace("stopTraceLogging")
+	device.updateSetting("traceLog", [type:"bool", value: true])
 }
 
 //	===== Basic Bulb Control/Status =====
@@ -219,9 +241,85 @@ def refresh(){
 	sendCmd('{"system":{"get_sysinfo":{}}}', "refreshResponse")
 }
 
+//	===== Process basic bulb command returns =====
+def parseInput(response) {
+	unschedule(createCommsError)
+	state.currentError = null
+	def encrResponse = parseLanMessage(response).payload
+	try {
+		def cmdResponse = parseJson(inputXOR(encrResponse))
+		logTrace("parseInput: response = ${cmdResponse}")
+		return cmdResponse
+	} catch (error) {
+		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+		state.currentError = "parseInput failed."
+	}
+}
+
+def commandResponse(response) {
+	def cmdResponse = parseInput(response)
+	def status = cmdResponse["smartlife.iot.smartbulb.lightingservice"].transition_light_state
+	parseBulbState(status)
+}
+
+def refreshResponse(response){
+	def cmdResponse = parseInput(response)
+	def status = cmdResponse.system.get_sysinfo.light_state
+	parseBulbState(status)
+}
+
+def parseBulbState(status) {
+	logTrace("parseBulbState: status = ${status}")
+	def onOff
+	if (status.on_off == 0) {
+		onOff = "off"
+		sendEvent(name: "switch", value: onOff)
+		log.info "${device.label}: Power: ${onOff}"
+		if (deviceType() == "Tunable White Bulb" || deviceType() == "Color Bulb") {
+			sendEvent(name: "circadianState", value: "normal")
+		}
+
+	} else {
+		sendEvent(name: "level", value: status.brightness)
+		switch(deviceType()) {
+			case "Soft White Bulb":
+				log.info "${device.label}: Power: ${onOff} / Brightness: ${status.brightness}%"
+				break
+
+			case "Tunable White Bulb":
+				sendEvent(name: "circadianState", value: status.mode)
+				sendEvent(name: "colorTemperature", value: status.color_temp)
+				setColorTempData(status.color_temp)
+				log.info "${device.label}: Power: ${onOff} / Brightness: ${status.brightness}% / " +
+					     "Circadian State: ${status.mode} / Color Temp: ${status.color_temp}K"
+				break
+
+			default:		//	Color Bulb and worst case if error.
+				def color = [:]
+				def hue = status.hue.toInteger()
+				if (hue_Scale == "lowRez") { 
+					hue = (hue / 3.6).toInteger()
+				}
+				color << ["hue" : hue]
+				color << ["saturation" : status.saturation]
+				sendEvent(name: "circadianState", value: status.mode)
+				sendEvent(name: "colorTemperature", value: status.color_temp)
+				sendEvent(name: "hue", value: hue)
+				sendEvent(name: "saturation", value: status.saturation)
+				sendEvent(name: "color", value: color)
+				log.info "${device.label}: Power: ${onOff} / Brightness: ${status.brightness}% / " +
+						 "Circadian State: ${status.mode} / Color Temp: ${status.color_temp}K / Color: ${color}"
+
+				if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
+				else { setColorTempData(status.color_temp) }
+		}
+	}
+}
+
 def setColorTempData(temp){
 	logTrace("setColorTempData: color temperature = {temp}")
     def value = temp.toInteger()
+	state.lastColorTemp = value
     def genericName
     if (value < 2400) genericName = "Sunrise"
     else if (value < 2800) genericName = "Incandescent"
@@ -238,10 +336,12 @@ def setColorTempData(temp){
     sendEvent(name: "colorName", value: genericName)
 }
 
-def setRgbData(hue){
+def setRgbData(hue, saturation){
 	logTrace("setRgbData: hue = ${hue} // hueScale = ${hue_Scale}")
     def colorName
     hue = hue.toInteger()
+	state.lastHue = hue
+	state.lastSaturation = saturation
 	if (hue_Scale == "lowRez") { hue = (hue * 3.6).toInteger() }
     switch (hue.toInteger()){
         case 0..15: colorName = "Red"
@@ -301,92 +401,6 @@ def createCommsError() {
 	log.error "Comms Error. Device offline or IP has changed. Check and run Preferences."
 }
 
-def commandResponse(response) {
-	unschedule(createCommsError)
-	state.currentError = null
-	def encrResponse = parseLanMessage(response).payload
-
-	try {
-		def cmdResponse = parseJson(inputXOR(encrResponse))
-		logTrace("commandResponse: cmdResponse = ${cmdResponse}")
-		def status = cmdResponse["smartlife.iot.smartbulb.lightingservice"].transition_light_state
-		parseBulbState(status)
-	} catch (error) {
-		runIn(5, refresh)
-		log.error "${device.label} commandResponse fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
-	}
-}
-
-def refreshResponse(response){
-	unschedule(createCommsError)
-	state.currentError = null
-	def encrResponse = parseLanMessage(response).payload
-	
-	try {
-		def cmdResponse = parseJson(inputXOR(encrResponse))
-		logTrace("refreshResponse: refreshResponse = ${cmdResponse}")
-		def status = cmdResponse.system.get_sysinfo.light_state
-		parseBulbState(status)
-	} catch (error) {
-		log.error "${device.label} refreshResponse fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
-	}
-}
-
-def parseBulbState(status) {
-	logTrace("parseBulbState: status = ${status}")
-	def onOff = status.on_off
-	if (onOff == 1) {
-		onOff = "on"
-	} else {
-		onOff = "off"
-		status = status.dft_on_state
-	}
-	sendEvent(name: "switch", value: onOff)
-	if (onOff == "off") {
-		log.info "${device.label}: Power: ${onOff}"
-		return
-	}
-	
-	def level = status.brightness
-	sendEvent(name: "level", value: level)
-	if (deviceType() == "Soft White Bulb") {
-		log.info "${device.label}: Power: ${onOff} / Brightness: ${level}%"
-		return
-	}
-	def circadianState = status.mode
-	def color_temp = status.color_temp
-	sendEvent(name: "circadianState", value: circadianState)
-	sendEvent(name: "colorTemperature", value: color_temp)
-	if (deviceType() == "Tunable White Bulb") {
-		state.lastColorTemp = color_temp
-		setColorTempData(color_temp)
-		log.info "${device.label}: Power: ${onOff} / Brightness: ${level}% / Circadian State: ${circadianState} / Color Temp: ${color_temp}K"
-		return
-	}
-	
-	def hue = status.hue.toInteger()
-	def saturation = status.saturation
-	def color = [:]
-	if (hue_Scale == "lowRez") { 
-		hue = (hue / 3.6).toInteger()
-	}
-	color << ["hue" : hue]
-	color << ["saturation" : status.saturation]
-	sendEvent(name: "hue", value: hue)
-	sendEvent(name: "saturation", value: saturation)
-	sendEvent(name: "color", value: color)
-	
-	if (color_temp.toInteger() == 0) {
-		state.lastHue = hue
-		state.lastSaturation = saturation
-        setRgbData(hue)
-	} else {
-		state.lastColorTemp = color_temp
-        setColorTempData(color_temp)
-	}
-	log.info "${device.label}: Power: ${onOff} / Brightness: ${level}% / Circadian State: ${circadianState} / Color Temp: ${color_temp}K / Color: ${color}"
-}
-
 //	===== XOR Encode and Decode Device Data =====
 private outputXOR(command) {
 	def str = ""
@@ -420,13 +434,9 @@ private inputXOR(encrResponse) {
 }
 
 //	===== Other Methods =====
-def updateInstallData(ip, appVer, plugNo) {
+def updateInstallData(ip, appVer) {
 	updateDataValue("applicationVersion", appVer)
 	updateDataValue("deviceIP", ip)
-	if(device_IP) {
-		device.updateSetting("device_IP",[type:"text", value: "${ip}"])
-	}
-	updateDataValue("driverVersion", driverVer())
 	log.info "${device.label}: Updated Installation Data."
 }
 
