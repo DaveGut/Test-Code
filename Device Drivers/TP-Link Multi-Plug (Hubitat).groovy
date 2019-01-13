@@ -143,14 +143,7 @@ def stopTraceLogging() {
 }
 
 def parsePlugId(response) {
-	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse
-	try {
-		cmdResponse = parseJson(inputXOR(encrResponse))
-		logTrace("parsePlugId: plug_No = ${plug_No} / cmdResponse = ${cmdResponse}")
-	} catch (error) {
-		log.error "${device.label} parsePlugId fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
-	}
+	def cmdResponse = parseInput(response)
 	def deviceData = cmdResponse.system.get_sysinfo
 	def plugId = "${deviceData.deviceId}${plug_No}"
 	updateDataValue("plugId", plugId)
