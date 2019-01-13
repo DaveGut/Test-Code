@@ -24,13 +24,18 @@ Devices; primarily various users on GitHub.com.
 01.01.19	4.0.01.	Initial release of the UDP version not
 			requiring a Kasa Account nor a Node Applet to
 			install and operate the devices.
+01.13.19	4.0.04. Skip versions to sync numbers with drivers.
+			a.	Added error logic for no-hub error.
+			b.	Increase time interval for polling all
+				addresses when doing periodic polling.
+			c.	Moved installation polling to add devices only.
 
 ========== Application Information ==========================*/
 	def appLabel() { return "TP-Link Smart Home Device Manager" }
 	def appVersion() { return "4.0.01" }
 	def driverVersion() { return "4.0" }
-	def debugLog() { return false }
-//	def debugLog() { return true }
+//	def debugLog() { return false }
+	def debugLog() { return true }
 	import groovy.json.JsonSlurper
 //	===========================================================
 
@@ -57,15 +62,13 @@ preferences {
 def mainPage() {
 	logDebug("mainPage")
 	setInitialStates()
-	discoverDevices()
 
-	return dynamicPage (name: "welcomePage",
+	return dynamicPage (name: "mainPage",
 		title: "Main Page",
-		install: false,
 		uninstall: true) {
         errorSection()
         
-		section("Available Device Management Functions", hideable: true, hidden: false) {
+		section("Available Device Management Functions") {
 			href "addDevicesPage", 
                 title: "Install Kasa Devices", 
                 description: "Go to Install Devices"
@@ -79,6 +82,9 @@ def mainPage() {
 
 def addDevicesPage() {
 	app?.removeSetting("selectedDevices")
+	state.addDevices = true
+	discoverDevices()
+	state.addDevices = false
     def devices = state.devices
 	logDebug("addDevicesPage: devices = ${devices}")
 	def errorMsgDev = null
@@ -143,10 +149,7 @@ def listDevicesPage() {
 	}
         
 	return dynamicPage (name: "listDevicesPage", 
-    	title: "List of Kasa Devices and Handlers", 
-        install: false,
-		refresh: false,
-		nextPage: mainPage) {
+    	title: "List of Kasa Devices and Handlers") { 
         errorSection()
 		
 		section("Kasa Devices and Device Handlers", hideable: true) {
@@ -170,7 +173,8 @@ def errorSection() {
 //	==============================
 def setInitialStates() {
 	logDebug("SETINITIALSTATES")
-    if (!state.devices) { state.devices = [:] }
+	if (!state.devices) { state.devices = [:] }
+	if (!state.addDevices) { state.addDevices = false }
 }
 
 def installed() { initialize() }
@@ -190,16 +194,23 @@ def initialize() {
 //	============================
 def discoverDevices() {
 	state.devices = [:]
-	
-	def hub = location.hubs[0]
+	def hub
+	try { hub = location.hubs[0] }
+	catch (error) { 
+		log.error "Hub not detected.  You must have a hub to install this app."
+		return
+	}
+
 	def hubIpArray = hub.localIP.split('\\.')
 	def networkPrefix = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
-	logDebug("discoverDevices: IP Segment = ${networkPrefix}")
-						  
-	for(int i = 1; i < 255; i++) {
+	logDebug("discoverDevices: IP Segment = ${networkPrefix}, addDevices = ${state.addDevices}")
+	
+	def delay = 100
+	if (state.addDevices == true) { delay = 40 }
+	for(int i = 2; i < 255; i++) {
 		def deviceIP = "${networkPrefix}.${i.toString()}"
 		sendCmd(deviceIP)
-		pauseExecution(20)
+		pauseExecution(delay)
 	}
 }
 
@@ -254,7 +265,7 @@ def updateDevices(dni, model, ip, alias, plugNo, plugId) {
 	devices << ["${dni}" : device]
 	
 	def isChild = getChildDevice(dni)
-	if (isChild) { isChild.updateInstallData(ip, appVersion(), plugNo) }
+	if (isChild) { isChild.updateInstallData(ip, appVersion()) }
 }
 
 //	=======================================
@@ -264,36 +275,44 @@ def addDevices() {
 	logDebug("addDevices:  Devices = ${state.devices}")
 	def tpLinkModel = [:]
 	//	Plug-Switch Devices (no energy monitor capability)
-	tpLinkModel << ["HS100" : "TP-Link Plug-Switch"]			//	HS100
-	tpLinkModel << ["HS103" : "TP-Link Plug-Switch"]			//	HS103
-	tpLinkModel << ["HS105" : "TP-Link Plug-Switch"]			//	HS105
-	tpLinkModel << ["HS200" : "TP-Link Plug-Switch"]			//	HS200
-	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]			//	HS210
-	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]			//	KP100
+	tpLinkModel << ["HS100" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS103" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS105" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS200" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
 	//	Miltiple Outlet Plug
-	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]				//	HS107
-	tpLinkModel << ["HS300" : "TP-Link Multi-Plug"]				//	HS300
+	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["HS300" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["KP400" : "TP-Link Multi-Plug"]
 	//	Dimming Switch Devices
-	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]			//	HS220
+	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
 	//	Energy Monitor Plugs
-	tpLinkModel << ["HS110" : "TP-Link Plug-Switch"]			//	HS110
-	tpLinkModel << ["HS115" : "TP-Link Plug-Switch"]			//	HS110
+	tpLinkModel << ["HS110" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS115" : "TP-Link Plug-Switch"]
 	//	Soft White Bulbs
-	tpLinkModel << ["KB100" : "TP-Link Soft White Bulb"]		//	KB100
-	tpLinkModel << ["LB100" : "TP-Link Soft White Bulb"]		//	LB100
-	tpLinkModel << ["LB110" : "TP-Link Soft White Bulb"]		//	LB110
-	tpLinkModel << ["KL110" : "TP-Link Soft White Bulb"]		//	KL110
-	tpLinkModel << ["LB200" : "TP-Link Soft White Bulb"]		//	LB200
+	tpLinkModel << ["KB100" : "TP-Link Soft White Bulb"]
+	tpLinkModel << ["LB100" : "TP-Link Soft White Bulb"]
+	tpLinkModel << ["LB110" : "TP-Link Soft White Bulb"]
+	tpLinkModel << ["KL110" : "TP-Link Soft White Bulb"]
+	tpLinkModel << ["LB200" : "TP-Link Soft White Bulb"]
 	//	Tunable White Bulbs
-	tpLinkModel << ["LB120" : "TP-Link Tunable White Bulb"]		//	LB120
-	tpLinkModel << ["KL120" : "TP-Link Tunable White Bulb"]		//	KL120
+	tpLinkModel << ["LB120" : "TP-Link Tunable White Bulb"]
+	tpLinkModel << ["KL120" : "TP-Link Tunable White Bulb"]
 	//	Color Bulbs
-	tpLinkModel << ["KB130" : "TP-Link Color Bulb"]				//	KB130
-	tpLinkModel << ["LB130" : "TP-Link Color Bulb"]				//	LB130
-	tpLinkModel << ["KL130" : "TP-Link Color Bulb"]				//	KL130
-	tpLinkModel << ["LB230" : "TP-Link Color Bulb"]				//	LB230
+	tpLinkModel << ["KB130" : "TP-Link Color Bulb"]
+	tpLinkModel << ["LB130" : "TP-Link Color Bulb"]
+	tpLinkModel << ["KL130" : "TP-Link Color Bulb"]
+	tpLinkModel << ["LB230" : "TP-Link Color Bulb"]
 
-	def hub = location.hubs[0]
+	def hub
+	try { hub = location.hubs[0] }
+	catch (error) { 
+		log.error "Hub not detected.  You must have a hub to install this app."
+		return
+	}
+
 	def hubId = hub.id
 	selectedDevices.each { dni ->
 		def isChild = getChildDevice(dni)
@@ -305,7 +324,6 @@ def addDevices() {
 			if (device.value.plugNo) {
 				deviceData = [
 					"deviceIP" : device.value.IP,
-					"plugNo" : device.value.plugNo,
 					"plugId" : device.value.plugId
 				]
 			} else {
