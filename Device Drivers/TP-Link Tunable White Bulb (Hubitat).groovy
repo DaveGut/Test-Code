@@ -273,13 +273,15 @@ def parseBulbState(status) {
 	def onOff
 	if (status.on_off == 0) {
 		onOff = "off"
-		sendEvent(name: "switch", value: onOff)
+		sendEvent(name: "switch", value: "onOff")
 		log.info "${device.label}: Power: ${onOff}"
 		if (deviceType() == "Tunable White Bulb" || deviceType() == "Color Bulb") {
 			sendEvent(name: "circadianState", value: "normal")
 		}
 
 	} else {
+		onOff = "on"
+		sendEvent(name: "switch", value: onOff)
 		sendEvent(name: "level", value: status.brightness)
 		switch(deviceType()) {
 			case "Soft White Bulb":
