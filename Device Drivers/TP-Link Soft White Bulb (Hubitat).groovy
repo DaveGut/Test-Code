@@ -270,29 +270,26 @@ def refreshResponse(response){
 
 def parseBulbState(status) {
 	logTrace("parseBulbState: status = ${status}")
-	def onOff
 	if (status.on_off == 0) {
-		onOff = "off"
-		sendEvent(name: "switch", value: "onOff")
-		log.info "${device.label}: Power: ${onOff}"
+		sendEvent(name: "switch", value: "off")
+		log.info "${device.label}: Power: off"
 		if (deviceType() == "Tunable White Bulb" || deviceType() == "Color Bulb") {
 			sendEvent(name: "circadianState", value: "normal")
 		}
 
 	} else {
-		onOff = "on"
-		sendEvent(name: "switch", value: onOff)
+		sendEvent(name: "switch", value: "on")
 		sendEvent(name: "level", value: status.brightness)
 		switch(deviceType()) {
 			case "Soft White Bulb":
-				log.info "${device.label}: Power: ${onOff} / Brightness: ${status.brightness}%"
+				log.info "${device.label}: Power: on / Brightness: ${status.brightness}%"
 				break
 
 			case "Tunable White Bulb":
 				sendEvent(name: "circadianState", value: status.mode)
 				sendEvent(name: "colorTemperature", value: status.color_temp)
 				setColorTempData(status.color_temp)
-				log.info "${device.label}: Power: ${onOff} / Brightness: ${status.brightness}% / " +
+				log.info "${device.label}: Power: on / Brightness: ${status.brightness}% / " +
 					     "Circadian State: ${status.mode} / Color Temp: ${status.color_temp}K"
 				break
 
@@ -309,7 +306,7 @@ def parseBulbState(status) {
 				sendEvent(name: "hue", value: hue)
 				sendEvent(name: "saturation", value: status.saturation)
 				sendEvent(name: "color", value: color)
-				log.info "${device.label}: Power: ${onOff} / Brightness: ${status.brightness}% / " +
+				log.info "${device.label}: Power: on / Brightness: ${status.brightness}% / " +
 						 "Circadian State: ${status.mode} / Color Temp: ${status.color_temp}K / Color: ${color}"
 
 				if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
