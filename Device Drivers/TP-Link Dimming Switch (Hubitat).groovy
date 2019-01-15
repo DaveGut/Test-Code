@@ -139,7 +139,7 @@ def updated() {
 
 def stopTraceLogging() {
 	logTrace("stopTraceLogging")
-	device.updateSetting("traceLog", [type:"bool", value: true])
+	device.updateSetting("traceLog", [type:"bool", value: false])
 }
 
 def parsePlugId(response) {
