@@ -231,6 +231,7 @@ def commandResponse(response) {
 
 def refreshResponse(response){
 	def cmdResponse = parseInput(response)
+	getPower()
 	def onOff
 	if (deviceType() != "Multi-Plug") {
 		def onOffState = cmdResponse.system.get_sysinfo.relay_state
