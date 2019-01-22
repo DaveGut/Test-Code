@@ -1,38 +1,26 @@
 /*
-TP-Link/Kasa Hubitat Environment Manager, 2019 Version 4.0
+TP-Link Smart Home Device Manager, 2019 Version 4.0
 
-	Copyright 2019 Dave Gutheinz
-
-Licensed under the Apache License, Version 2.0 (the "License"); you
-may not use this file except in compliance with the License. You may
-obtain a copy of the License at:
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-implied. See the License for the specific language governing
-permissions and limitations under the License.
+	Copyright 2018, 2019 Dave Gutheinz
 
 Discalimer: This Service Manager and the associated Device
 Handlers are in no way sanctioned or supported by TP-Link. All
 development is based upon open-source data on the TP-Link Kasa
 Devices; primarily various users on GitHub.com.
 
-===============================================================
-01.01.19	4.0.01.	Initial release of the UDP version not
-			requiring a Kasa Account nor a Node Applet to
-			install and operate the devices.
+====== History ================================================
+01.01.19	4.0.01.	Initial release of the UDP version not requiring a Kasa Account nor a Node Applet to install and operate the devices.
 01.13.19	4.0.04. Skip versions to sync numbers with drivers.
 			a.	Added error logic for no-hub error.
-			b.	Increase time interval for polling all
-				addresses when doing periodic polling.
+			b.	Increase time interval for polling all addresses when doing periodic polling.
 			c.	Moved installation polling to add devices only.
+01.22.19	4.0.05.	Various
+			a.	Removed periodic device discovery.
+			b.	Added checkIp method (called from children to update IP).
+			c.	Changed method to update data from app to devices.
 
 ========== Application Information ==========================*/
-	def appLabel() { return "TP-Link Smart Home Device Manager" }
-	def appVersion() { return "4.0.01" }
+	def appVersion() { return "4.0.05" }
 	def driverVersion() { return "4.0" }
 //	def debugLog() { return false }
 	def debugLog() { return true }
@@ -40,7 +28,7 @@ Devices; primarily various users on GitHub.com.
 //	===========================================================
 
 definition(
-	name: appLabel(),
+	name: "TP-Link Smart Home Device Manager",
 	namespace: "davegut",
 	author: "Dave Gutheinz",
 	description: "Application to install TP-Link bulbs, plugs, and switches.  Does not require a Kasa Account nor a Node Applet",
@@ -175,6 +163,7 @@ def setInitialStates() {
 	logDebug("SETINITIALSTATES")
 	if (!state.devices) { state.devices = [:] }
 	if (!state.addDevices) { state.addDevices = false }
+	state.allowDiscovery = true
 }
 
 def installed() { initialize() }
@@ -186,7 +175,6 @@ def initialize() {
 	unsubscribe()
 	unschedule()
 	if (selectedDevices) { addDevices() }
-	runEvery30Minutes(discoverDevices)
 }
 
 //	============================
@@ -250,7 +238,7 @@ def parseDevices(response) {
 }
 
 def updateDevices(dni, model, ip, alias, plugNo, plugId) {
-	logDebug("UPDATEDEVICES:\nDNI: $dni\rmodel: $model\nip: $ip\nalias: $alias\nplugNo: $plugNo\nplugId: $plugId")
+	logDebug("updateDevices: DNI = ${dni}, model = ${model}, ip = ${ip}, alias = ${alias}, plugNo = ${plugNo}, plugId = ${plugId}")
 	def devices = state.devices
 	
 	def device = [:]
@@ -265,7 +253,10 @@ def updateDevices(dni, model, ip, alias, plugNo, plugId) {
 	devices << ["${dni}" : device]
 	
 	def isChild = getChildDevice(dni)
-	if (isChild) { isChild.updateInstallData(ip, appVersion()) }
+	if (isChild) { 
+		isChild.updateDataValue("applicationVersion", appVersion())
+		isChild.updateDataValue("deviceIP", ip)
+	}
 }
 
 //	=======================================
@@ -346,6 +337,17 @@ def addDevices() {
 			log.info "Installed TP-Link $deviceModel with alias ${device.value.alias}"
 		}
 	}
+}
+
+def checkIp() {
+	if (state.allowDiscovery == false) { return }
+	state.allowDiscovery = false
+	runIn(600, resetAllowDiscovery)
+	discoverDevices()
+}
+
+def resetAllowDiscovery() {
+	state.allowDiscovery = true
 }
 
 //	===== XOR Encode and Decode Device Data =====
