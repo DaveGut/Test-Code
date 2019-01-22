@@ -314,11 +314,14 @@ def addDevices() {
 			def deviceData
 			if (device.value.plugNo) {
 				deviceData = [
+					"appVersion" : appVersion(),
 					"deviceIP" : device.value.IP,
+					"plugNo" : device.value.plugNo,
 					"plugId" : device.value.plugId
 				]
 			} else {
 				deviceData = [
+					"appVersion" : appVersion(),
 					"deviceIP" : device.value.IP
 				]
 			}
