@@ -1,42 +1,25 @@
 /*
-TP-Link Plug and Switch Device Handler, Version 4.0
+TP-Link Plug and Switch Device Driver, Version 4.0
 
-	Copyright 2019 Dave Gutheinz
+	Copyright 2018, 2019 Dave Gutheinz
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this  file except in compliance with the
-License. You may obtain a copy of the License at:
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, 
-software distributed under the License is distributed on an 
-"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, 
-either express or implied. See the License for the specific 
-language governing permissions and limitations under the 
-License.
-
-Discalimer:  This Applicaion and the associated Device 
-Drivers are in no way sanctioned or supported by TP-Link.  
-All  development is based upon open-source data on the 
-TP-Link devices; primarily various users on GitHub.com.
+Discalimer:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
+All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
 ===== History ================================================
-01.01.19	Version 4.0 device driver created.  Does not
-			require Node Applet nor Kasa Account to control
-			devices.
+01.01.19	Version 4.0 device driver created.  Does not require Node Applet nor Kasa Account to control devices.
 01.05.19	Skipped version 4.0.02 to sync version with bulbs.
-01.05.19	4.0.03. Added 30 minute refresh option.  Added
-			Preference for logTrace (default is false).  Added
-			error handling sequence in device return.
+01.05.19	4.0.03. Added 30 minute refresh option.  Added Preference for logTrace (default is false).  Added error handling sequence in device return.
 01.13.19	4.0.04. Various enhancements:
 			a.	Hide IP preference for non-manual installs.
-			b.	Add 10 minute timeout for trace logging. Will
-				also run for 10 minutes on set preferences an
-				installation.
+			b.	Add 10 minute timeout for trace logging. Will also run for 10 minutes on set preferences an installation.
+01.22.19	4.0.05.  Various changes:
+			a.  Created attribute "commsError" that highlights the current comms error.
+			b.	Corrected error in trace logging logic.
+			c.	Added call to parent for IP in the case of a comms error.
 
 //	===== Device Type Identifier ===========================*/
-	def driverVer() { return "4.0.04" }
+	def driverVer() { return "4.0.05" }
 //	def deviceType() { return "Plug-Switch" }
 //	def deviceType() { return "Dimming Switch" }	
 	def deviceType() { return "Multi-Plug" }
@@ -49,6 +32,7 @@ metadata {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
+		attribute "commsError", "string"
 		if (deviceType() == "Dimming Switch") {
 			capability "Switch Level"
 		}
@@ -77,13 +61,13 @@ metadata {
 //	===== Update when installed or setting changed =====
 def installed() {
 	log.info "Installing ${device.label}..."
-	state.currentError = null
+	sendEvent(name: "commsError", value: "none")
 	state.updated = false
 	state.multiPLugInstalled == false
 	
 	device.updateSetting("refresh_Rate",[type:"enum", value:"30"])
 	device.updateSetting("traceLog", [type:"bool", value: true])
-	runIn(600, stopTraceLogging)
+	runIn(1800, stopTraceLogging)
 
 	runIn(2, updated)
 }
@@ -92,10 +76,12 @@ def updated() {
 	log.info "Updating ${device.label}..."
 	unschedule()
 	
-	if (traceLog) {
+	if (traceLog == true) {
 		device.updateSetting("traceLog", [type:"bool", value: true])
-		runIn(600, stopTraceLogging)
-	}
+		runIn(1800, stopTraceLogging)
+	} else { stopTraceLogging() }
+	state.commsErrorCount = 0
+	sendEvent(name: "commsError", value: "none")
 	
 	updateDataValue("driverVersion", driverVer())
 	if(device_IP) {
@@ -109,6 +95,7 @@ def updated() {
 	}
 	
 	//	Capture legacy deviceIP on initial run of preferences.
+	if (state.currentError) { state.currentError = null }
 	if (!state.updated) { state.updated = false }
 	if (state.updated == false) {
 		state.updated = true
@@ -128,7 +115,7 @@ def updated() {
 			runEvery10Minutes(refresh)
 			break
 		case "15" :
-			runEvery30Minutes(refresh)
+			runEvery15Minutes(refresh)
 			break
 		default:
 			runEvery30Minutes(refresh)
@@ -138,11 +125,12 @@ def updated() {
 }
 
 def stopTraceLogging() {
-	logTrace("stopTraceLogging")
+	log.trace "stopTraceLogging: Trace Logging is off."
 	device.updateSetting("traceLog", [type:"bool", value: false])
 }
 
 def parsePlugId(response) {
+	logTrace("parsePlugId: response = ${response}")
 	def cmdResponse = parseInput(response)
 	def deviceData = cmdResponse.system.get_sysinfo
 	def plugId = "${deviceData.deviceId}${plug_No}"
@@ -191,7 +179,8 @@ def refresh(){
 
 def parseInput(response) {
 	unschedule(createCommsError)
-	state.currentError = null
+	sendEvent(name: "commsError", value: "none")
+	state.commsErrorCount = 0
 	def encrResponse = parseLanMessage(response).payload
 	try {
 		def cmdResponse = parseJson(inputXOR(encrResponse))
@@ -199,18 +188,20 @@ def parseInput(response) {
 		return cmdResponse
 	} catch (error) {
 		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
-		state.currentError = "parseInput failed."
+		sendEvent(name: "commsError", value: "parseInput failed.")
 	}
 }
 
 def commandResponse(response) {
 	logTrace("commandResponse: response = ${response}")
 	unschedule(createCommsError)
-	state.currentError = null
+	sendEvent(name: "commsError", value: "none")
+	state.commsErrorCount = 0
 	refresh()
 }
 
 def refreshResponse(response){
+	logTrace("refreshResponse: response = ${response}")
 	def cmdResponse = parseInput(response)
 	def onOff
 	if (deviceType() != "Multi-Plug") {
@@ -248,7 +239,7 @@ def refreshResponse(response){
 private sendCmd(command, action) {
 	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
 	if (!getDataValue("deviceIP")) {
-		state.currentError = "No device IP. Update Preferences."
+		sendEvent(name: "commsError", value: "No device IP. Update Preferences.")
 		log.error "No device IP. Update Preferences."
 		return
 	}
@@ -264,8 +255,13 @@ private sendCmd(command, action) {
 }
 
 def createCommsError() {
-	state.currentError = "Comms Error. Device offline or IP has changed. Check and run Preferences."
-	log.error "Comms Error. Device offline or IP has changed. Check and run Preferences."
+	logTrace("createCommsError, commsError = ${device.currentValue("commsError")}")
+	parent.checkIp()
+	state.commsErrorCount += 1
+	if (device.currentValue("commsError") == "none") {
+		sendEvent(name: "commsError", value: "Comms Error. Device offline. Check your device!")
+		log.error "${device.label}: Comms Error. Device offline. Check your device!"
+	}
 }
 
 //	===== XOR Encode and Decode Device Data =====
@@ -298,13 +294,6 @@ private inputXOR(encrResponse) {
 	cmdResponse = "{" + cmdResponse.drop(1)
 	logTrace("inputXOR: cmdResponse = ${cmdResponse}")
 	return cmdResponse
-}
-
-//	===== Other Methods =====
-def updateInstallData(ip, appVer) {
-	updateDataValue("applicationVersion", appVer)
-	updateDataValue("deviceIP", ip)
-	log.info "${device.label}: Updated Installation Data."
 }
 
 def logTrace(msg){
