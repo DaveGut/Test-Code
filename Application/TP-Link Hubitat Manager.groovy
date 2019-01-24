@@ -280,8 +280,8 @@ def addDevices() {
 	//	Dimming Switch Devices
 	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
 	//	Energy Monitor Plugs
-	tpLinkModel << ["HS110" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["HS115" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS110" : "TP-Link Engr Mon Plug"]
+	tpLinkModel << ["HS115" : "TP-Link Engr Mon Plug"]
 	//	Soft White Bulbs
 	tpLinkModel << ["KB100" : "TP-Link Soft White Bulb"]
 	tpLinkModel << ["LB100" : "TP-Link Soft White Bulb"]
