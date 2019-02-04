@@ -1,41 +1,32 @@
 /*
-TP-Link Plug and Switch Device Driver, Version 4.0
+TP-Link Device Driver, Version 4.1
 
 	Copyright 2018, 2019 Dave Gutheinz
 
 Discalimer:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
-===== History ================================================
-01.01.19	Version 4.0 device driver created.  Does not require Node Applet nor Kasa Account to control devices.
-01.05.19	Skipped version 4.0.02 to sync version with bulbs.
-01.05.19	4.0.03. Added 30 minute refresh option.  Added Preference for logTrace (default is false).  Added error handling sequence in device return.
-01.13.19	4.0.04. Various enhancements:
-			a.	Hide IP preference for non-manual installs.
-			b.	Add 10 minute timeout for trace logging. Will also run for 10 minutes on set preferences an installation.
-01.22.19	4.0.05.  Various changes:
-			a.  Created attribute "commsError" that highlights the current comms error.
-			b.	Corrected error in trace logging logic.
-			c.	Added call to parent for IP in the case of a comms error.
+===== History =====
+2.01.19	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions.
 
-//	===== Device Type Identifier ===========================*/
-	def driverVer() { return "4.0.05" }
-	def deviceType() { return "Plug-Switch" }
-//	def deviceType() { return "Dimming Switch" }	
-//	def deviceType() { return "Multi-Plug" }
-//	==========================================================
-
+*/
+def driverVer() { return "4.1.01" }
 metadata {
-	definition (name: "TP-Link ${deviceType()}",
+	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
                 author: "Dave Gutheinz") {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
+		capability "Power Meter"
+		capability "Energy Meter"
+		attribute "energyThisMonth", "enum"
+		attribute "energyThisYear", "enum"
+		attribute "energyLastYear", "enum"
+		command: "sendThisMonth"
+		command: "sendThisYear"
+		command: "sendLastYear"
 		attribute "commsError", "string"
-		if (deviceType() == "Dimming Switch") {
-			capability "Switch Level"
-		}
 	}
 
     preferences {
@@ -48,62 +39,44 @@ metadata {
 		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate)
 
 		if (!getDataValue("applicationVersion")) {
-			if (deviceType() == "Multi-Plug") {
-				input ("plug_No", "text", title: "Number of the plug (00, 01, 02, etc.)")
-			}
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 		}
-		
+    	input name: "infoLog", type: "bool", title: "Display information messages?", required: false
     	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
 	}
 }
 
-//	===== Update when installed or setting changed =====
 def installed() {
 	log.info "Installing ${device.label}..."
+	if(!state.todayStartEnergy) { state.todayStartEnergy = 0 }
+	state.installed = false
 	sendEvent(name: "commsError", value: "none")
-	state.updated = false
-	state.multiPLugInstalled == false
-	
 	device.updateSetting("refresh_Rate",[type:"enum", value:"30"])
+	device.updateSetting("infoLog", [type:"bool", value: true])
 	device.updateSetting("traceLog", [type:"bool", value: true])
-	runIn(1800, stopTraceLogging)
-
+	runIn(900, stopTraceLogging)
 	runIn(2, updated)
 }
 
 def updated() {
 	log.info "Updating ${device.label}..."
 	unschedule()
-	
 	if (traceLog == true) {
 		device.updateSetting("traceLog", [type:"bool", value: true])
-		runIn(1800, stopTraceLogging)
+		runIn(900, stopTraceLogging)
 	} else { stopTraceLogging() }
+	if (!infoLog || infoLog == true) {
+		device.updateSetting("infoLog", [type:"bool", value: true])
+	} else {
+		device.updateSetting("infoLog", [type:"bool", value: false])
+	}
 	state.commsErrorCount = 0
 	sendEvent(name: "commsError", value: "none")
-	
 	updateDataValue("driverVersion", driverVer())
 	if(device_IP) {
 		updateDataValue("deviceIP", device_IP)
 	}
-
-	//	Get data on the plug number if Multi-plug.  Only done once.
-	if (!state.multiPlugInstalled) { state.multiPlugInstalled = false }
-	if (plug_No && deviceType() == "Multi-Plug" && state.multiPLugInstalled == false) {
-		sendCmd('{"system" :{"get_sysinfo" :{}}}', "parsePlugId")
-	}
-	
-	//	Capture legacy deviceIP on initial run of preferences.
 	if (state.currentError) { state.currentError = null }
-	if (!state.updated) { state.updated = false }
-	if (state.updated == false) {
-		state.updated = true
-		if(deviceIP) {
-			updateDataValue("deviceIP", deviceIP)
-		}
-	}
-
 	switch(refresh_Rate) {
 		case "1" :
 			runEvery1Minute(refresh)
@@ -120,8 +93,16 @@ def updated() {
 		default:
 			runEvery30Minutes(refresh)
 	}
-
-	if (getDataValue("deviceIP")) { refresh() }
+	if (getDataValue("deviceIP")) { 
+		setCurrentDate()
+		schedule("0 05 0 * * ?", setCurrentDate)
+		schedule("0 10 0 * * ?", getEnergyStats)
+		runIn(2, refresh)
+		if (!state.installed || state.installed == false) {
+			runIn(5, getEnergyStats)
+			state.installed = true
+		}
+	}
 }
 
 def stopTraceLogging() {
@@ -129,52 +110,136 @@ def stopTraceLogging() {
 	device.updateSetting("traceLog", [type:"bool", value: false])
 }
 
-def parsePlugId(response) {
-	logTrace("parsePlugId: response = ${response}")
-	def cmdResponse = parseInput(response)
-	def deviceData = cmdResponse.system.get_sysinfo
-	def plugId = "${deviceData.deviceId}${plug_No}"
-	updateDataValue("plugId", plugId)
-	state.multiPlugInstalled = true
-	log.info "${device.label}: Plug ID set to ${plugId}"
-}
-
-//	===== Basic Plug Control/Status =====
 def on() {
 	logTrace("on")
-	if (deviceType() != "Multi-Plug") {
-		sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""", "commandResponse")
-	} else {
-		def plugId = getDataValue("plugId")
-		sendCmd("""{"context":{"child_ids":["${plugId}"]},"system":{"set_relay_state":{"state": 1}}}""",
-					"commandResponse")
-	}
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""", "commandResponse")
 }
 
 def off() {
 	logTrace("off")
-	if (deviceType() != "Multi-Plug") {
-		sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""", "commandResponse")
-	} else {
-		def plugId = getDataValue("plugId")
-		sendCmd("""{"context":{"child_ids":["${plugId}"]},"system":{"set_relay_state":{"state": 0}}}""",
-					"commandResponse")
-	}
-}
-
-def setLevel(percentage) {
-	logTrace("setLevel: level = ${percentage}")
-	sendCmd('{"system":{"set_relay_state":{"state": 1}}}', "commandResponse")
-	if (percentage < 0 || percentage > 100) {
-		log.error "$device.name $device.label: Entered brightness is not from 0...100"
-		percentage = 50
-	}
-	percentage = percentage as int
-	sendCmd("""{"smartlife.iot.dimmer" :{"set_brightness" :{"brightness" :${percentage}}}}""", "commandResponse")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""", "commandResponse")
 }
 
 def refresh(){
 	sendCmd('{"system" :{"get_sysinfo" :{}}}', "refreshResponse")
+}
+
+def getPower(){
+	logTrace("getPower")
+	sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+}
+
+def powerResponse(response) {
+	def cmdResponse = parseInput(response)
+	logTrace("powerResponse: cmdResponse = ${cmdResponse}")
+	def realtime = cmdResponse["emeter"]["get_realtime"]
+	if (realtime.power == null) {
+		state.powerScale = "power_mw"
+		state.energyScale = "energy_wh"
+	} else {
+		state.powerScale = "power"
+		state.energyScale = "energy"
+	}
+	def power = realtime."${state.powerScale}"
+	if (state.powerScale == "power_mw") { power = power / 1000 }
+	sendEvent(name: "power", value: power)
+	logInfo "${device.label}: Power is ${power} Watts."
+	getEnergyThisMonth()
+}
+
+def getEnergyThisMonth(){
+	logTrace("getEnergyThisMonth: month = ${state.monthToday} / year = ${state.yearToday}")
+	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""", "energyThisMonthResponse")
+}
+
+def energyThisMonthResponse(response) {
+	def cmdResponse = parseInput(response)
+	logTrace("energyThisMonthResponse: cmdResponse = ${cmdResponse}")
+	def energy
+	def monthList = cmdResponse["smartlife.iot.common.emeter"]["get_monthstat"].month_list
+	def thisMonth = monthList.find { it.month == state.monthToday }
+	if (state.energyScale == "energy_wh") {
+		state.energyThisMonth = (thisMonth.energy_wh)/1000
+		energy = state.energyThisMonth - state.todayStartEnergy
+	} else {
+		state.energyThisMonth = thisMonth.energy
+		energy = state.energyThisMonth - state.todayStartEnergy
+	}
+	sendEvent(name: "energy", value: energy)
+	logInfo("${device.label}: Energy Today is ${energy} kWh")
+}
+
+def getEnergyStats() {
+	def year = state.yearToday
+	logTrace("getEnergyStats: year = ${year}")
+	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""", "energyStatResponse")
+}
+
+def getPrevYear() {
+	def year = state.yearToday - 1
+	logTrace("getPrevYear: year = ${year}")
+	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""", "energyStatResponse")
+}
+
+def energyStatResponse(response) {
+	def cmdResponse = parseInput(response)
+	logTrace("energyStatResponse: cmdResponse = ${cmdResponse}")
+	def monthList = cmdResponse["smartlife.iot.common.emeter"]["get_monthstat"].month_list
+	def year = monthList[0].year
+	if (year == state.yearToday) {
+		state.energyThisYear = monthList
+		getPrevYear()
+		def thisMonth = monthList.find { it.month == state.monthToday }
+		if (state.energyScale == "energy_wh") {
+			state.todayStartEnergy = (thisMonth.energy_wh)/1000
+		} else {
+			state.todayStartEnergy = thisMonth.energy
+		}
+	} else {
+		state.energyLastYear = monthList
+	}
+}
+
+def setCurrentDate() {
+	sendCmd('{"time":{"get_time":null}}', "currentDateResponse")
+}
+
+def currentDateResponse(response) {
+	def cmdResponse = parseInput(response)
+	logTrace("currentDateResponse: cmdResponse = ${cmdResponse}")
+	def currDate =  cmdResponse["time"]["get_time"]
+	state.dayToday = currDate.mday.toInteger()
+	state.monthToday = currDate.month.toInteger()
+	state.yearToday = currDate.year.toInteger()
+}
+
+//	===== Send the Command =====
+private sendCmd(command, action) {
+	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
+	if (!getDataValue("deviceIP")) {
+		sendEvent(name: "commsError", value: "No device IP. Update Preferences.")
+		log.error "No device IP. Update Preferences."
+		return
+	}
+	runIn(5, createCommsError)	//	Starts 3 second timer for error.
+	
+	def myHubAction = new hubitat.device.HubAction(
+		outputXOR(command), 
+		hubitat.device.Protocol.LAN,
+		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
+		 destinationAddress: "${getDataValue("deviceIP")}:9999",
+		encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
+		callback: action])
+	sendHubCommand(myHubAction)
+}
+
+def createCommsError() {
+	parent.checkIp()
+	state.commsErrorCount += 1
+	if (device.currentValue("commsError") == null) {
+		sendEvent(name: "commsError", value: "Comms Error. Device offline. Check your device!")
+		log.error "${device.label}: Comms Error. Device offline. Check your device!"
+	}
 }
 
 def parseInput(response) {
@@ -195,76 +260,24 @@ def parseInput(response) {
 def commandResponse(response) {
 	logTrace("commandResponse: response = ${response}")
 	unschedule(createCommsError)
-	sendEvent(name: "commsError", value: "none")
-	state.commsErrorCount = 0
+	state.currentError = null
 	refresh()
 }
 
 def refreshResponse(response){
 	logTrace("refreshResponse: response = ${response}")
 	def cmdResponse = parseInput(response)
-	def onOff
-	if (deviceType() != "Multi-Plug") {
-		def onOffState = cmdResponse.system.get_sysinfo.relay_state
-		if (onOffState == 1) {
-			onOff = "on"
-		} else {
-			onOff = "off"
-		}
+	getPower()
+	def onOffState = cmdResponse.system.get_sysinfo.relay_state
+	if (onOffState == 1) {
+		sendEvent(name: "switch", value: "on")
+		logInfo "${device.label}: Power: on"
 	} else {
-		def children = cmdResponse.system.get_sysinfo.children
-		def plugId = getDataValue("plugNo")
-		children.each {
-			if (it.id == plugId) {
-				if (it.state == 1) {
-					onOff = "on"
-				} else {
-					onOff = "off"
-				}
-			}
-		}
-	}
-	
-	sendEvent(name: "switch", value: onOff)
-	if (deviceType() == "Dimming Switch") {
-		def level = cmdResponse.system.get_sysinfo.brightness
-	 	sendEvent(name: "level", value: level)
-		log.info "${device.label}: Power: ${onOff} / Dimmer Level: ${level}%"
-	} else {
-		log.info "${device.label}: Power: ${onOff}"
+		sendEvent(name: "switch", value: "off")
+		logInfo "${device.label}: Power: off"
 	}
 }
 
-//	===== Send the Command =====
-private sendCmd(command, action) {
-	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
-	if (!getDataValue("deviceIP")) {
-		sendEvent(name: "commsError", value: "No device IP. Update Preferences.")
-		log.error "No device IP. Update Preferences."
-		return
-	}
-	runIn(3, createCommsError)	//	Starts 3 second timer for error.
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command), 
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		callback: action])
-	sendHubCommand(myHubAction)
-}
-
-def createCommsError() {
-	logTrace("createCommsError, commsError = ${device.currentValue("commsError")}")
-	parent.checkIp()
-	state.commsErrorCount += 1
-	if (device.currentValue("commsError") == "none") {
-		sendEvent(name: "commsError", value: "Comms Error. Device offline. Check your device!")
-		log.error "${device.label}: Comms Error. Device offline. Check your device!"
-	}
-}
-
-//	===== XOR Encode and Decode Device Data =====
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -280,7 +293,7 @@ private outputXOR(command) {
 private inputXOR(encrResponse) {
 	String[] strBytes = encrResponse.split("(?<=\\G.{2})")
 	def cmdResponse = ""
-	def key = 0x2B
+	def key = 0xAB
 	def nextKey
 	byte[] XORtemp
 	
@@ -290,10 +303,19 @@ private inputXOR(encrResponse) {
 		key = nextKey
 		cmdResponse += new String(XORtemp)
 	}
-	//	For some reason, first character not decoding properly.
-	cmdResponse = "{" + cmdResponse.drop(1)
 	logTrace("inputXOR: cmdResponse = ${cmdResponse}")
 	return cmdResponse
+}
+
+//	===== Other Methods =====
+def sendThisMonth() { return state.energyThisMonth }
+
+def sendThisYear() { return state.energyThisYear }
+
+def sendLastYear() { return state.energyLastYear }
+
+def logInfo(msg) {
+	if (infoLog == true) { log.info msg }
 }
 
 def logTrace(msg){
