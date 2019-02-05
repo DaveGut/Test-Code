@@ -7,7 +7,9 @@ Discalimer:  This Applicaion and the associated Device Drivers are in no way san
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
 ===== History =====
-2.01.19	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions.
+2.04.19	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions. Added
+				code to delete the device as a child from the application when deleted via the devices page.  Note:
+				The device is also deleted whenever the application is deleted.
 
 */
 def driverVer() { return "4.1.01" }
@@ -20,9 +22,6 @@ metadata {
 		capability "Refresh"
 		capability "Power Meter"
 		capability "Energy Meter"
-		attribute "energyThisMonth", "enum"
-		attribute "energyThisYear", "enum"
-		attribute "energyLastYear", "enum"
 		command: "sendThisMonth"
 		command: "sendThisYear"
 		command: "sendLastYear"
@@ -105,6 +104,16 @@ def updated() {
 	}
 }
 
+void uninstalled() {
+	try {
+		def alias = device.label
+		log.info "Removing device ${alias} with DNI = ${device.deviceNetworkId}"
+		parent.removeChildDevice(alias, device.deviceNetworkId)
+	} catch (ex) {
+		log.info "${device.name} ${device.label}: Either the device was manually installed or there was an error."
+	}
+}
+
 def stopTraceLogging() {
 	log.trace "stopTraceLogging: Trace Logging is off."
 	device.updateSetting("traceLog", [type:"bool", value: false])
@@ -122,6 +131,42 @@ def off() {
 
 def refresh(){
 	sendCmd('{"system" :{"get_sysinfo" :{}}}', "refreshResponse")
+}
+
+def parseInput(response) {
+	unschedule(createCommsError)
+	sendEvent(name: "commsError", value: "none")
+	state.commsErrorCount = 0
+	def encrResponse = parseLanMessage(response).payload
+	try {
+		def cmdResponse = parseJson(inputXOR(encrResponse))
+		logTrace("parseInput: response = ${cmdResponse}")
+		return cmdResponse
+	} catch (error) {
+		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+		sendEvent(name: "commsError", value: "parseInput failed.  See logs.")
+	}
+}
+
+def commandResponse(response) {
+	logTrace("commandResponse: response = ${response}")
+	unschedule(createCommsError)
+	state.currentError = null
+	refresh()
+}
+
+def refreshResponse(response){
+	logTrace("refreshResponse: response = ${response}")
+	def cmdResponse = parseInput(response)
+	getPower()
+	def onOffState = cmdResponse.system.get_sysinfo.relay_state
+	if (onOffState == 1) {
+		sendEvent(name: "switch", value: "on")
+		logInfo "${device.label}: Power: on"
+	} else {
+		sendEvent(name: "switch", value: "off")
+		logInfo "${device.label}: Power: off"
+	}
 }
 
 def getPower(){
@@ -213,6 +258,12 @@ def currentDateResponse(response) {
 	state.yearToday = currDate.year.toInteger()
 }
 
+def sendThisMonth() { return state.energyThisMonth }
+
+def sendThisYear() { return state.energyThisYear }
+
+def sendLastYear() { return state.energyLastYear }
+
 //	===== Send the Command =====
 private sendCmd(command, action) {
 	logTrace("sendCmd: command = ${command} // action = ${action} // device IP = ${getDataValue("deviceIP")}")
@@ -234,48 +285,8 @@ private sendCmd(command, action) {
 }
 
 def createCommsError() {
-	parent.checkIp()
-	state.commsErrorCount += 1
-	if (device.currentValue("commsError") == null) {
-		sendEvent(name: "commsError", value: "Comms Error. Device offline. Check your device!")
-		log.error "${device.label}: Comms Error. Device offline. Check your device!"
-	}
-}
-
-def parseInput(response) {
-	unschedule(createCommsError)
-	sendEvent(name: "commsError", value: "none")
-	state.commsErrorCount = 0
-	def encrResponse = parseLanMessage(response).payload
-	try {
-		def cmdResponse = parseJson(inputXOR(encrResponse))
-		logTrace("parseInput: response = ${cmdResponse}")
-		return cmdResponse
-	} catch (error) {
-		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
-		sendEvent(name: "commsError", value: "parseInput failed.")
-	}
-}
-
-def commandResponse(response) {
-	logTrace("commandResponse: response = ${response}")
-	unschedule(createCommsError)
-	state.currentError = null
-	refresh()
-}
-
-def refreshResponse(response){
-	logTrace("refreshResponse: response = ${response}")
-	def cmdResponse = parseInput(response)
-	getPower()
-	def onOffState = cmdResponse.system.get_sysinfo.relay_state
-	if (onOffState == 1) {
-		sendEvent(name: "switch", value: "on")
-		logInfo "${device.label}: Power: on"
-	} else {
-		sendEvent(name: "switch", value: "off")
-		logInfo "${device.label}: Power: off"
-	}
+	sendEvent(name: "commsError", value: "Comms Error. Device offline. See logs")
+	log.error "${device.label}: Comms Error. Device offline. Check the device and run the TP-Lnk application to update IP."
 }
 
 private outputXOR(command) {
@@ -306,13 +317,6 @@ private inputXOR(encrResponse) {
 	logTrace("inputXOR: cmdResponse = ${cmdResponse}")
 	return cmdResponse
 }
-
-//	===== Other Methods =====
-def sendThisMonth() { return state.energyThisMonth }
-
-def sendThisYear() { return state.energyThisYear }
-
-def sendLastYear() { return state.energyLastYear }
 
 def logInfo(msg) {
 	if (infoLog == true) { log.info msg }
