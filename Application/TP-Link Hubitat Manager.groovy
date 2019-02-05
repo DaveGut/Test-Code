@@ -1,80 +1,47 @@
 /*
-TP-Link Smart Home Device Manager, 2019 Version 4.0
+TP-Link Device Application, Version 4.1
 
 	Copyright 2018, 2019 Dave Gutheinz
 
-Discalimer: This Service Manager and the associated Device
-Handlers are in no way sanctioned or supported by TP-Link. All
-development is based upon open-source data on the TP-Link Kasa
-Devices; primarily various users on GitHub.com.
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
+License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
+Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific 
+language governing permissions and limitations under the License.
 
-====== History ================================================
-01.01.19	4.0.01.	Initial release of the UDP version not requiring a Kasa Account nor a Node Applet to install and operate the devices.
-01.13.19	4.0.04. Skip versions to sync numbers with drivers.
-			a.	Added error logic for no-hub error.
-			b.	Increase time interval for polling all addresses when doing periodic polling.
-			c.	Moved installation polling to add devices only.
-01.22.19	4.0.05.	Various
-			a.	Removed periodic device discovery.
-			b.	Added checkIp method (called from children to update IP).
-			c.	Changed method to update data from app to devices.
+DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
+All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
-========== Application Information ==========================*/
-	def appVersion() { return "4.0.05" }
-	def driverVersion() { return "4.0" }
+===== History =====
+2.04.19	4.1.01.	Eliminated perodic IP polling. Users will update IP by running application when needed.
+*/
+	def appVersion() { return "4.1.01" }
 //	def debugLog() { return false }
 	def debugLog() { return true }
 	import groovy.json.JsonSlurper
-//	===========================================================
-
 definition(
-	name: "TP-Link Smart Home Device Manager",
+	name: "TP-Link Device Manager",
 	namespace: "davegut",
 	author: "Dave Gutheinz",
 	description: "Application to install TP-Link bulbs, plugs, and switches.  Does not require a Kasa Account nor a Node Applet",
 	category: "Convenience",
 	iconUrl: "",
 	iconX2Url: "",
-	iconX3Url: "")
+	iconX3Url: "",
 	singleInstance: true
+	)
 
 preferences {
 	page(name: "mainPage")
-	page(name: "addDevicesPage")
-	page(name: "listDevicesPage")
 }
 
-//	============================
-//	===== Page Definitions =====
-//	============================
 def mainPage() {
 	logDebug("mainPage")
 	setInitialStates()
-
-	return dynamicPage (name: "mainPage",
-		title: "Main Page",
-		uninstall: true) {
-        errorSection()
-        
-		section("Available Device Management Functions") {
-			href "addDevicesPage", 
-                title: "Install Kasa Devices", 
-                description: "Go to Install Devices"
-			
-			href "listDevicesPage", 
-            	title: "List Drivers and Programs", 
-                description: "List Drivers and Programs"
-		}
-	}
-}
-
-def addDevicesPage() {
 	app?.removeSetting("selectedDevices")
-	state.addDevices = true
 	discoverDevices()
-	state.addDevices = false
     def devices = state.devices
-	logDebug("addDevicesPage: devices = ${devices}")
+	logDebug("mainPage: devices = ${devices}")
 	def errorMsgDev = null
 	def newDevices = [:]
 	devices.each {
@@ -83,7 +50,6 @@ def addDevicesPage() {
 			newDevices["${it.value.DNI}"] = "${it.value.model} ${it.value.alias}"
 		}
 	}
-	
 	if (devices == [:]) {
 		errorMsgDev = "Looking for devices.  If this message persists, we have been unable to find " +
         "TP-Link devices on your wifi."
@@ -92,78 +58,37 @@ def addDevicesPage() {
         "2) The Hubitat Devices Tab (in case already installed)."
 	}
 
-	return dynamicPage(name:"addDevicesPage",
+	return dynamicPage(name:"mainPage",
 		title:"Add TP-Link/Kasa Devices",
 		nextPage:"",
 		refresh: false,
         multiple: true,
+		uninstall: true,
 		install: true) {
-        errorSection()
-        
- 		section("Select Devices to Add (${newDevices.size() ?: 0} found)", hideable: true, hidden: false) {
-			input ("selectedDevices", "enum", 
-                   required: false, 
-                   multiple: true, 
-                   submitOnChange: false,
-                   title: null,
-                   description: "Add Devices",
-                   options: newDevices)
-		}
-	}
-}
-
-def listDevicesPage() {
-	def devices = state.devices
-	logDebug("listDevicesPage: devices = ${devices}")
-	def errorMsgDev = null
-	def kasaDevices = "Label : Model : deviceIP : Installed : Driver\n"
-	devices.each {
-    	def installed = "No"
-		def devDriverVer = ""
-		def isChild = getChildDevice(it.value.DNI)
-		if (isChild) {
-        	installed = true
-            devDriverVer = isChild.driverVer()
-		}
-		kasaDevices += "${it.value.alias} : ${it.value.model} : ${it.value.IP} : ${it.value.DNI} : ${installed} : ${devDriverVer}\n"
-	}
-	if (devices == [:]) {
-		errorMsgDev = "Devices database was cleared in-error.  Run Device Installer Page to correct " +
-        "then try again.  You can also remove devices using the Environment app."
-	}
-	if (kasaDevices == [:]) {
-		errorMsgDev = "There are no devices to remove from the SmartThings app at this time.  This " +
-        "implies no devices are installed."
-	}
-        
-	return dynamicPage (name: "listDevicesPage", 
-    	title: "List of Kasa Devices and Handlers") { 
-        errorSection()
 		
-		section("Kasa Devices and Device Handlers", hideable: true) {
-			paragraph "Recommended Minimum Driver: ${driverVersion()}\n${kasaDevices}"
+		section("") {
+			if (errorMsgDev != null) { paragraph "ERROR:  ${errorMSgDev}." }
+			else { paragraph "No errors." }
+		}
+        
+	 	section("Select Devices to Add (${newDevices.size() ?: 0} found)", hideable: false, hidden: false) {
+			input ("selectedDevices", "enum",
+	               required: false,
+				   multiple: true,
+				   submitOnChange: false,
+				   title: null,
+				   description: "Add Devices",
+				   options: newDevices)
+		}
+		section("") {
+			paragraph "WARNING:  Uninstalling this application will uninstall all associated child devices"
 		}
 	}
 }
 
-def errorSection() {
-	section("") {
-		if (errorMsgDev != null) {
-			paragraph "ERROR:  ${errorMSgDev}."
-		} else {
-			paragraph "No errors."
-		}
-	}
-}
-
-//	==============================
-//	===== Start up Functions =====
-//	==============================
 def setInitialStates() {
-	logDebug("SETINITIALSTATES")
+	logDebug("setInitialStates")
 	if (!state.devices) { state.devices = [:] }
-	if (!state.addDevices) { state.addDevices = false }
-	state.allowDiscovery = true
 }
 
 def installed() { initialize() }
@@ -171,15 +96,12 @@ def installed() { initialize() }
 def updated() { initialize() }
 
 def initialize() {
-	logDebug("INITIALIZE")
+	logDebug("initialize")
 	unsubscribe()
 	unschedule()
 	if (selectedDevices) { addDevices() }
 }
 
-//	============================
-//	===== Device Discovery =====
-//	============================
 def discoverDevices() {
 	state.devices = [:]
 	def hub
@@ -191,15 +113,14 @@ def discoverDevices() {
 
 	def hubIpArray = hub.localIP.split('\\.')
 	def networkPrefix = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
-	logDebug("discoverDevices: IP Segment = ${networkPrefix}, addDevices = ${state.addDevices}")
+	logDebug("discoverDevices: IP Segment = ${networkPrefix}")
 	
-	def delay = 100
-	if (state.addDevices == true) { delay = 40 }
 	for(int i = 2; i < 255; i++) {
 		def deviceIP = "${networkPrefix}.${i.toString()}"
 		sendCmd(deviceIP)
-		pauseExecution(delay)
+		pauseExecution(50)
 	}
+	pauseExecution(2000)
 }
 
 private sendCmd(ip) {
@@ -209,11 +130,11 @@ private sendCmd(ip) {
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${ip}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 callback: parseDevices])
+		 callback: parse])
 	sendHubCommand(myHubAction)
 }
 
-def parseDevices(response) {
+def parse(response) {
 	def resp = parseLanMessage(response.description)
 	def parser = new JsonSlurper()
 	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
@@ -259,9 +180,6 @@ def updateDevices(dni, model, ip, alias, plugNo, plugId) {
 	}
 }
 
-//	=======================================
-//	===== Add Devices to Hubitat ==========
-//	=======================================
 def addDevices() {
 	logDebug("addDevices:  Devices = ${state.devices}")
 	def tpLinkModel = [:]
@@ -342,18 +260,21 @@ def addDevices() {
 	}
 }
 
-def checkIp() {
-	if (state.allowDiscovery == false) { return }
-	state.allowDiscovery = false
-	runIn(600, resetAllowDiscovery)
-	discoverDevices()
+def uninstalled() {
+    	getAllChildDevices().each { 
+        deleteChildDevice(it.deviceNetworkId)
+    }
 }
 
-def resetAllowDiscovery() {
-	state.allowDiscovery = true
+def removeChildDevice(alias, deviceNetworkId) {
+	try {
+		deleteChildDevice(it.deviceNetworkId)
+		sendEvent(name: "DeviceDelete", value: "${alias} deleted")
+	} catch (Exception e) {
+		sendEvent(name: "DeviceDelete", value: "Failed to delete ${alias}")
+	}
 }
 
-//	===== XOR Encode and Decode Device Data =====
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -369,19 +290,15 @@ private outputXOR(command) {
 private inputXOR(encrResponse) {
 	String[] strBytes = encrResponse.split("(?<=\\G.{2})")
 	def cmdResponse = ""
-	def key = 0x2B
+	def key = 0xAB
 	def nextKey
 	byte[] XORtemp
-	
 	for(int i = 0; i < strBytes.length-1; i++) {
 		nextKey = (byte)Integer.parseInt(strBytes[i], 16)	// could be negative
 		XORtemp = nextKey ^ key
 		key = nextKey
 		cmdResponse += new String(XORtemp)
 	}
-	
-	//	For some reason, first character not decoding properly.
-	cmdResponse = "{" + cmdResponse.drop(1)
 	return cmdResponse
 }
 
@@ -393,12 +310,20 @@ private Integer convertHexToInt(hex) {
 	Integer.parseInt(hex,16)
 }
 
-def logTrace(msg){
-	if(debugLog() == true) { log.trace msg }
-}
-
 def logDebug(msg){
 	if(debugLog() == true) { log.debug msg }
 }
 	
 //	end-of-file
+
+/*
+def uninstallPage() {
+	def page1Text = "This will uninstall the All Child Devices including this Application with all it's user data. \nPlease make sure that any devices created by this app are removed from any routines/rules/smartapps before tapping Remove."
+	dynamicPage (name: "uninstallPage", title: "Uninstall Page", install: false, uninstall: true) {
+		section("") {
+            paragraph title: "", page1Text
+		}
+		remove("Uninstall this application", "Warning!!!", "Last Chance to Stop! \nThis action is not reversible \n\nThis will remove All Devices including this Application with all it's user data")
+	}
+}
+*/
