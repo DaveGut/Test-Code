@@ -91,7 +91,7 @@ HS107	TP-Link Multi-Plug (Hubitat).groovy
 
 HS110	TP-Link Plug-Switch (Hubitat).groovy
 
-HS110	TP-Link Plug-Switch (Hubitat).groovy
+HS110	TP-Link Engr Mon Plug (Hubitat).groovy
 
 HS200	TP-Link Plug-Switch (Hubitat).groovy
 
