@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.2
+TP-Link Device Driver, Version 4.1
 
 	Copyright 2018, 2019 Dave Gutheinz
 
@@ -16,23 +16,21 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 2.04.19	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions. Added
 				code to delete the device as a child from the application when deleted via the devices page.  Note:
 				The device is also deleted whenever the application is deleted.
-3.28.19	4.2.01	a.	Added capability Change Level implementation.
-				b.	Removed info log preference.  Will always log these messages (one per response)
-Methods to update data structure during installation from smart app.
+
 */
-def driverVer() { return "4.2.01" }
+def driverVer() { return "4.1.01" }
 metadata {
-	definition (name: "TP-Link Multi-Plug",
+	definition (name: "TP-Link Dimming Switch",
     			namespace: "davegut",
                 author: "Dave Gutheinz") {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
+		capability "Switch Level"
 		attribute "commsError", "string"
 	}
     preferences {
 		if (!getDataValue("applicationVersion")) {
-			input ("plug_No", "text", title: "Number of the plug (00, 01, 02, etc.)")
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 		}
 		def refreshRate = [:]
@@ -42,27 +40,41 @@ metadata {
 		refreshRate << ["15" : "Refresh every 15 minutes"]
 		refreshRate << ["30" : "Refresh every 30 minutes"]
 		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate)
+    	input name: "infoLog", type: "bool", title: "Display information messages?", required: false
     	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
 	}
 }
 
 def installed() {
-	log.info "Installing ............"
-	state.multiPLugInstalled == false
+	log.info "Installing ${device.label}..."
+	sendEvent(name: "commsError", value: "none")
+	device.updateSetting("refresh_Rate",[type:"enum", value:"30"])
+	device.updateSetting("infoLog", [type:"bool", value: true])
+	device.updateSetting("traceLog", [type:"bool", value: true])
+	runIn(1800, stopTraceLogging)
 	runIn(2, updated)
 }
 
 def updated() {
-	log.info "Updating ............."
-	unschedule()
-	updateDataValue("driverVersion", driverVer())
-	if (plug_No && state.multiPLugInstalled == false) {
-		sendCmd('{"system" :{"get_sysinfo" :{}}}')
+	log.info "Updating ${device.label}..."
+	if (state.currentError) { state.currentError = null }
+	if(device_IP) {
+		updateDataValue("deviceIP", device_IP)
 	}
-	if(device_IP) { updateDataValue("deviceIP", device_IP) }
-	if (traceLog == true) { runIn(1800, stopTraceLogging) }
-	else { stopTraceLogging() }
+
+	unschedule()
+	if (traceLog == true) {
+		device.updateSetting("traceLog", [type:"bool", value: true])
+		runIn(1800, stopTraceLogging)
+	} else { stopTraceLogging() }
+	if (infoLog == true) {
+		device.updateSetting("infoLog", [type:"bool", value: true])
+	} else {
+		device.updateSetting("infoLog", [type:"bool", value: false])
+	}
+	state.commsErrorCount = 0
 	sendEvent(name: "commsError", value: "none")
+	updateDataValue("driverVersion", driverVer())
 	switch(refresh_Rate) {
 		case "1" :
 			runEvery1Minute(refresh)
@@ -82,33 +94,40 @@ def updated() {
 	if (getDataValue("deviceIP")) { refresh() }
 }
 
-def updateInstallData() {
-	logInfo "Updating previous installation data"
-	def dni = device.deviceNetworkId
-	updateDataValue("plugNo",dni.substring(14,16))
-	updateDataValue("driverVersion", driverVer())
-}
-
 void uninstalled() {
 	try {
 		def alias = device.label
-		logInfo("Removing device ...")
+		log.info "Removing device ${alias} with DNI = ${device.deviceNetworkId}"
 		parent.removeChildDevice(alias, device.deviceNetworkId)
 	} catch (ex) {
-		logInfo("Either the device was manually installed or there was an error.")
+		log.info "${device.name} ${device.label}: Either the device was manually installed or there was an error."
 	}
+}
+
+def stopTraceLogging() {
+	log.trace "stopTraceLogging: Trace Logging is off."
+	device.updateSetting("traceLog", [type:"bool", value: false])
 }
 
 def on() {
 	logTrace("on")
-	def plugId = getDataValue("plugId")
-	sendCmd("""{"context":{"child_ids":["${plugId}"]},"system":{"set_relay_state":{"state": 1}}}""")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""")
 }
 
 def off() {
 	logTrace("off")
-	def plugId = getDataValue("plugId")
-	sendCmd("""{"context":{"child_ids":["${plugId}"]},"system":{"set_relay_state":{"state": 0}}}""")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""")
+}
+
+def setLevel(percentage) {
+	logTrace("setLevel: level = ${percentage}")
+	sendCmd('{"system":{"set_relay_state":{"state": 1}}}')
+	if (percentage < 0 || percentage > 100) {
+		log.error "$device.name $device.label: Entered brightness is not from 0...100"
+		percentage = 50
+	}
+	percentage = percentage as int
+	sendCmd("""{"smartlife.iot.dimmer" :{"set_brightness" :{"brightness" :${percentage}}}}""")
 }
 
 def refresh(){
@@ -118,54 +137,42 @@ def refresh(){
 def parse(response) {
 	unschedule(createCommsError)
 	sendEvent(name: "commsError", value: "none")
+	state.commsErrorCount = 0
 	def encrResponse = parseLanMessage(response).payload
 	def cmdResponse
 	try {
 		cmdResponse = parseJson(inputXOR(encrResponse))
 		logTrace("parseInput: response = ${cmdResponse}")
 	} catch (error) {
-		def errMsg = "Unable to process return from the device due to fragmented return from device.\n" +
-					 "Change device Name in the Kasa Application to less than 18 characters."
-		log.error "${device.label} ${driverVer()} CommsError: Device Name too long!\n${errMsg}"
-		sendEvent(name: "commsError", value: "Device Name too long", description: "See log for corrective action.")
+		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+		sendEvent(name: "commsError", value: "parseInput failed.  See logs.")
 	}
 	if (cmdResponse.system.get_sysinfo) {
-		if (state.multiPlugInstalled != false) {
-			logTrace("parse: Refresh Response")
-			def children = cmdResponse.system.get_sysinfo.children
-			def plugNo = getDataValue("plugNo")
-			plug = children.find { it.id == plugNo }
-			if (plug.state == 1) {
-				sendEvent(name: "switch", value: "on")
-				logInfo "${device.label}: Power: on"
-			} else {
-				sendEvent(name: "switch", value: "off")
-				logInfo "${device.label}: Power: off"
-			}
+		logTrace("parse: Refresh Response")
+		def onOffState = cmdResponse.system.get_sysinfo.relay_state
+		if (onOffState == 1) {
+			sendEvent(name: "switch", value: "on")
+		 	sendEvent(name: "level", value: level)
+			logInfo "${device.label}: Power: on / Dimmer Level: ${level}%"
 		} else {
-			logTrace("parse: parse plud ID")
-			def plugId = "${cmdResponse.system.get_sysinfo.deviceId}${plug_No}"
-			updateDataValue("plugId", plugId)
-			state.multiPlugInstalled = true
-			logInfo("${device.label}: Plug ID set to ${plugId}")
+			sendEvent(name: "switch", value: "off")
+			logInfo "${device.label}: Power: off"
 		}
-	} else if (cmdResponse.system.set_relay_state) {
+	} else {
 		logTrace("parse: Command Response")
 		refresh()
-	} else {
-		log.error "Unprogrammed return in parse.  cmdResponse = ${cmdResponse}"
-		sendEvent(name: "commsError", value: "Unprogrammed return in parse", description: "See log for details.")
-		return
 	}
 }
 
+//	Code common to all Hubitat TP-Link drivers
 private sendCmd(command) {
 	logTrace("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}")
 	if (!getDataValue("deviceIP")) {
-		log.error "No device IP in a manual installation. Update Preferences."
+		sendEvent(name: "commsError", value: "No device IP. Update Preferences.")
+		log.error "No device IP. Update Preferences."
 		return
 	}
-	runIn(10, createCommsError)
+	runIn(2, createCommsError)	//	Starts 3 second timer for error.
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command), 
 		hubitat.device.Protocol.LAN,
@@ -176,11 +183,8 @@ private sendCmd(command) {
 }
 
 def createCommsError() {
-	def errMsg = "The device is not found at the current IP address. Caused by either the IP changed " +
-				 "or the device not having power.  Check device for power.\n\n" +
-				 "To update IP either run the Hubitat TP-Link App or updated preferences for a manual installation"
-	sendEvent(name: "commsError", value: "Device Offline",descriptionText: "See log for corrective action.")
-	log.error "${device.label} ${driverVer()} CommsError: Device Offline.\n${errMsg}"
+	sendEvent(name: "commsError", value: "Comms Error. Device offline. See logs")
+	log.error "${device.label}: Comms Error. Device offline. Check the device and run the TP-Lnk application to update IP."
 }
 
 private outputXOR(command) {
@@ -212,17 +216,11 @@ private inputXOR(encrResponse) {
 }
 
 def logInfo(msg) {
-	log.info "${device.label} ${driverVer()} ${msg}"
+	if (infoLog == true) { log.info msg }
 }
 
 def logTrace(msg){
-	if(traceLog == true) { log.trace "${device.label} ${driverVer()} ${msg}" }
-}
-
-def stopTraceLogging() {
-	log.trace "stopTraceLogging: Trace Logging is off."
-	try { device.updateSetting("traceLog", [type:"bool", value: false]) }
-	catch (e) {}
+	if(traceLog == true) { log.trace msg }
 }
 
 //	end-of-file

@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.2
+TP-Link Device Driver, Version 4.1
 
 	Copyright 2018, 2019 Dave Gutheinz
 
@@ -16,13 +16,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 2.04.19	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions. Added
 				code to delete the device as a child from the application when deleted via the devices page.  Note:
 				The device is also deleted whenever the application is deleted.
-3.28.19	4.2.01	a.	Added capability Change Level implementation.
-				b.	Removed info log preference.  Will always log these messages (one per response)
-				c.	Added user command to synchronize the Kasa App name with the Hubitat device label
-					(using Hubitat as the master name).
-Methods to update data structure during installation from smart app.
+
 */
-def driverVer() { return "4.2.01" }
+def driverVer() { return "4.1.01" }
 metadata {
 	definition (name: "TP-Link Tunable White Bulb", 
     			namespace: "davegut", 
@@ -30,14 +26,12 @@ metadata {
         capability "Light"
 		capability "Switch"
 		capability "Switch Level"
-		capability "Change Level"
  		capability "Refresh"
 		capability "Actuator"
 		capability "Color Temperature"
 		command "setCircadian"
 		attribute "circadianState", "string"
 		attribute "commsError", "string"
-		command "syncKasaName"
 	}
 	preferences {
 		if (!getDataValue("applicationVersion")) {
@@ -51,24 +45,42 @@ metadata {
 		refreshRate << ["30" : "Refresh every 30 minutes"]
 		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate)
         input ("transition_Time", "num", title: "Default Transition time (seconds)")
+    	input name: "infoLog", type: "bool", title: "Display information messages?", required: false
     	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
 	}
 }
 
 def installed() {
-	log.info "Installing ............"
+	log.info "Installing ${device.label}..."
+	sendEvent(name: "commsError", value: "none")
+	device.updateSetting("refresh_Rate", [type: "enum", value: "30"])
+	device.updateSetting("transition_Time", [type: "num", value: 0])
+	device.updateSetting("infoLog", [type:"bool", value: true])
+	device.updateSetting("traceLog", [type:"bool", value: true])
+	runIn(1800, stopTraceLogging)
 	runIn(2, updated)
 }
 
 def updated() {
-	log.info "Updating ............."
+	log.info "Updating ${device.label}..."
+	if (state.currentError) { state.currentError = null }
+	if(device_IP) {
+		updateDataValue("deviceIP", device_IP)
+	}
+
 	unschedule()
-	updateDataValue("driverVersion", driverVer())
-	if(device_IP) { updateDataValue("deviceIP", device_IP) }
-	if (traceLog == true) { runIn(1800, stopTraceLogging) }
-	else { stopTraceLogging() }
+	if (traceLog == true) {
+		device.updateSetting("traceLog", [type:"bool", value: true])
+		runIn(1800, stopTraceLogging)
+	} else { stopTraceLogging() }
+	if (infoLog == true) {
+		device.updateSetting("infoLog", [type:"bool", value: true])
+	} else {
+		device.updateSetting("infoLog", [type:"bool", value: false])
+	}
 	state.commsErrorCount = 0
 	sendEvent(name: "commsError", value: "none")
+	updateDataValue("driverVersion", driverVer())
 	switch(refresh_Rate) {
 		case "1" :
 			runEvery1Minute(refresh)
@@ -85,42 +97,39 @@ def updated() {
 		default:
 			runEvery30Minutes(refresh)
 	}
-	if (transition_Time) {
-		state.transTime = 1000*transition_Time.toInteger()
-	} else { state.transTime = 0 }
 	if (getDataValue("deviceIP")) { refresh() }
-}
-
-def updateInstallData() {
-	logInfo "Updating previous installation data"
-	if (transition_Time) { state.transTime = 1000*transition_Time.toInteger() }
-	else { state.transTime = 0 }
-	updateDataValue("driverVersion", driverVer())
 }
 
 void uninstalled() {
 	try {
 		def alias = device.label
-		logInfo("Removing device ...")
+		log.info "Removing device ${alias} with DNI = ${device.deviceNetworkId}"
 		parent.removeChildDevice(alias, device.deviceNetworkId)
 	} catch (ex) {
-		logInfo("Either the device was manually installed or there was an error.")
+		log.info "${device.name} ${device.label}: Either the device was manually installed or there was an error."
 	}
 }
 
+def stopTraceLogging() {
+	log.trace "stopTraceLogging: Trace Logging is off."
+	device.updateSetting("traceLog", [type:"bool", value: false])
+}
+
 def on() {
-	logTrace("On: transition time = ${state.transTime}")
-	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${state.transTime}}}}""")
+	logTrace("On: transition_Time = ${transition_Time}")
+	def transTime = 1000*transition_Time.toInteger()
+	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${transTime}}}}""")
 }
 
 def off() {
-	logTrace("Off: transition time = ${state.transTime}")
-	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${state.transTime}}}}""")
+	logTrace("off: transition_Time = ${transition_Time}")
+	def transTime = 1000*transition_Time.toInteger()
+	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${transTime}}}}""")
 }
 
 def setLevel(percentage) {
-	logTrace("setLevel(x): transition time = ${state.transTime}")
-	setLevel(percentage, state.transTime)
+	logTrace("setLevel(x): transition_Time = ${transition_Time}")
+	setLevel(percentage, transition_Time)
 }
 
 def setLevel(percentage, rate) {
@@ -130,38 +139,8 @@ def setLevel(percentage, rate) {
 		percentage = 50
 	}
 	percentage = percentage as int
+	rate = 1000*rate.toInteger()
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${rate}}}}""")
-}
-
-def startLevelChange(direction) {
-	if (direction == "up") {
-		levelUp()
-	} else {
-		levelDown()
-	}
-}
-
-def stopLevelChange() {
-	unschedule(levelUp)
-	unschedule(levelDown)
-}
-
-def levelUp() {
-	def newLevel = device.currentValue("level").toInteger() + 2
-	if (newLevel > 101) { return }
-	if (newLevel > 100) { newLevel = 100 }
-	setLevel(newLevel, 0)
-	runInMillis(500, levelUp)
-}
-
-def levelDown() {
-	def newLevel = device.currentValue("level").toInteger() - 2
-	if (newLevel < -1) { return }
-	else if (newLevel <= 0) { off() }
-	else {
-		setLevel(newLevel, 0)
-		runInMillis(500, levelDown)
-	}
 }
 
 def setColorTemperature(kelvin) {
@@ -202,41 +181,27 @@ def setColorTempData(temp){
     sendEvent(name: "colorName", value: genericName)
 }
 
-def syncKasaName() {
-	logTrace("syncKasaName.  Updating Kasa App Name to ${device.label}")
-	sendCmd("""{"smartlife.iot.common.system":{"set_dev_alias":{"alias":"${device.label}"}}}""")
-}
-	
 def parse(response) {
 	unschedule(createCommsError)
 	sendEvent(name: "commsError", value: "none")
+	state.commsErrorCount = 0
 	def encrResponse = parseLanMessage(response).payload
 	def cmdResponse
 	try {
 		cmdResponse = parseJson(inputXOR(encrResponse))
 		logTrace("parseInput: response = ${cmdResponse}")
 	} catch (error) {
-		def errMsg = "Unable to process return from the device due to fragmented return from device.\n" +
-					 "Change device Name in the Kasa Application to less than 18 characters."
-		log.error "${device.label} ${driverVer()} CommsError: Device Name too long!\n${errMsg}"
-		sendEvent(name: "commsError", value: "Device Name too long", description: "See log for corrective action.")
+		log.error "${device.label} parseInput fragmented return from device.  In Kasa App reduce device name to less that 18 characters!"
+		sendEvent(name: "commsError", value: "parseInput failed.  See logs.")
 	}
 	def status
 	if (cmdResponse.system) {
 		logTrace("parse: Refresh Response")
 		status = cmdResponse.system.get_sysinfo.light_state
-	} else if (cmdResponse["smartlife.iot.smartbulb.lightingservice"]){
+	} else {
 		logTrace("parse: Command Response")
 		status = cmdResponse["smartlife.iot.smartbulb.lightingservice"].transition_light_state
-	} else if (cmdResponse["smartlife.iot.common.system"].set_dev_alias) {
-		logInfo("Updated Kasa Name for device to ${device.label}.")
-		return
-	} else {
-		log.error "Unprogrammed return in parse.  cmdResponse = ${cmdResponse}"
-		sendEvent(name: "commsError", value: "Unprogrammed return in parse", description: "See log for details.")
-		return
 	}
-
 	logTrace("parseBulbState: status = ${status}")
 	if (status.on_off == 0) {
 		sendEvent(name: "switch", value: "off")
@@ -253,13 +218,15 @@ def parse(response) {
 	}
 }
 
+//	Code common to all Hubitat TP-Link drivers
 private sendCmd(command) {
 	logTrace("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}")
 	if (!getDataValue("deviceIP")) {
-		log.error "No device IP in a manual installation. Update Preferences."
+		sendEvent(name: "commsError", value: "No device IP. Update Preferences.")
+		log.error "No device IP. Update Preferences."
 		return
 	}
-	runIn(10, createCommsError)
+	runIn(2, createCommsError)	//	Starts 3 second timer for error.
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command), 
 		hubitat.device.Protocol.LAN,
@@ -270,11 +237,8 @@ private sendCmd(command) {
 }
 
 def createCommsError() {
-	def errMsg = "The device is not found at the current IP address. Caused by either the IP changed " +
-				 "or the device not having power.  Check device for power.\n\n" +
-				 "To update IP either run the Hubitat TP-Link App or updated preferences for a manual installation"
-	sendEvent(name: "commsError", value: "Device Offline",descriptionText: "See log for corrective action.")
-	log.error "${device.label} ${driverVer()} CommsError: Device Offline.\n${errMsg}"
+	sendEvent(name: "commsError", value: "Comms Error. Device offline. See logs")
+	log.error "${device.label}: Comms Error. Device offline. Check the device and run the TP-Lnk application to update IP."
 }
 
 private outputXOR(command) {
@@ -305,18 +269,12 @@ private inputXOR(encrResponse) {
 	return cmdResponse
 }
 
-def logInfo(msg) {	
-	log.info "${device.label} ${driverVer()} ${msg}"
+def logInfo(msg) {
+	if (infoLog == true) { log.info msg }
 }
 
 def logTrace(msg){
-	if(traceLog == true) { log.trace "${device.label} ${driverVer()} ${msg}" }
-}
-
-def stopTraceLogging() {
-	log.trace "stopTraceLogging: Trace Logging is off."
-	try { device.updateSetting("traceLog", [type:"bool", value: false]) }
-	catch (e) {}
+	if(traceLog == true) { log.trace msg }
 }
 
 //	end-of-file
