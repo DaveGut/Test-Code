@@ -1,34 +1,26 @@
 /*
-TP-Link Device Application, Version 4.2
-		Copyright 2018, 2019 Dave Gutheinz
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file 
-except in compliance with the License. You may obtain a copy of the License at: 
-		http://www.apache.org/licenses/LICENSE-2.0.
-Unless required by applicable law or agreed to in writing,software distributed under the 
-License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, 
-either express or implied. See the License for the specific language governing permissions 
-and limitations under the License.
+TP-Link Device Application, Version 4.1
 
-DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or 
-supported by TP-Link. All  development is based upon open-source data on the TP-Link 
-devices; primarily various users on GitHub.com.
+	Copyright 2018, 2019 Dave Gutheinz
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
+License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
+Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific 
+language governing permissions and limitations under the License.
+
+DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
+All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
 ===== History =====
-2018
-2.04	4.1.01.	Eliminated perodic IP polling. Users will update IP by running application 
-				when needed.
-3.28	4.2.01.	a.	Removed any method that will automatically poll for devices.  Polling
-					is now limited to when the user starts the application.
-				b.	Added automatic Update Device Date and Update Preferences on polling.
-					Method will check the app version.  If not current, will update data
-					based on the app version and update the app version.
+2.04.19	4.1.01.	Eliminated perodic IP polling. Users will update IP by running application when needed.
 */
-	def appVersion() { return "4.2.01" }
+	def appVersion() { return "4.1.01" }
 //	def debugLog() { return false }
 	def debugLog() { return true }
 	import groovy.json.JsonSlurper
 definition(
-	name: "TP-Link App V4.2",
+	name: "TP-Link Device Manager",
 	namespace: "davegut",
 	author: "Dave Gutheinz",
 	description: "Application to install TP-Link bulbs, plugs, and switches.  Does not require a Kasa Account nor a Node Applet",
@@ -41,37 +33,16 @@ definition(
 
 preferences {
 	page(name: "mainPage")
-	page(name: "addDevicesPage")
 }
 
 def mainPage() {
 	logDebug("mainPage")
 	setInitialStates()
 	app?.removeSetting("selectedDevices")
-	
-	def updateStatus = updateInstallData()
-	logDebug("mainPage: updateStatus (failures) = ${updateStatus}")
 	discoverDevices()
-
-	return dynamicPage(name:"mainPage",
-		title:"TP-Link/Kasa Device Manager",
-		uninstall: true,
-		install: true) {
-		section() {
-			paragraph "Application Version ${appVersion()}"
-			if (updateStatus != "") {
-				paragraph "The following devices had the incorrect driver version: ${updateStatus}."
-				paragraph "Update the drivers and rerun the application."
-			}
-		}
-		section() {
-        	href "addDevicesPage", title: "Install Kasa Devices", description: "Go to Install Devices"
-        }
-	}		
-}
-
-def addDevicesPage() {
     def devices = state.devices
+	logDebug("mainPage: devices = ${devices}")
+	def errorMsgDev = null
 	def newDevices = [:]
 	devices.each {
 		def isChild = getChildDevice(it.value.DNI)
@@ -79,19 +50,56 @@ def addDevicesPage() {
 			newDevices["${it.value.DNI}"] = "${it.value.model} ${it.value.alias}"
 		}
 	}
-	logDebug("addDevicesPage: newDevices = ${newDevices}")
-	return dynamicPage(name:"addDevicesPage",
-		title:"Add TP-Link/Kasa Devices to Hubitat",
+	if (devices == [:]) {
+		errorMsgDev = "Looking for devices.  If this message persists, we have been unable to find " +
+        "TP-Link devices on your wifi."
+	} else if (newDevices == [:]) {
+		errorMsgDev = "No new devices to add. Check: 1) Device installed to Kasa properly, " +
+        "2) The Hubitat Devices Tab (in case already installed)."
+	}
+
+	return dynamicPage(name:"mainPage",
+		title:"Add TP-Link/Kasa Devices",
+		nextPage:"",
+		refresh: false,
+        multiple: true,
+		uninstall: true,
 		install: true) {
-	 	section() {
+		
+		section("") {
+			if (errorMsgDev != null) { paragraph "ERROR:  ${errorMSgDev}." }
+			else { paragraph "No errors." }
+		}
+        
+	 	section("Select Devices to Add (${newDevices.size() ?: 0} found)", hideable: false, hidden: false) {
 			input ("selectedDevices", "enum",
-				   required: true,
+	               required: false,
 				   multiple: true,
-				   title: "Devices to add (${newDevices.size() ?: 0} available)",
+				   submitOnChange: false,
+				   title: null,
 				   description: "Add Devices",
 				   options: newDevices)
 		}
+		section("") {
+			paragraph "WARNING:  Uninstalling this application will uninstall all associated child devices"
+		}
 	}
+}
+
+def setInitialStates() {
+	logDebug("setInitialStates")
+	if (!state.devices) { state.devices = [:] }
+}
+
+def installed() { initialize() }
+
+def updated() { initialize() }
+
+def initialize() {
+	logDebug("initialize")
+	unsubscribe()
+	unschedule()
+	if (selectedDevices) { addDevices() }
 }
 
 def discoverDevices() {
@@ -117,7 +125,7 @@ def discoverDevices() {
 
 private sendCmd(ip) {
 	def myHubAction = new hubitat.device.HubAction(
-		"d0f281f88bff9af7d5f5cfb496f194e0bfccb5c6afc1a7c8eacaf08bf68bf6", 	//	Encrypted command
+		"d0f281f88bff9af7d5f5cfb496f194e0bfccb5c6afc1a7c8eacaf08bf68bf6", 
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${ip}:9999",
@@ -153,6 +161,7 @@ def parse(response) {
 def updateDevices(dni, model, ip, alias, plugNo, plugId) {
 	logDebug("updateDevices: DNI = ${dni}, model = ${model}, ip = ${ip}, alias = ${alias}, plugNo = ${plugNo}, plugId = ${plugId}")
 	def devices = state.devices
+	
 	def device = [:]
 	device["DNI"] = dni
 	device["IP"] = ip
@@ -163,52 +172,12 @@ def updateDevices(dni, model, ip, alias, plugNo, plugId) {
 		device["plugId"] = plugId
 	}
 	devices << ["${dni}" : device]
+	
 	def isChild = getChildDevice(dni)
-	if (isChild) {
+	if (isChild) { 
+		isChild.updateDataValue("applicationVersion", appVersion())
 		isChild.updateDataValue("deviceIP", ip)
 	}
-}
-
-def updateInstallData() {
-	children = getChildDevices()
-	if (!children) { return "No Children" }
-	def failures = ""
-	children.each { child ->
-		def driverVersion = child.driverVer()
-		if (driverVersion != null) { driverVersion = driverVersion.substring(0,3) }
-		def instAppVer = child.getDataValue("applicationVersion")
-		if (instAppVer != null) { instAppVer = instAppVer.substring(0,3) }
-		logDebug("updateInstallData ${child.label}: driver = ${driverVersion}, appVer = ${instAppVer}")
-		if (instAppVer == "4.2") { return failures }
-		if (driverVersion != "4.2") {
-			log.error "Incompatible Driver Version for ${child.label}"
-			failures += "${child.label} //  "
-		} else {
-			switch(instAppVer) {
-				case "4.1":
-				case "4.0":
-					break
-				case "3.7":
-				case "3.6":
-				case "3.5":
-					def dni = child.getDeviceNetworkId()
-					def newDni = dni.replace("_","")
-					child.setDeviceNetworkId(newDni)
-					child.updateDataValue("deviceId", null)
-					child.updateDataValue("appServerUrl", null)
-					child.updateDataValue("installType", null)
-					break
-				default:
-					child.updateDataValue("deviceId", null)
-					child.updateDataValue("appServerUrl", null)
-					break
-			}
-			child.updateDataValue("applicationVersion", appVersion())
-			child.updateInstallData()
-			log.info "Successfully updated installation data for ${child.label}"
-		}
-	}
-	return failures
 }
 
 def addDevices() {
@@ -221,9 +190,6 @@ def addDevices() {
 	tpLinkModel << ["HS200" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
-	//	WiFi Range Extender with smart plug.
-	tpLinkModel << ["RE270" : "TP-Link Smart RE Plug"]
-	tpLinkModel << ["RE370" : "TP-Link Smart RE Plug"]
 	//	Miltiple Outlet Plug
 	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
 	tpLinkModel << ["HS300" : "TP-Link Multi-Plug"]
@@ -263,12 +229,19 @@ def addDevices() {
 			def device = state.devices.find { it.value.DNI == dni }
 			def deviceModel = device.value.model
 			
-			def deviceData = [:]
-			deviceData["applicationVersion"] = appVersion()
-			deviceData["deviceIP"] = device.value.IP
-			if (device.value.plugNo != null) {
-				deviceData["plugNo"] = device.value.plugNo
-				deviceData["plugId"] = device.value.plugId
+			def deviceData
+			if (device.value.plugNo) {
+				deviceData = [
+					"applicationVersion" : appVersion(),
+					"deviceIP" : device.value.IP,
+					"plugNo" : device.value.plugNo,
+					"plugId" : device.value.plugId
+				]
+			} else {
+				deviceData = [
+					"applicationVersion" : appVersion(),
+					"deviceIP" : device.value.IP
+				]
 			}
 			
 			logDebug("addDevices: ${tpLinkModel["${deviceModel}"]} / ${device.value.DNI} / ${hubId} / ${device.value.alias} / ${deviceModel} / ${deviceData}")
@@ -287,6 +260,12 @@ def addDevices() {
 	}
 }
 
+def uninstalled() {
+    	getAllChildDevices().each { 
+        deleteChildDevice(it.deviceNetworkId)
+    }
+}
+
 def removeChildDevice(alias, deviceNetworkId) {
 	try {
 		deleteChildDevice(it.deviceNetworkId)
@@ -294,30 +273,6 @@ def removeChildDevice(alias, deviceNetworkId) {
 	} catch (Exception e) {
 		sendEvent(name: "DeviceDelete", value: "Failed to delete ${alias}")
 	}
-}
-
-def setInitialStates() {
-	logDebug("setInitialStates")
-	if (!state.devices) { state.devices = [:] }
-}
-
-def installed() { initialize() }
-
-def updated() { initialize() }
-
-def initialize() {
-	logDebug("initialize")
-	unsubscribe()
-	unschedule()
-	if (selectedDevices) {
-		addDevices()
-	}
-}
-
-def uninstalled() {
-    	getAllChildDevices().each { 
-        deleteChildDevice(it.deviceNetworkId)
-    }
 }
 
 private outputXOR(command) {
@@ -356,7 +311,19 @@ private Integer convertHexToInt(hex) {
 }
 
 def logDebug(msg){
-	if(debugLog() == true) { log.debug "${appVersion()} ${msg}" }
+	if(debugLog() == true) { log.debug msg }
 }
-
+	
 //	end-of-file
+
+/*
+def uninstallPage() {
+	def page1Text = "This will uninstall the All Child Devices including this Application with all it's user data. \nPlease make sure that any devices created by this app are removed from any routines/rules/smartapps before tapping Remove."
+	dynamicPage (name: "uninstallPage", title: "Uninstall Page", install: false, uninstall: true) {
+		section("") {
+            paragraph title: "", page1Text
+		}
+		remove("Uninstall this application", "Warning!!!", "Last Chance to Stop! \nThis action is not reversible \n\nThis will remove All Devices including this Application with all it's user data")
+	}
+}
+*/
