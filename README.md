@@ -1,22 +1,26 @@
 # Hubitat-TP-Link-Integration
 TP-Link devices Hubitat Integration without a need for a Node Applet nor a Kasa Account (login).
 
-Finally, a TP-Link integration without the need for a Node.js server nor the need for a Kasa Cloud login.  Uses UDP messaging on Hubitat, so the solution is cloudless and a single integration for all situations.
+# Update 4.2
+Changes
+1.  Application only does device search when run manually.  (Note:  If an IP address changes, the user runs the app to update.  To preclude this, set your IP addresses to STATIC in your wifi router.)
+
+2.  Application automatically updates the device data for older versions, assuring upgrade is as smooth as possible.
+
+3.  Bulbs now support capability "change level".  This allows pressing an up/down button then stopping to gradually change the bulb brightness.
+
+4.  All devices added a user command to synchronize the Kasa App device name with the set Hubitat label.
+
+5.  Cleaned up error messages for comms error with explicit recommendations to resolve.
+
+# Description
+A TP-Link integration without the need for a Node.js server nor the need for a Kasa Cloud login.  Uses UDP messaging on Hubitat, so the solution is cloudless and a single integration for all situations.
 
 APPLICATION FEATURES
 
 1.  Automatically installs the selected devices setting all data required to operate.
 
-2.  Automatically checks for device IP changes every 30 minutes and updates the device.
-
-3.  Whenever opened, checks for device IP changes and updates the devices.
-
-4.  Provides two Options:
-
-    a.  Install:  Installs the devices.
-    
-    b.  List Devices:  Provides a list of the devices including the device IP, alias and MAC.
-                        (Useful in setting up static IP addresses).
+2.  Whenever opened, checks for device IP changes and updates the devices.
 
 # Installation Instructions - NEW installation using application
 For a new (or clean) installation, the procedure is very simple.
@@ -47,9 +51,9 @@ c.  Run the application
     
     2.  Select Add User App.
     
-    3.  From the list, select the app you just installed "TP-Link Smart Home Device Manager"
+    3.  From the list, select the app you just installed "TP-Link App V4.2"
     
-    4.  It will take about 5 - 10 seconds for the App to pop up to the next window.
+    4.  It will take about 20 seconds for the App to pop up to the next window.
     
     5.  Select "Install Kasa Devices"
     
@@ -58,24 +62,19 @@ c.  Run the application
     7.  Select Done.  Your devices should now be installed.
     
     
-# Upgrade Instructions:
-Recommendation:  Upgrade is not required until you add (in the future) a new device type.  However, the significant advantages are that the new integration is off the cloud and does not require a separate node.js server.
+# Upgrade Instructions (for standard installation):
 
-Generally, the upgrade instructions are relatively simple:
+a.  Replace the contents of the existing driver and application.
 
-a.  Replace the contents of the existing driver and (if applicable) application.
+b.  Run the application (this will update the required data elements.
 
-b.  If you have an application, Run the application (this will update some of the data elements.
+c.  Test a sampling of devices.
 
-c.  For each device:
+# Upgrade Instructions (for manual installation):
 
-    1.  Set the Bulb Preference "Default transition Time" to a desired value.
-    
-    2.  Set the Bulb Preference "Hue" to Low Rez.
-    
-    3.  For each device, "Save" the preferences.
-    
-This should work in 95% of the cases.
+a.  Replace the contents of the existing driver.
+
+b.  Complete a save preferences for each device.
 
 # TP-Link Device and GitHub file names
 
