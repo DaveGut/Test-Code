@@ -16,13 +16,14 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 2.04.19	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions. Added
 				code to delete the device as a child from the application when deleted via the devices page.  Note:
 				The device is also deleted whenever the application is deleted.
-3.28.19	4.2.01	a.	Added capability Change Level implementation.
+3.28.19	4.2.02	a.	Added capability Change Level implementation.
 				b.	Removed info log preference.  Will always log these messages (one per response)
 				c.	Added user command to synchronize the Kasa App name with the Hubitat device label
 					(using Hubitat as the master name).
-Methods to update data structure during installation from smart app.
+				d.	Added method updateInstallData called from app on initial update only.
+3.28.19	4.2.02	Fixed Energy Stat and Month Stat responses to use emeter vices smartlife....
 */
-def driverVer() { return "4.2.01" }
+def driverVer() { return "4.2.02" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
@@ -204,7 +205,7 @@ def energyThisMonthResponse(response) {
 	def cmdResponse = parseInput(response)
 	logTrace("energyThisMonthResponse: cmdResponse = ${cmdResponse}")
 	def energy
-	def monthList = cmdResponse["smartlife.iot.common.emeter"]["get_monthstat"].month_list
+	def monthList = cmdResponse["emeter"]["get_monthstat"].month_list
 	def thisMonth = monthList.find { it.month == state.monthToday }
 	if (state.energyScale == "energy_wh") {
 		state.energyThisMonth = (thisMonth.energy_wh)/1000
@@ -232,7 +233,7 @@ def getPrevYear() {
 def energyStatResponse(response) {
 	def cmdResponse = parseInput(response)
 	logTrace("energyStatResponse: cmdResponse = ${cmdResponse}")
-	def monthList = cmdResponse["smartlife.iot.common.emeter"]["get_monthstat"].month_list
+	def monthList = cmdResponse["emeter"]["get_monthstat"].month_list
 	def year = monthList[0].year
 	if (year == state.yearToday) {
 		state.energyThisYear = monthList
