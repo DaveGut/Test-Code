@@ -166,10 +166,10 @@ def refreshResponse(response){
 	def onOffState = cmdResponse.system.get_sysinfo.relay_state
 	if (onOffState == 1) {
 		sendEvent(name: "switch", value: "on")
-		logInfo "${device.label}: Power: on"
+		logInfo "Power: on"
 	} else {
 		sendEvent(name: "switch", value: "off")
-		logInfo "${device.label}: Power: off"
+		logInfo "Power: off"
 	}
 }
 
@@ -182,7 +182,6 @@ def powerResponse(response) {
 	def cmdResponse = parseInput(response)
 	logTrace("powerResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse["emeter"]["get_realtime"]
-log.error "SPECIAL LOG MESSAGE LINE 185:  cmdResponse = ${cmdResponse}"
 	if (realtime.power == null) {
 		state.powerScale = "power_mw"
 		state.energyScale = "energy_wh"
@@ -193,30 +192,33 @@ log.error "SPECIAL LOG MESSAGE LINE 185:  cmdResponse = ${cmdResponse}"
 	def power = realtime."${state.powerScale}"
 	if (state.powerScale == "power_mw") { power = power / 1000 }
 	sendEvent(name: "power", value: power)
-	logInfo "${device.label}: Power is ${power} Watts."
+	logInfo "Power is ${power} Watts."
 	getEnergyThisMonth()
 }
 
 def getEnergyThisMonth(){
-	logTrace("getEnergyThisMonth: month = ${state.monthToday} / year = ${state.yearToday}")
+	def year = state.yearToday
+	logTrace("getEnergyThisMonth: year = ${year}")
 	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""", "energyThisMonthResponse")
 }
 
 def energyThisMonthResponse(response) {
 	def cmdResponse = parseInput(response)
-	logTrace("energyThisMonthResponse: cmdResponse = ${cmdResponse}")
+	logTrace("energyThisMonthResponse: energyScale = ${state.energyScale}, , month = ${state.monthToday}, cmdResponse = ${cmdResponse}")
 	def energy
 	def monthList = cmdResponse["emeter"]["get_monthstat"].month_list
 	def thisMonth = monthList.find { it.month == state.monthToday }
 	if (state.energyScale == "energy_wh") {
 		state.energyThisMonth = (thisMonth.energy_wh)/1000
 		energy = state.energyThisMonth - state.todayStartEnergy
-	} else {
+	} else if (state.energyScale == "energy") {
 		state.energyThisMonth = thisMonth.energy
 		energy = state.energyThisMonth - state.todayStartEnergy
+	} else {
+		log.error "${device.label} ${driverVer()} energyThisMonthResponse:  state.energyScale not set.  USER: Try runing save preferences."
 	}
 	sendEvent(name: "energy", value: energy)
-	logInfo("${device.label}: Energy Today is ${energy} kWh")
+	logInfo("Energy Today is ${energy} kWh")
 }
 
 def getEnergyStats() {
@@ -233,7 +235,7 @@ def getPrevYear() {
 
 def energyStatResponse(response) {
 	def cmdResponse = parseInput(response)
-	logTrace("energyStatResponse: cmdResponse = ${cmdResponse}")
+	logTrace("energyStatResponse: energyScale = ${state.energyScale}, cmdResponse = ${cmdResponse}")
 	def monthList = cmdResponse["emeter"]["get_monthstat"].month_list
 	def year = monthList[0].year
 	if (year == state.yearToday) {
@@ -242,8 +244,10 @@ def energyStatResponse(response) {
 		def thisMonth = monthList.find { it.month == state.monthToday }
 		if (state.energyScale == "energy_wh") {
 			state.todayStartEnergy = (thisMonth.energy_wh)/1000
-		} else {
+		} else if (state.energyScale == "energy") {
 			state.todayStartEnergy = thisMonth.energy
+		} else {
+			log.error "${device.label} ${driverVer()} energyStatResponse:  state.energyScale not set.  USER: Try runing save preferences."
 		}
 	} else {
 		state.energyLastYear = monthList
