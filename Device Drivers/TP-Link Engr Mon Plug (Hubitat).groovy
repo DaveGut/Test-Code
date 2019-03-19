@@ -182,6 +182,7 @@ def powerResponse(response) {
 	def cmdResponse = parseInput(response)
 	logTrace("powerResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse["emeter"]["get_realtime"]
+log.error "SPECIAL LOG MESSAGE LINE 185:  cmdResponse = ${cmdResponse}"
 	if (realtime.power == null) {
 		state.powerScale = "power_mw"
 		state.energyScale = "energy_wh"
