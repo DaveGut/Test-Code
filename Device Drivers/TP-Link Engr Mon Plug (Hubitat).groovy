@@ -146,7 +146,7 @@ def parseInput(response) {
 }
 
 def commandResponse(response) {
-	logTrace("commandResponse: response = ${response}")
+	logTrace("commandResponse")
 	unschedule(createCommsError)
 	state.currentError = null
 	refresh()
@@ -160,9 +160,8 @@ def syncNameResponse(response) {
 }
 
 def refreshResponse(response){
-	logTrace("refreshResponse: response = ${response}")
 	def cmdResponse = parseInput(response)
-	getPower()
+	logTrace("refreshResponse: cmdResponse = ${cmdResponse}")
 	def onOffState = cmdResponse.system.get_sysinfo.relay_state
 	if (onOffState == 1) {
 		sendEvent(name: "switch", value: "on")
@@ -171,6 +170,7 @@ def refreshResponse(response){
 		sendEvent(name: "switch", value: "off")
 		logInfo "Power: off"
 	}
+	runIn(3, getPower)
 }
 
 def getPower(){
