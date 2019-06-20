@@ -168,8 +168,10 @@ def refreshResponse(response) {
 	def cmdResponse = parseJson(inputXOR(encrResponse))
 	def pwrState = "off"
 	if (cmdResponse.system.get_sysinfo.relay_state == 1) { pwrState = "on" }
-	sendEvent(name: "switch", value: "${pwrState}")
-	logTrace "${device.label}: Power: ${pwrState}"
+	if (device.currentValue("switch") != pwrState) {
+		sendEvent(name: "switch", value: "${pwrState}")
+		logInfo "${device.label}: Power: ${pwrState}"
+	}
 	if (fastPolling == true) { runIn(5, refresh) }
 }
 
