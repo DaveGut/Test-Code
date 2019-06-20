@@ -27,55 +27,60 @@ def driverVer() { return "4.3.01" }
 metadata {
 	definition (name: "Special TP-Link Plug-Switch",
     			namespace: "davegut",
-                author: "Dave Gutheinz") {
+                author: "Dave Gutheinz",
+				importUrl: "https://github.com/DaveGut/Hubitat-TP-Link-Integration/blob/master/Device%20Drivers/TP-Link%20Plug-Switch%20(Hubitat).groovy"
+			   ) {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
-		attribute "commsError", "string"
 		command "syncKasaName"
 	}
     preferences {
 		def refreshRate = [:]
-		refreshRate << ["1" : "Refresh every minute"]
-		refreshRate << ["5" : "Refresh every 5 minutes"]
-		refreshRate << ["10" : "Refresh every 10 minutes"]
-		refreshRate << ["15" : "Refresh every 15 minutes"]
-		refreshRate << ["30" : "Refresh every 30 minutes"]
+		refreshRate << ["1 min" : "Refresh every minute"]
+		refreshRate << ["5 min" : "Refresh every 5 minutes"]
+		refreshRate << ["10 min" : "Refresh every 10 minutes"]
+		refreshRate << ["15 min" : "Refresh every 15 minutes"]
+		refreshRate << ["30 min" : "Refresh every 30 minutes"]
+		refreshRate << ["5 sec" : "Refresh every 5 seconds - NOT RECOMMENDED"]
 		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate)
-		input ("fastPolling", "bool", title: "Enable special fast polling (Not Recommended)", default: false)
-    	input name: "traceLog", type: "bool", title: "Display trace messages?", required: false
+    	input ("debugLog", "bool", title: "Display debug messages?", defaultValue: false)
 	}
 }
 
 def installed() {
-	log.info "Installing ............"
+	logInfo "Installing ............"
 	runIn(2, updated)
 }
 
 def updated() {
-	log.info "Updating ............."
+	logInfo "Updating ............."
 	unschedule()
+	state.fastPolling = false
 	updateDataValue("driverVersion", driverVer())
-	if (traceLog == true) { runIn(1800, stopTraceLogging) }	
-	else { stopTraceLogging() }
-	sendEvent(name: "commsError", value: "none")
+	if (debugLog == true) { runIn(1800, stopDebugeLogging) }	
+	else { stopDebugLogging() }
 	switch(refresh_Rate) {
-		case "1" :
+		case "5 sec" :
+			runEvery10Minutes(refresh)
+			state.fastPolling = true
+			break
+		case "1 min" :
 			runEvery1Minute(refresh)
 			break
-		case "5" :
+		case "5 min" :
 			runEvery5Minutes(refresh)
 			break
-		case "10" :
+		case "10 min" :
 			runEvery10Minutes(refresh)
 			break
-		case "15" :
+		case "15 min" :
 			runEvery15Minutes(refresh)
 			break
 		default:
 			runEvery30Minutes(refresh)
 	}
-	if (getDataValue("deviceIP")) { refresh() }
+	if (getDataValue("deviceIP")) { runIn(5, refresh) }
 }
 
 def updateInstallData() {
@@ -94,93 +99,71 @@ void uninstalled() {
 }
 
 def on() {
-	logInfo("on")
-	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""")
+	logDebug("on")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""", "commandResponse")
 }
 
 def off() {
-	logInfo("off")
-	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""")
+	logDebug("off")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""", "commandResponse")
+}
+
+def refresh() {
+	logDebug("refresh")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "refreshResponse")
 }
 
 def syncKasaName() {
-	logTrace("syncKasaName.  Updating Kasa App Name to ${device.label}")
-	sendCmd("""{"system":{"set_dev_alias":{"alias":"${device.label}"}}}""")
+	logDebug("syncKasaName.  Updating Kasa App Name to ${device.label}")
+	sendCmd("""{"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "syncNameResponse")
 }
 
-private sendCmd(command) {
-	logTrace("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}")
+private sendCmd(command, action) {
+	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}")
 	if (!getDataValue("deviceIP")) {
-		log.error "No device IP in a manual installation. Update Preferences."
+		logWarn "No device IP in a manual installation. Update Preferences."
 		return
 	}
-	runIn(10, createCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command), 
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 callback: commandResponse])
+		 callback: action])
 	sendHubCommand(myHubAction)
 }
 
 def commandResponse(response) {
-	unschedule(createCommsError)
-	sendEvent(name: "commsError", value: "none")
 	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse
-	try {
-		cmdResponse = parseJson(inputXOR(encrResponse))
-		logTrace("parseInput: response = ${cmdResponse}")
-	} catch (error) {
-		def errMsg = "Unable to process return from the device due to fragmented return from device.\n" +
-					 "Change device Name in the Kasa Application to less than 18 characters."
-		log.error "${device.label} ${driverVer()} CommsError: Device Name too long!\n${errMsg}"
-		sendEvent(name: "commsError", value: "Device Name too long", description: "See log for corrective action.")
+	def cmdResponse = parseJson(inputXOR(encrResponse)).system.set_relay_state
+	logDebug("commandResponse: Error Code = ${cmdResponse}")
+	if (cmdResponse.err_code != 0) {
+		logWarn("commandResponse: Error code received in from device")
 	}
-	if (cmdResponse.system.set_relay_state) {
-		logTrace("parse: Command Response")
-		refresh()
-	} else if (cmdResponse.system.set_dev_alias) {
-		logInfo("Updated Kasa Name for device to ${device.label}.")
-		return
-	} else {
-		log.error "Unprogrammed return in parse.  cmdResponse = ${cmdResponse}"
-		sendEvent(name: "commsError", value: "Unprogrammed return in parse", description: "See log for details.")
-		return
-	}
-}
-
-def refresh() {
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR('{"system" :{"get_sysinfo" :{}}}'), 
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 callback: refreshResponse])
-	sendHubCommand(myHubAction)
+	refresh()
 }
 
 def refreshResponse(response) {
 	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse = parseJson(inputXOR(encrResponse))
+	def cmdResponse = parseJson(inputXOR(encrResponse)).system.get_sysinfo
+	if (cmdResponse.err_code != 0) {
+		logWarn("refreshResponse: Error code received from device")
+		return
+	}
 	def pwrState = "off"
-	if (cmdResponse.system.get_sysinfo.relay_state == 1) { pwrState = "on" }
+	if (cmdResponse.relay_state == 1) { pwrState = "on" }
 	if (device.currentValue("switch") != pwrState) {
 		sendEvent(name: "switch", value: "${pwrState}")
 		logInfo "${device.label}: Power: ${pwrState}"
 	}
-	if (fastPolling == true) { runIn(5, refresh) }
+	if (state.fastPolling == true) { runIn(5, refresh) }
 }
 
-def createCommsError() {
-	def errMsg = "The device is not found at the current IP address. Caused by either the IP changed " +
-				 "or the device not having power.  Check device for power.\n\n" +
-				 "To update IP either run the Hubitat TP-Link App or updated preferences for a manual installation"
-	sendEvent(name: "commsError", value: "Device Offline",descriptionText: "See log for corrective action.")
-	log.error "${device.label} ${driverVer()} CommsError: Device Offline.\n${errMsg}"
+def syncNameResponse(response) {
+	def encrResponse = parseLanMessage(response).payload
+	def cmdResponse = parseJson(inputXOR(encrResponse)).system.set_dev_alias
+	logDebug("syncNameResponse: ${cmdResponse}")
 }
 
 private outputXOR(command) {
@@ -207,7 +190,6 @@ private inputXOR(encrResponse) {
 		key = nextKey
 		cmdResponse += new String(XORtemp)
 	}
-	logTrace("inputXOR: cmdResponse = ${cmdResponse}")
 	return cmdResponse
 }
 
@@ -215,14 +197,17 @@ def logInfo(msg) {
 	log.info "${device.label} ${driverVer()} ${msg}"
 }
 
-def logTrace(msg){
+def logDebug(msg){
 	if(traceLog == true) { log.trace "${device.label} ${driverVer()} ${msg}" }
 }
 
-def stopTraceLogging() {
-	log.trace "stopTraceLogging: Trace Logging is off."
-	try { device.updateSetting("traceLog", [type:"bool", value: false]) }
-	catch (e) {}
+def logWarn(msg){
+	if(traceLog == true) { log.warn "${device.label} ${driverVer()} ${msg}" }
+}
+
+def stopDebugLogging() {
+	device.updateSetting("debugLog", [type:"bool", value: false])
+	logInfo "stopTraceLogging: Trace Logging is off."
 }
 
 //	end-of-file
