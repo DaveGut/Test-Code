@@ -193,21 +193,17 @@ private inputXOR(encrResponse) {
 	return cmdResponse
 }
 
-def logInfo(msg) {
-	log.info "${device.label} ${driverVer()} ${msg}"
-}
+def logInfo(msg) { log.info "${device.label} ${driverVer()} ${msg}" }
 
 def logDebug(msg){
-	if(traceLog == true) { log.trace "${device.label} ${driverVer()} ${msg}" }
+	if(debugLog == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
 }
 
-def logWarn(msg){
-	if(traceLog == true) { log.warn "${device.label} ${driverVer()} ${msg}" }
-}
+def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
 
 def stopDebugLogging() {
 	device.updateSetting("debugLog", [type:"bool", value: false])
-	logInfo "stopTraceLogging: Trace Logging is off."
+	logInfo "stopDebugLogging: Debug Logging is off."
 }
 
 //	end-of-file
