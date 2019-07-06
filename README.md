@@ -3,7 +3,6 @@ TP-Link devices Hubitat Integration without a need for a Node Applet nor a Kasa 
 
 # See file "Documentation.pdf" for installation instructions and functional descriptions.
 
-# Update 4.3 Description
 A TP-Link integration without the need for a Node.js server nor the need for a Kasa Cloud login.  Uses UDP messaging on Hubitat, so the solution is cloudless and a single integration for all situations.
 
 APPLICATION FEATURES
