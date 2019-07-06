@@ -1,6 +1,8 @@
 # Hubitat-TP-Link-Integration
 TP-Link devices Hubitat Integration without a need for a Node Applet nor a Kasa Account (login).
 
+# UPDATED DRIVERS AND APP TO VERSION 4.3.  DOCUMENTATION UPDATE IN-PROCESS.
+
 # Update 4.2
 Changes
 1.  Application only does device search when run manually.  (Note:  If an IP address changes, the user runs the app to update.  To preclude this, set your IP addresses to STATIC in your wifi router.)
