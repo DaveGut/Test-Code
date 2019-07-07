@@ -273,6 +273,7 @@ def parseInput(response) {
 }
 def setCommsError() {
 	sendEvent(name: "switch", value: "OFFLINE",descriptionText: "No response from device.")
+	state.previousStatus = "OFFLINE"
 	logWarn "CommsError: No response from device.  Device set to offline.  Refresh.  If off line " +
 			"persists, check IP address of device."
 }

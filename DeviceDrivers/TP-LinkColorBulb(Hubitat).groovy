@@ -255,6 +255,7 @@ def updateBulbData(status) {
 		if (highRes != true) { hue = (hue / 3.6).toInteger() }
 		color << ["hue" : hue]
 		color << ["saturation" : status.saturation]
+		color << ["level" : status.brightness]
 		sendEvent(name: "circadianState", value: status.mode)
 		sendEvent(name: "colorTemperature", value: status.color_temp)
 		sendEvent(name: "hue", value: hue)
@@ -353,6 +354,7 @@ def parseInput(response) {
 }
 def setCommsError() {
 	sendEvent(name: "switch", value: "OFFLINE",descriptionText: "No response from device.")
+	state.previousStatus = "OFFLINE"
 	logWarn "CommsError: No response from device.  Device set to offline.  Refresh.  If off line " +
 			"persists, check IP address of device."
 }
