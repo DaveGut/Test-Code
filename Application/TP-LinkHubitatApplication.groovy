@@ -22,13 +22,15 @@ devices; primarily various users on GitHub.com.
 				b.	Added automatic Update Device Date and Update Preferences on polling.
 					Method will check the app version.  If not current, will update data
 					based on the app version and update the app version.
-7.15	4.3.01	Minor changes for compatibility with new drivers.
+7.08	4.3.01	Minor changes for compatibility with new drivers.
 				a.	Added parameter for user to set autoIpUpdate to poll for IPs every hour.
 				b.	Added code to check for comms error before the IP update.  If no errors
 					the IP update will not run.
+7.09	4.3.02	Added error handling of add devices to present messaging stating that the
+				driver may not be installed.
 =============================================================================================*/
 def debugLog() { return false }
-def appVersion() { return "4.3.01" }
+def appVersion() { return "4.3.02" }
 import groovy.json.JsonSlurper
 
 definition(
@@ -234,17 +236,21 @@ def addDevices() {
 				deviceData["plugId"] = device.value.plugId
 			}
 			logDebug("addDevices: ${tpLinkModel["${deviceModel}"]} / ${device.value.DNI} / ${hubId} / ${device.value.alias} / ${deviceModel} / ${deviceData}")
-			addChildDevice(
-				"davegut",
-				tpLinkModel["${deviceModel}"],
-				device.value.DNI,
-				hubId, [
-					"label" : device.value.alias,
-					"name" : deviceModel,
-					"data" : deviceData
-                ]
-            )
-			logInfo("Installed TP-Link $deviceModel with alias ${device.value.alias}")
+			logInfo("Adding device: ${tpLinkModel["${deviceModel}"]} / ${device.value.alias}.")
+			try {
+				addChildDevice(
+					"davegut",
+					tpLinkModel["${deviceModel}"],
+					device.value.DNI,
+					hubId, [
+						"label" : device.value.alias,
+						"name" : deviceModel,
+						"data" : deviceData
+					]
+				)
+			} catch (error) {
+				logWarn("Failed to install ${device.value.alias}.  Driver ${tpLinkModel["${deviceModel}"]} most likely not installed.")
+			}
 		}
 	}
 }
