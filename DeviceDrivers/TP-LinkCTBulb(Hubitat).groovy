@@ -37,6 +37,7 @@ metadata {
 		capability "Color Temperature"
 		command "setCircadian"
 		attribute "circadianState", "string"
+		attribute "colorMode", "string"
 	}
 	preferences {
 		def refreshRate = [:]
@@ -81,7 +82,7 @@ def updated() {
 		default:
 			runEvery30Minutes(refresh)
 	}
-	logInfo("Refresh set for every ${refresh_rate} minute(s).")
+	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
 	state.transTime = 1000*transition_Time.toInteger()
 	if (!getDataValue("applicationVersion")) {
 		logInfo("Setting deviceIP for program.")
@@ -217,9 +218,9 @@ def updateBulbData(status) {
 		sendEvent(name: "circadianState", value: "normal")
 	} else {
 		sendEvent(name: "switch", value: "on")
-		sendEvent(name: "level", value: status.brightness)
+		sendEvent(name: "level", value: status.brightness, unit: "%")
 		sendEvent(name: "circadianState", value: status.mode)
-		sendEvent(name: "colorTemperature", value: status.color_temp)
+		sendEvent(name: "colorTemperature", value: status.color_temp, unit: "K")
 		logInfo("Power: on / Brightness: ${status.brightness}% / " +
 				 "Circadian State: ${status.mode} / Color Temp: " +
 				 "${status.color_temp}K")

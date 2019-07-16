@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.3
+TP-Link Device Driver, Version 4.3xxx
 
 	Copyright 2018, 2019 Dave Gutheinz
 
@@ -84,7 +84,7 @@ def updated() {
 		default:
 			runEvery30Minutes(refresh)
 	}
-	logInfo("Refresh set for every ${refresh_rate} minute(s).")
+	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
 	state.transTime = 1000*transition_Time.toInteger()
 	if (!getDataValue("applicationVersion")) {
 		logInfo("Setting deviceIP for program.")

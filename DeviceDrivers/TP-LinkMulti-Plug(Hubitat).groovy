@@ -75,7 +75,7 @@ def updated() {
 		default:
 			runEvery30Minutes(refresh)
 	}
-	logInfo("Refresh set for every ${refresh_rate} minute(s).")
+	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
 	if (!getDataValue("applicationVersion")) {
 		logInfo("Setting deviceIP for program.")
 		updateDataValue("deviceIP", device_IP)

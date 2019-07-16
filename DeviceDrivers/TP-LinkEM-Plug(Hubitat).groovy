@@ -23,8 +23,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				d.	Updated to match the TP-Link Engr Mon Multi-Plug reporting.
 				e.	Added Fast Polling as a driver-defined option. RECOMMENDATION:  DO NOT USE FAST POLLING.
 					For Energy Monitor devices, fast polling updates the energy usage, not the on/off status.
+7.16/19	4.3.02	a.	Corrected minor issues.
+				b.	Removed "Refresh Rate" Preference.  Added state.refreshInterval (default 15) to Install.
+				c.	Added command "Set Refresh Interval".  Used by user to set the refresh interval.  
 =======================================================================================================*/
-def driverVer() { return "4.3.01" }
+def driverVer() { return "4.3.02" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
@@ -36,17 +39,13 @@ metadata {
 		capability "Refresh"
 		capability "Power Meter"
 		capability "Energy Meter"
-		attribute "7DayConsumption", "number"
-		attribute "7DayAverage", "number"
-		attribute "30DayConsumption", "number"
-		attribute "30DayAverage", "number"
+		attribute "currMonthTotal", "number"
+		attribute "currMonthAvg", "number"
+		attribute "lastMonthTotal", "number"
+		attribute "lastMonthAvg", "number"
+		command "setRefreshInterval", ["1, 5, 10, 15, 30"]
 	}
 	preferences {
-		def refreshRate = [:]
-		refreshRate << ["1 min" : "Refresh every minute"]
-		refreshRate << ["5 min" : "Refresh every 5 minutes"]
-		refreshRate << ["15 min" : "Refresh every 15 minutes"]
-		refreshRate << ["30 min" : "Refresh every 30 minutes"]
 		def nameMaster  = [:]
 		nameMaster << ["none": "Don't synchronize"]
 		nameMaster << ["device" : "Kasa (device) alias master"]
@@ -54,8 +53,7 @@ metadata {
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})", defaultValue: "")
 		}
-		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate, defaultValue: "30 min")
-		input ("shortPoll", "bool", title: "Enable power fast polling of Power (NOT RECOMMENDED)", defaultValue: false)
+		input ("emEnabled", "bool", title: "Enable energy monitoring features", defaultValue: false)
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 		input ("nameSync", "enum", title: "Synchronize Names", options: nameMaster, defaultValue: "none")
@@ -64,6 +62,7 @@ metadata {
 
 def installed() {
 	log.info "Installing .."
+	if (!state.refreshInterval) { state.refreshInterval = "15" }
 	runIn(2, updated)
 }
 def updated() {
@@ -71,24 +70,11 @@ def updated() {
 	unschedule()
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
-	switch(refresh_Rate) {
-		case "1 min" :
-			runEvery1Minute(refresh)
-			break
-		case "5 min" :
-			runEvery5Minutes(refresh)
-			break
-		case "15 min" :
-			runEvery15Minutes(refresh)
-			break
-		default:
-			runEvery30Minutes(refresh)
-	}
-	logInfo("Refresh set for every ${refresh_rate} minute(s).")
 	if (!getDataValue("applicationVersion")) {
 		logInfo("Setting deviceIP for program.")
 		updateDataValue("deviceIP", device_IP)
 	}
+	setRefreshInterval(state.refreshInterval)
 	if (getDataValue("driverVersion") != driverVer()) { updateInstallData() }
 	if (getDataValue("deviceIP") && getDataValue("plugNo")) {
 		if (emEnabled == true) {
@@ -113,6 +99,30 @@ def updateInstallData() {
 	state.remove("commsErrorCount")
 	pauseExecution(1000)
 	state.remove("updated")
+}
+def setRefreshInterval(interval) {
+	logDebug("setRefreshInterval: interval = ${interval}")
+	unschedule(refresh)
+	interval = interval.toString()
+	state.refreshInterval = interval
+	switch(interval) {
+		case "1" :
+			runEvery1Minute(refresh)
+			break
+		case "5" :
+			runEvery5Minutes(refresh)
+			break
+		case "15" :
+			runEvery15Minutes(refresh)
+			break
+		case "30" :
+			runEvery30Minutes(refresh)
+			break
+		default:
+		logWarn("setRefreshInterval: Invalid Interval sent.")
+		return
+	}
+	logInfo("Refresh set for every ${interval} minute(s).")
 }
 def syncName() {
 	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
@@ -164,7 +174,7 @@ def refreshResponse(response) {
 		sendEvent(name: "switch", value: "${pwrState}")
 		logInfo("Power: ${pwrState}")
 	}
-	if (emEnabled == true) { runIn(1, getPower) }
+	if (emEnabled == true) { getPower() }
 }
 
 
@@ -184,10 +194,8 @@ def powerResponse(response) {
 	if(power == null) { power = 0 }
 	else if (scale == "power_mw") { power = power / 1000 }
 	power = Math.round(100*power)/100
-	if (power != device.currentValue("power")) {
-		sendEvent(name: "power", value: power)
-		logInfo("Power is ${power} Watts.")
-	}
+	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+	logInfo("Power is ${power} Watts.")
 	def year = new Date().format("YYYY").toInteger()
 	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""",
 			"setEngrToday")
@@ -208,10 +216,9 @@ def setEngrToday(response) {
 	energyData -= device.currentValue("currMonthTotal")
 	energyData = Math.round(100*energyData)/100
 	if (energyData != device.currentValue("energy")) {
-		sendEvent(name: "energy", value: energyData)
+		sendEvent(name: "energy", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
 		logInfo("Energy is ${energyData} kilowatt hours.")
 	}
-	if (shortPoll == true) { runIn(5, getPower) }
 }
 
 
@@ -242,8 +249,8 @@ def setThisMonth(response) {
 	}
 	energyData = Math.round(100*energyData)/100
 	avgEnergy = Math.round(100*avgEnergy)/100
-	sendEvent(name: "currMonthTotal", value: energyData)
-	sendEvent(name: "currMonthAvg", value: avgEnergy)
+	sendEvent(name: "currMonthTotal", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
+	sendEvent(name: "currMonthAvg", value: avgEnergy, descriptionText: "KiloWatt Hours per Day", unit: "KWH/D")
 	logInfo("This month's energy stats set to ${energyData} // ${avgEnergy}")
 	def year = new Date().format("YYYY").toInteger()
 	if (month == 1) { year = year -1 }
@@ -284,8 +291,8 @@ def setLastMonth(response) {
 	}
 	energyData = Math.round(100*energyData)/100
 	avgEnergy = Math.round(100*avgEnergy)/100
-	sendEvent(name: "lastMonthTotal", value: energyData)
-	sendEvent(name: "lastMonthAvg", value: avgEnergy)
+	sendEvent(name: "lastMonthTotal", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
+	sendEvent(name: "lastMonthAvg", value: avgEnergy, descriptionText: "KiloWatt Hoursper Day", unit: "KWH/D")
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
