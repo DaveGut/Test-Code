@@ -62,7 +62,6 @@ metadata {
 
 def installed() {
 	log.info "Installing .."
-	if (!state.refreshInterval) { state.refreshInterval = "15" }
 	runIn(2, updated)
 }
 def updated() {
@@ -74,7 +73,7 @@ def updated() {
 		logInfo("Setting deviceIP for program.")
 		updateDataValue("deviceIP", device_IP)
 	}
-	setRefreshInterval(state.refreshInterval)
+	if (!state.refreshInterval) { state.refreshInterval = "15" }
 	if (getDataValue("driverVersion") != driverVer()) { updateInstallData() }
 	if (getDataValue("deviceIP") && getDataValue("plugNo")) {
 		if (emEnabled == true) {
@@ -83,6 +82,7 @@ def updated() {
 			updateStats()
 		}
 		if (nameSync != "none") { syncName() }
+		setRefreshInterval(state.refreshInterval)
 		runIn(5, refresh)
 	}
 }
