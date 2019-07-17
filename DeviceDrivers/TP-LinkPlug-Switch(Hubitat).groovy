@@ -101,8 +101,7 @@ def updateInstallData() {
 def syncName() {
 	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
 	if (nameSync == "hub") {
-		def plugId = getDataValue("plugId")
-		sendCmd("""{"context":{"child_ids":["${plugId}"]},"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
+		sendCmd("""{"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
 	} else if (nameSync == "device") {
 		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
 	}
@@ -113,10 +112,9 @@ def nameSyncHub(response) {
 }
 def nameSyncDevice(response) {
 	def cmdResponse = parseInput(response)
-	def children = cmdResponse.system.get_sysinfo.children
-	def status = children.find { it.id == getDataValue("plugNo") }
-	device.setLabel(status.alias)
-	logInfo("Hubit name for device changed to ${status.alias}.")
+	def alias = cmdResponse.system.get_sysinfo.alias
+	device.setLabel(alias)
+	logInfo("Hubit name for device changed to ${alias}.")
 }
 
 

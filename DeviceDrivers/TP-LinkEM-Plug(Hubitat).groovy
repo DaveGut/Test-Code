@@ -23,11 +23,12 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				d.	Updated to match the TP-Link Engr Mon Multi-Plug reporting.
 				e.	Added Fast Polling as a driver-defined option. RECOMMENDATION:  DO NOT USE FAST POLLING.
 					For Energy Monitor devices, fast polling updates the energy usage, not the on/off status.
-7.16/19	4.3.02	a.	Corrected minor issues.
+7.17.19	4.3.03	a.	Corrected minor issues.
 				b.	Removed "Refresh Rate" Preference.  Added state.refreshInterval (default 15) to Install.
-				c.	Added command "Set Refresh Interval".  Used by user to set the refresh interval.  
+				c.	Added command "Set Refresh Interval".  Used by user to set the refresh interval.
+
 =======================================================================================================*/
-def driverVer() { return "4.3.02" }
+def driverVer() { return "4.3.03" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
@@ -62,6 +63,7 @@ metadata {
 
 def installed() {
 	log.info "Installing .."
+	if (!state.refreshInterval) { state.refreshInterval = "15" }
 	runIn(2, updated)
 }
 def updated() {
@@ -73,9 +75,8 @@ def updated() {
 		logInfo("Setting deviceIP for program.")
 		updateDataValue("deviceIP", device_IP)
 	}
-	if (!state.refreshInterval) { state.refreshInterval = "15" }
 	if (getDataValue("driverVersion") != driverVer()) { updateInstallData() }
-	if (getDataValue("deviceIP") && getDataValue("plugNo")) {
+	if (getDataValue("deviceIP")) {
 		if (emEnabled == true) {
 			logInfo("Scheduling nightly energy statistics update.")
 			schedule("0 01 0 * * ?", updateStats)
@@ -90,6 +91,7 @@ def updated() {
 def updateInstallData() {
 	logInfo("updateInstallData: Updating installation to driverVersion ${driverVer()}")
 	updateDataValue("driverVersion", driverVer())
+	if (!state.refreshInterval) { state.refreshInterval = "15" }
 	if (getDataValue("plugId")) { updateDataValue("plugId", null) }
 	if (getDataValue("plugNo")) { updateDataValue("plugNo", null) }
 	state.remove("multiPlugInstalled")
@@ -127,8 +129,7 @@ def setRefreshInterval(interval) {
 def syncName() {
 	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
 	if (nameSync == "hub") {
-		def plugId = getDataValue("plugId")
-		sendCmd("""{"context":{"child_ids":["${plugId}"]},"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
+		sendCmd("""{system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
 	} else if (nameSync == "device") {
 		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
 	}
@@ -139,10 +140,9 @@ def nameSyncHub(response) {
 }
 def nameSyncDevice(response) {
 	def cmdResponse = parseInput(response)
-	def children = cmdResponse.system.get_sysinfo.children
-	def status = children.find { it.id == getDataValue("plugNo") }
-	device.setLabel(status.alias)
-	logInfo("Hubit name for device changed to ${status.alias}.")
+	def alias = cmdResponse.system.get_sysinfo.alias
+	device.setLabel(alias)
+	logInfo("Hubit name for device changed to ${alias}.")
 }
 
 
