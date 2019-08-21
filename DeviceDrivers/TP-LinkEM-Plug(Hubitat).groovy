@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.3
+TP-Link Device Driver, Version 4.4
 
 	Copyright 2018, 2019 Dave Gutheinz
 
@@ -26,9 +26,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 7.17.19	4.3.03	a.	Corrected minor issues.
 				b.	Removed "Refresh Rate" Preference.  Added state.refreshInterval (default 15) to Install.
 				c.	Added command "Set Refresh Interval".  Used by user to set the refresh interval.
-
+8.21.19	4.4.01	a.	Added retry logic on command failure
 =======================================================================================================*/
-def driverVer() { return "4.3.03" }
+def driverVer() { return "4.4.01" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
@@ -105,24 +105,19 @@ def updateInstallData() {
 def setRefreshInterval(interval) {
 	logDebug("setRefreshInterval: interval = ${interval}")
 	unschedule(refresh)
-	interval = interval.toString()
-	state.refreshInterval = interval
 	switch(interval) {
-		case "1" :
+		case 1:
 			runEvery1Minute(refresh)
 			break
-		case "5" :
+		case 5:
 			runEvery5Minutes(refresh)
 			break
-		case "15" :
+		case 15:
 			runEvery15Minutes(refresh)
 			break
-		case "30" :
+		default :
 			runEvery30Minutes(refresh)
 			break
-		default:
-		logWarn("setRefreshInterval: Invalid Interval sent.")
-		return
 	}
 	logInfo("Refresh set for every ${interval} minute(s).")
 }
@@ -296,30 +291,45 @@ def setLastMonth(response) {
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
-
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	runIn(5, setCommsError)
+	retrySendCmd([retryCount: 0, command:  outputXOR(command), action: action])
+}
+
+def retrySendCmd(data) {
+	if (data.retryCount >= 5) {
+        logWarn("Message retry count exceeded")
+		setCommsError()
+		return
+	}
+	
+	if (data.retryCount > 0) {
+		logWarn("sendCmd failed, starting retry #${data.retryCount}")
+	}
+
+	data.retryCount++
+	runIn(2, retrySendCmd, [data: data])
+	
 	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
+		data.command,
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 4,
-		 callback: action])
+		 timeout: 1,
+		 callback: data.action])
 	sendHubCommand(myHubAction)
 }
 def parseInput(response) {
-	unschedule(setCommsError)
+	unschedule(retrySendCmd)
 	try {
 		def encrResponse = parseLanMessage(response).payload
 		def cmdResponse = parseJson(inputXOR(encrResponse))
 		logDebug("parseInput: cmdResponse = ${cmdResponse}")
 		return cmdResponse
 	} catch (error) {
-		logWarn "CommsError: Fragmented message returned from device."
+		logWarn "CommsError: Fragmented message returned from device: ${error}"
 	}
 }
 def setCommsError() {

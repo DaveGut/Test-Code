@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.3
+TP-Link Device Driver, Version 4.4
 	Copyright 2018, 2019 Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
@@ -18,8 +18,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
 				d.	Added Fast Polling as a driver-defined option. RECOMMENDATION:  DO NOT USE FAST POLLING.
 					For Switches, fast polling updates the on/off status of the device.
+8.21.19	4.4.01	a.	Added retry logic on command failure
 =======================================================================================================*/
-def driverVer() { return "4.3.01" }
+def driverVer() { return "4.4.01" }
 metadata {
 	definition (name: "TP-Link Plug-Switch",
     			namespace: "davegut",
@@ -32,10 +33,10 @@ metadata {
 	}
     preferences {
 		def refreshRate = [:]
-		refreshRate << ["1 min" : "Refresh every minute"]
-		refreshRate << ["5 min" : "Refresh every 5 minutes"]
-		refreshRate << ["15 min" : "Refresh every 15 minutes"]
-		refreshRate << ["30 min" : "Refresh every 30 minutes"]
+		refreshRate << ["1" : "Refresh every minute"]
+		refreshRate << ["5" : "Refresh every 5 minutes"]
+		refreshRate << ["15" : "Refresh every 15 minutes"]
+		refreshRate << ["30" : "Refresh every 30 minutes"]
 		def nameMaster  = [:]
 		nameMaster << ["none": "Don't synchronize"]
 		nameMaster << ["device" : "Kasa (device) alias master"]
@@ -43,7 +44,7 @@ metadata {
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 		}
-		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate, defaultValue: "30 min")
+		input ("refreshRate", "enum", title: "Device Refresh Rate", options: refreshRate, defaultValue: 30)
 		input ("shortPoll", "bool", title: "Enable on/off fast polling (NOT RECOMMENDED)", defaultValue: false)
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
@@ -60,20 +61,7 @@ def updated() {
 	unschedule()
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
-	switch(refresh_Rate) {
-		case "1 min" :
-			runEvery1Minute(refresh)
-			break
-		case "5 min" :
-			runEvery5Minutes(refresh)
-			break
-		case "15 min" :
-			runEvery15Minutes(refresh)
-			break
-		default:
-			runEvery30Minutes(refresh)
-	}
-	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
+	setRefreshInterval(refreshRate)
 	if (!getDataValue("applicationVersion")) {
 		logInfo("Setting deviceIP for program.")
 		updateDataValue("deviceIP", device_IP)
@@ -83,6 +71,26 @@ def updated() {
 		if (nameSync != "none") { syncName() }
 		runIn(2, refresh)
 	}
+}
+def setRefreshInterval(interval) {
+	logDebug("setRefreshInterval: interval = ${interval}")
+	unschedule(refresh)
+    interval = (interval ?: 30).toString()
+	switch(interval) {
+		case "1" :
+			runEvery1Minute(refresh)
+			break
+		case "5" :
+			runEvery5Minutes(refresh)
+			break
+		case "15" :
+			runEvery15Minutes(refresh)
+			break
+		default :
+			runEvery30Minutes(refresh)
+			break
+	}
+	logInfo("Refresh set for every ${interval} minute(s).")
 }
 //	Update methods called in updated
 def updateInstallData() {
@@ -149,30 +157,45 @@ def refreshResponse(response) {
 	if (shortPoll == true) { runIn(5, refresh) }
 }
 
-
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	runIn(5, setCommsError)
+	retrySendCmd([retryCount: 0, command:  outputXOR(command), action: action])
+}
+
+def retrySendCmd(data) {
+	if (data.retryCount >= 5) {
+        logWarn("Message retry count exceeded")
+		setCommsError()
+		return
+	}
+	
+	if (data.retryCount > 0) {
+		logWarn("sendCmd failed, starting retry #${data.retryCount}")
+	}
+
+	data.retryCount++
+	runIn(2, retrySendCmd, [data: data])
+	
 	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
+		data.command,
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 4,
-		 callback: action])
+		 timeout: 1,
+		 callback: data.action])
 	sendHubCommand(myHubAction)
 }
 def parseInput(response) {
-	unschedule(setCommsError)
+	unschedule(retrySendCmd)
 	try {
 		def encrResponse = parseLanMessage(response).payload
 		def cmdResponse = parseJson(inputXOR(encrResponse))
 		logDebug("parseInput: cmdResponse = ${cmdResponse}")
 		return cmdResponse
 	} catch (error) {
-		logWarn "CommsError: Fragmented message returned from device."
+		logWarn "CommsError: Fragmented message returned from device: ${error}"
 	}
 }
 def setCommsError() {

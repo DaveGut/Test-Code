@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.3
+TP-Link Device Driver, Version 4.4
 	Copyright 2018, 2019 Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
@@ -17,8 +17,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				b.	Added import ability for driver from the HE editor.
 				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
 				d.	Initial release of Engr Mon Multi-Plug driver
+8.21.19	4.4.01	a.	Added retry logic on command failure
 ================================================================================================*/
-def driverVer() { return "4.3.01" }
+def driverVer() { return "4.4.01" }
 metadata {
 	definition (name: "TP-Link Engr Mon Multi-Plug",
 				namespace: "davegut",
@@ -50,7 +51,7 @@ metadata {
 			input ("plug_No", "text", title: "Number of the plug (00, 01, 02, etc.)")
 		}
 		input ("emEnabled", "bool", title: "Enable energy monitoring features", defaultValue: false)
-		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate, defaultValue: 30)
+		input ("refreshRate", "enum", title: "Device Refresh Rate", options: refreshRate, defaultValue: 30)
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 		input ("nameSync", "enum", title: "Synchronize Names", options: nameMaster, defaultValue: "none")
@@ -67,7 +68,7 @@ def updated() {
 	unschedule()
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
-	setRefreshInterval(refresh_Rate)
+	setRefreshInterval(refreshRate)
 	if (!getDataValue("applicationVersion")) {
 		logInfo("Setting deviceIP for program.")
 		updateDataValue("deviceIP", device_IP)
@@ -92,7 +93,7 @@ def updated() {
 def setRefreshInterval(interval) {
 	logDebug("setRefreshInterval: interval = ${interval}")
 	unschedule(refresh)
-	interval = interval.toString()
+    interval = (interval ?: 30).toString()
 	switch(interval) {
 		case "1" :
 			runEvery1Minute(refresh)
@@ -103,12 +104,9 @@ def setRefreshInterval(interval) {
 		case "15" :
 			runEvery15Minutes(refresh)
 			break
-		case "30" :
+		default :
 			runEvery30Minutes(refresh)
 			break
-		default:
-		logWarn("setRefreshInterval: Invalid Interval sent.")
-		return
 	}
 	logInfo("Refresh set for every ${interval} minute(s).")
 }
@@ -310,26 +308,42 @@ def setLastMonth(response) {
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	runIn(5, setCommsError)
+	retrySendCmd([retryCount: 0, command: outputXOR(command), action: action])
+}
+
+def retrySendCmd(data) {
+	if (data.retryCount >= 5) {
+        logWarn("Message retry count exceeded")
+		setCommsError()
+		return
+	}
+	
+	if (data.retryCount > 0) {
+		logWarn("sendCmd failed, starting retry #${data.retryCount}")
+	}
+
+	data.retryCount++
+	runIn(2, retrySendCmd, [data: data])
+	
 	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
+		data.command,
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 4,
-		 callback: action])
+		 timeout: 1,
+		 callback: data.action])
 	sendHubCommand(myHubAction)
 }
 def parseInput(response) {
-	unschedule(setCommsError)
+	unschedule(retrySendCmd)
 	try {
 		def encrResponse = parseLanMessage(response).payload
 		def cmdResponse = parseJson(inputXOR(encrResponse))
 		logDebug("parseInput: cmdResponse = ${cmdResponse}")
 		return cmdResponse
 	} catch (error) {
-		logWarn "CommsError: Fragmented message returned from device."
+		logWarn "CommsError: Fragmented message returned from device: ${error}"
 	}
 }
 def setCommsError() {
