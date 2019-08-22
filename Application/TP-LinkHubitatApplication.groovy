@@ -1,5 +1,5 @@
 /*
-TP-Link Device Application, Version 4.2
+TP-Link Device Application, Version 4.3
 		Copyright 2018, 2019 Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file 
 except in compliance with the License. You may obtain a copy of the License at: 
@@ -9,30 +9,33 @@ License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF 
 either express or implied. See the License for the specific language governing permissions 
 and limitations under the License.
 
-DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or 
+DISCLAIMER:  This Applicaion and the associated Device Drivers are in not sanctioned nor 
 supported by TP-Link. All  development is based upon open-source data on the TP-Link 
-devices; primarily various users on GitHub.com.
+devices; primarily various users on GitHub.com as well as my own investigations.
 
 ===== History =====
 2019
-2.04	4.1.01.	Eliminated perodic IP polling. Users will update IP by running application 
+02.04	4.1.01.	Eliminated perodic IP polling. Users will update IP by running application 
 				when needed.
-3.28	4.2.01.	a.	Removed any method that will automatically poll for devices.  Polling
+03.28	4.2.01.	a.	Removed any method that will automatically poll for devices.  Polling
 					is now limited to when the user starts the application.
 				b.	Added automatic Update Device Date and Update Preferences on polling.
 					Method will check the app version.  If not current, will update data
 					based on the app version and update the app version.
-7.08	4.3.01	Minor changes for compatibility with new drivers.
+07.08	4.3.01	Minor changes for compatibility with new drivers.
 				a.	Added parameter for user to set autoIpUpdate to poll for IPs every hour.
 				b.	Added code to check for comms error before the IP update.  If no errors
 					the IP update will not run.
-7.09	4.3.02	Added error handling of add devices to present messaging stating that the
+07.09	4.3.02	Added error handling of add devices to present messaging stating that the
 				driver may not be installed.
+07.31	4.4.01	Added menu ites for Kasa Tools and Update Device IPs.  Kasa Tools include:
+				a.	Poll for devices for use when the device is not reachable.
+				d.	Set user option for a once-per-hour IP refresh (not recommended).
+				e.	Added user-selectable debug logging (default false).
+				f.	Added user-selectable info logging (default true).
 =============================================================================================*/
-def debugLog() { return false }
-def appVersion() { return "4.3.02" }
+def appVersion() { return "4.4.01" }
 import groovy.json.JsonSlurper
-
 definition(
 	name: "TP-Link Integration",
 	namespace: "davegut",
@@ -41,42 +44,83 @@ definition(
 	category: "Convenience",
 	iconUrl: "",
 	iconX2Url: "",
-	iconX3Url: "",
 	singleInstance: true,
 	importUrl: "https://github.com/DaveGut/Hubitat-TP-Link-Integration/blob/master/Application/TP-LinkHubitatApplication.groovy"
 	)
-
 preferences {
 	page(name: "mainPage")
 	page(name: "addDevicesPage")
+	page(name: "updateIpsPage")
 }
+def setInitialStates() {
+	logDebug("setInitialStates")
+	if (!automaticIpPolling) {
+		app?.updateSetting("automaticIpPolling", [type:"bool", value: false])
+	}
+	if (!debugLog) {
+		app?.updateSetting("debugLog", [type:"bool", value: false])
+	}
+	if (!infoLog) {
+		app?.updateSetting("infoLog", [type:"bool", value: true])
+	}
+	app?.removeSetting("selectedAddDevices")
+}
+def installed() {
+	state.devices = [:]
+	initialize()
+}
+def updated() { initialize() }
+def initialize() {
+	logDebug("initialize")
+	unschedule()
+	if (selectedAddDevices) { addDevices() }
+	if (automaticIpPolling == true) { runEvery1Hour(updateDevices) }
+}
+def updateDevices() { findDevices(1100) }
 
-//	Page definitions
+
+//	=====	Main Page	=====
 def mainPage() {
 	logDebug("mainPage")
 	setInitialStates()
-	app?.removeSetting("selectedDevices")
-	discoverDevices()
 	return dynamicPage(name:"mainPage",
-		title:"TP-Link/Kasa Device Manager",
+		title:"<b>Kasa Device Manager</b>",
 		uninstall: true,
 		install: true) {
 		section() {
-			"The app will first poll for TP-Link Devices.  This can up to 2 minutes.  During this " +
-			"time, the Hubitat resources for UDP communications are stressed.  Hubitat performance " +
-			"may be impacted for up to 5 minutes (while the UDP resources are released).\n\n"
-			"Notes:\n"
-			"a. After running, Hubitat resources will be fully released.  There should be no performance impact./n"
-			"b. This application does NOT run unless initiated by user./n"
-			"c. To update IPs, run this application at any time then press DONE after polling completes./b"
-			"d. It is STRONGLY recommended that you set up STATIC IP addresses for the TP-Link devices in your router."
+			href "addDevicesPage",
+				title: "<b>Install Kasa Devices</b>",
+				description: "Gets device information. Then offers new devices for install.\n" +
+							 "It may take several minutes for the next page to load."
+			if (app.getAllChildDevices()) {
+				href "updateIpsPage",
+					title: "<b>Update the Hubitat IPs Definitions</b>",
+					description: "Updates Device IPs. For use if devices are not responding in Hubitat.\n" +
+								 "It may take several minutes for the next page to load."
+			}
+			input ("infoLog", "bool",
+				   required: false,
+				   submitOnChange: true,
+				   title: "Enable Application Info Logging")
+			input ("debugLog", "bool",
+				   required: false,
+				   submitOnChange: true,
+				   title: "Enable Application Debug Logging")
+			paragraph "<b>Recommendation:  Set Static IP Address in your WiFi router for Kasa Devices. " +
+				"The polling option takes significant system resources while running.</b>"
+			input ("automaticIpPolling", "bool",
+				   required: false,
+				   submitOnChange: true,
+				   title: "Start (true) / Stop (false) Hourly IP Polling",
+				   description: "Not Recommended.")
 		}
-		section() {
-        	href "addDevicesPage", title: "Install Kasa Devices", description: "Go to Install Devices"
-        }
-	}		
+	}
 }
+
+
+//	=====	Add Devices	=====
 def addDevicesPage() {
+	findDevices(100)
     def devices = state.devices
 	def newDevices = [:]
 	devices.each {
@@ -87,99 +131,20 @@ def addDevicesPage() {
 	}
 	logDebug("addDevicesPage: newDevices = ${newDevices}")
 	return dynamicPage(name:"addDevicesPage",
-		title:"Add TP-Link/Kasa Devices to Hubitat",
+		title:"<b>Add Kasa Devices to Hubitat</b>",
 		install: true) {
 	 	section() {
-			input ("selectedDevices", "enum",
-				   required: true,
+			input ("selectedAddDevices", "enum",
+				   required: false,
 				   multiple: true,
 				   title: "Devices to add (${newDevices.size() ?: 0} available)",
-				   description: "Add Devices",
+				   description: "Use the dropdown to select devices to add.  Then select 'Done'.",
 				   options: newDevices)
 		}
 	}
 }
-
-
-//	Poll for devices, collect device data
-def discoverDevices() {
-	def hub
-	try { hub = location.hubs[0] }
-	catch (error) { 
-		logWarn "Hub not detected.  You must have a hub to install this app."
-		return
-	}
-	def hubIpArray = hub.localIP.split('\\.')
-	def networkPrefix = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
-	logInfo("discoverDevices: IP Segment = ${networkPrefix}, poll interal = ${pause}")
-	for(int i = 2; i < 255; i++) {
-		def deviceIP = "${networkPrefix}.${i.toString()}"
-		sendCmd(deviceIP, "parseDevices")
-		pauseExecution(100)
-	}
-	pauseExecution(2000)
-}
-private sendCmd(ip, action) {
-	def myHubAction = new hubitat.device.HubAction(
-		"d0f281f88bff9af7d5f5cfb496f194e0bfccb5c6afc1a7c8eacaf08bf68bf6", 	//	Encrypted command
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${ip}:9999",
-		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 1,
-		 callback: action])
-	sendHubCommand(myHubAction)
-}
-def parseDevices(response) {
-	def resp = parseLanMessage(response.description)
-	def parser = new JsonSlurper()
-	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
-	logDebug("parseDevices: cmdResp = ${cmdResp}")
-	if (cmdResp.system) {
-		def dni = cmdResp.system.ethernet_mac.replace(/:/, "")
-		updateDevices(dni, cmdResp.system.model.substring(0,5), convertHexToIP(resp.ip), cmdResp.system.alias)
-	} else if (cmdResp.mic_mac) {
-		model = cmdResp.model.substring(0,5)
-		updateDevices(cmdResp.mic_mac, cmdResp.model.substring(0,5), convertHexToIP(resp.ip), cmdResp.alias)
-	} else {
-		def dni = cmdResp.mac.replace(/:/, "")
-		if (cmdResp.children) {
-			def totPlugs = cmdResp.child_num
-			def children = cmdResp.children
-			for (def i = 0; i < totPlugs; i++) {
-				plugNo = children[i].id
-				def plugDNI = "${dni}${plugNo}"
-				plugId = "${cmdResp.deviceId}${plugNo}"
-				updateDevices(plugDNI, cmdResp.model.substring(0,5), convertHexToIP(resp.ip), children[i].alias, plugNo, plugId)
-			}
-		} else {
-			updateDevices(dni, cmdResp.model.substring(0,5), convertHexToIP(resp.ip), cmdResp.alias)
-		}
-	}
-}
-def updateDevices(dni, model, ip, alias, plugNo = null, plugId = null) {
-	logInfo("updateDevices: DNI = ${dni}, model = ${model}, ip = ${ip}, alias = ${alias}, plugNo = ${plugNo}, plugId = ${plugId}")
-	if (model == "RE270" || model == "RE370") { return }
-	def devices = state.devices
-	def device = [:]
-	device["DNI"] = dni
-	device["IP"] = ip
-	device["alias"] = alias
-	device["model"] = model
-	if (plugNo) {
-		device["plugNo"] = plugNo
-		device["plugId"] = plugId
-	}
-	devices << ["${dni}" : device]
-	def isChild = getChildDevice(dni)
-	if (isChild) {
-		isChild.updateDataValue("deviceIP", ip)
-	}
-}
-
-
 def addDevices() {
-	logDebug("addDevices:  Devices = ${state.devices}")
+	logDebug("addDevices: ${selectedAddDevices}")
 	def tpLinkModel = [:]
 	//	Plug-Switch Devices (no energy monitor capability)
 	tpLinkModel << ["HS100" : "TP-Link Plug-Switch"]
@@ -189,8 +154,8 @@ def addDevices() {
 	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
 	//	WiFi Range Extender with smart plug.
-//	tpLinkModel << ["RE270" : "TP-Link RE Plug"]
-//	tpLinkModel << ["RE370" : "TP-Link RE Plug"]
+	tpLinkModel << ["RE270" : "TP-Link RE Plug"]
+	tpLinkModel << ["RE370" : "TP-Link RE Plug"]
 	//	Miltiple Outlet Plug
 	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
 	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
@@ -223,7 +188,7 @@ def addDevices() {
 		return
 	}
 	def hubId = hub.id
-	selectedDevices.each { dni ->
+	selectedAddDevices.each { dni ->
 		def isChild = getChildDevice(dni)
 		if (!isChild) {
 			def device = state.devices.find { it.value.DNI == dni }
@@ -256,31 +221,111 @@ def addDevices() {
 }
 
 
-//	Install and Initialization methods
-def setInitialStates() {
-	logDebug("setInitialStates")
-	if (!state.devices) { state.devices = [:] }
-	if (!state.commsError) { state.commsError = false }
-	if (!state.updateRequired) { state.updateRequired = false }
-}
-def installed() { initialize() }
-def updated() { initialize() }
-def initialize() {
-	logDebug("initialize")
-	unsubscribe()
-	unschedule()
-	if (selectedDevices) {
-		addDevices()
+//	=====	Update Device IPs	=====
+def updateIpsPage() {
+	logDebug("updateIpsPage")
+	findDevices(100)
+	pauseExecution(2000)
+    def devices = state.devices
+	def foundDevices = "<b>Found Devices (Alias || DNI || IP || Installed):</b>"
+	def count = 1
+	devices.each {
+		def installed = false
+		if (getChildDevice(it.value.DNI)) { installed = true }
+		foundDevices += "\n${count}:\t${it.value.alias} || ${it.value.DNI} || ${it.value.IP} || ${installed}"
+		count += 1
+	}
+	return dynamicPage(name:"updateIpsPage",
+		title:"<b>IP Update Complete</b>",
+		install: false) {
+	 	section() {
+			paragraph "The appliation has searched and found the below devices. If any are " +
+				"missing, there may be a problem with the device.\n${foundDevices}\n" +
+				"<b>RECOMMENDATION: Set Static IP Address in your WiFi router for Kasa Devices.</b>"
+		}
 	}
 }
-def uninstalled() {
-    getAllChildDevices().each { 
-        deleteChildDevice(it.deviceNetworkId)
-    }
+
+
+//	=====	Generate Device Data	=====
+def parseDeviceData(response) {
+	def resp = parseLanMessage(response.description)
+	def parser = new JsonSlurper()
+	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
+	logDebug("parseDeviceData: <b>${convertHexToIP(resp.ip)}</b> cmdResp = ${cmdResp}")
+	def type
+	if (cmdResp.mic_type) { type = cmdResp.mic_type }
+	else { type = cmdResp.type }
+	def model
+	if (cmdResp.system) { model = cmdResp.system.model.substring(0,5) }
+	else { model = cmdResp.model.substring(0,5) }
+	def dni = cmdResp.mic_mac
+	if (cmdResp.mic_type != "IOT.SMARTBULB") {
+		dni = cmdResp.mac.replace(/:/, "")
+	}
+
+	if (cmdResp.children) {
+		def totPlugs = cmdResp.child_num
+		def children = cmdResp.children
+		for (def i = 0; i < totPlugs; i++) {
+			addData("${resp.mac}${children[i].id}", model, convertHexToIP(resp.ip), 
+					children[i].alias, type, children[i].id, "${cmdResp.deviceId}${children[i].id}")
+		}
+	} else {
+		addData(dni, model, convertHexToIP(resp.ip), cmdResp.alias, type)
+	}
+}
+def addData(dni, model, ip, alias, type, plugNo = null, plugId = null) {
+	logInfo("addData: DNI = ${dni}, model = ${model}, ip = ${ip}, alias = ${alias}, type = ${type}, plugNo = ${plugNo}, plugId = ${plugId}")
+	if (model == "RE270" || model == "RE370") { return }
+	def device = [:]
+	device["DNI"] = dni
+	device["IP"] = ip
+	device["alias"] = alias
+	device["model"] = model
+	device["type"] = type
+	if (plugNo) {
+		device["plugNo"] = plugNo
+		device["plugId"] = plugId
+	}
+	state.devices << ["${dni}" : device]
+	def isChild = getChildDevice(dni)
+	if (isChild) {
+		isChild.updateDataValue("deviceIP", ip)
+	}		
 }
 
 
-//	Utility methods
+//	=====	Device Communications	=====
+def findDevices(pollInterval) {
+	state.devices = [:]
+	def hub
+	try { hub = location.hubs[0] }
+	catch (error) { 
+		logWarn "Hub not detected.  You must have a hub to install this app."
+		return
+	}
+	def hubIpArray = hub.localIP.split('\\.')
+	def networkPrefix = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
+	logInfo("findDevices: IP Segment = ${networkPrefix}")
+	for(int i = 2; i < 254; i++) {
+		def deviceIP = "${networkPrefix}.${i.toString()}"
+		sendPoll(deviceIP, "parseDeviceData")
+		pauseExecution(pollInterval)
+	}
+	pauseExecution(2000)
+}
+private sendPoll(ip, action) {
+	def myHubAction = new hubitat.device.HubAction(
+		"d0f281f88bff9af7d5f5cfb496f194e0bfccb5c6afc1a7c8eacaf08bf68bf6", 	//	Encrypted command
+		hubitat.device.Protocol.LAN,
+		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
+		 destinationAddress: "${ip}:9999",
+		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
+		 timeout: 1,
+		 callback: action])
+	sendHubCommand(myHubAction)
+}
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -306,14 +351,24 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
+
+
+//	Utility methods
+def uninstalled() {
+    getAllChildDevices().each { 
+        deleteChildDevice(it.deviceNetworkId)
+    }
+}
 private String convertHexToIP(hex) {
 	[convertHexToInt(hex[0..1]),convertHexToInt(hex[2..3]),convertHexToInt(hex[4..5]),convertHexToInt(hex[6..7])].join(".")
 }
 private Integer convertHexToInt(hex) { Integer.parseInt(hex,16) }
 def logDebug(msg){
-	if(debugLog() == true) { log.debug "${appVersion()} ${msg}" }
+	if(debugLog == true) { log.debug "${appVersion()} ${msg}" }
 }
-def logInfo(msg) { log.info "${appVersion()} ${msg}" }
+def logInfo(msg){
+	if(infoLog == true) { log.info "${appVersion()} ${msg}" }
+}
 def logWarn(msg) { log.warn "${appVersion()} ${msg}" }
 
 //	end-of-file
