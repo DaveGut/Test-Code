@@ -20,13 +20,15 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 7.01.19	4.3.01	a.	Updated communications architecture, reducing required logic (and error potentials).
 				b.	Added import ability for driver from the HE editor.
 				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
+8.25.19	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
+				attempt up to 5 retransmits.
 ================================================================================================*/
 def driverVer() { return "4.3.01" }
 metadata {
 	definition (name: "TP-Link Color Bulb",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://github.com/DaveGut/Hubitat-TP-Link-Integration/blob/master/DeviceDrivers/TP-LinkColorBulb(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkColorBulb(Hubitat).groovy"
 			   ) {
         capability "Light"
 		capability "Switch"
@@ -39,6 +41,7 @@ metadata {
 		attribute "circadianState", "string"
 		capability "Color Control"
 		capability "Color Mode"
+		attribute "commsError", "bool"
 	}
 	preferences {
 		def refreshRate = [:]
@@ -125,7 +128,7 @@ def nameSyncDevice(response) {
 	def cmdResponse = parseInput(response)
 	def alias = cmdResponse.system.get_sysinfo.alias
 	device.setLabel(alias)
-	logInfo("Hubit name for device changed to ${status.alias}.")
+	logInfo("Hubit name for device changed to ${alias}.")
 }
 
 
@@ -330,33 +333,42 @@ def setRgbData(hue, saturation){
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	runIn(5, setCommsError)
+	state.lastCommand = command
+	state.lastAction = action
+	runIn(3, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 4,
+		 timeout: 3,
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
 def parseInput(response) {
 	unschedule(setCommsError)
+	state.errorCount = 0
+	sendEvent(name: "commsError", value: false)
 	try {
 		def encrResponse = parseLanMessage(response).payload
 		def cmdResponse = parseJson(inputXOR(encrResponse))
-		logDebug("parseInput: cmdResponse = ${cmdResponse}")
 		return cmdResponse
 	} catch (error) {
 		logWarn "CommsError: Fragmented message returned from device."
 	}
 }
 def setCommsError() {
-	sendEvent(name: "switch", value: "OFFLINE",descriptionText: "No response from device.")
-	state.previousStatus = "OFFLINE"
-	logWarn "CommsError: No response from device.  Device set to offline.  Refresh.  If off line " +
-			"persists, check IP address of device."
+	logDebug("setCommsError")
+	if (state.errorCount < 5) {
+		state.errorCount+= 1
+		sendCmd(state.lastCommand, state.lastAction)
+		logWarn("Attempt ${state.errorCount} to recover communications")
+	} else {
+		sendEvent(name: "commsError", value: true)
+		logWarn "CommsError: No response from device.  Refresh.  If off line " +
+				"persists, check IP address of device."
+	}
 }
 
 

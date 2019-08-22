@@ -23,17 +23,19 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				d.	Updated to match the TP-Link Engr Mon Multi-Plug reporting.
 				e.	Added Fast Polling as a driver-defined option. RECOMMENDATION:  DO NOT USE FAST POLLING.
 					For Energy Monitor devices, fast polling updates the energy usage, not the on/off status.
-7.17.19	4.3.03	a.	Corrected minor issues.
+7.17.19	4.3.01	a.	Corrected minor issues.
 				b.	Removed "Refresh Rate" Preference.  Added state.refreshInterval (default 15) to Install.
 				c.	Added command "Set Refresh Interval".  Used by user to set the refresh interval.
-
+7.22.19	4.3.01	Modified on/off methods to include get_sysinfo, reducing messages by 1.
+8.25.19	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
+				attempt up to 5 retransmits.
 =======================================================================================================*/
-def driverVer() { return "4.3.03" }
+def driverVer() { return "4.3.04" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
                 author: "Dave Gutheinz",
-				importUrl: "https://github.com/DaveGut/Hubitat-TP-Link-Integration/blob/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
 			   ) {
 		capability "Switch"
         capability "Actuator"
@@ -45,6 +47,7 @@ metadata {
 		attribute "lastMonthTotal", "number"
 		attribute "lastMonthAvg", "number"
 		command "setRefreshInterval", ["1, 5, 10, 15, 30"]
+		attribute "commsError", "bool"
 	}
 	preferences {
 		def nameMaster  = [:]
@@ -149,22 +152,17 @@ def nameSyncDevice(response) {
 //	Device Commands
 def on() {
 	logDebug("on")
-	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""", "commandResponse")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}},"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
 def off() {
 	logDebug("off")
-	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""", "commandResponse")
+	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}},"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
 def refresh() {
 	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "refreshResponse")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
-//	Device command parsing methods
 def commandResponse(response) {
-	logDebug("commandResponse")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "refreshResponse")
-}
-def refreshResponse(response) {
 	def cmdResponse = parseInput(response)
 	def status = cmdResponse.system.get_sysinfo
 	logDebug("refreshResponse: status = ${status}")
@@ -174,7 +172,7 @@ def refreshResponse(response) {
 		sendEvent(name: "switch", value: "${pwrState}")
 		logInfo("Power: ${pwrState}")
 	}
-	if (emEnabled == true) { getPower() }
+	if (shortPoll == true) { runIn(5, refresh) }
 }
 
 
@@ -300,32 +298,42 @@ def setLastMonth(response) {
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	runIn(5, setCommsError)
+	state.lastCommand = command
+	state.lastAction = action
+	runIn(3, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 4,
+		 timeout: 3,
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
 def parseInput(response) {
 	unschedule(setCommsError)
+	state.errorCount = 0
+	sendEvent(name: "commsError", value: false)
 	try {
 		def encrResponse = parseLanMessage(response).payload
 		def cmdResponse = parseJson(inputXOR(encrResponse))
-		logDebug("parseInput: cmdResponse = ${cmdResponse}")
 		return cmdResponse
 	} catch (error) {
 		logWarn "CommsError: Fragmented message returned from device."
 	}
 }
 def setCommsError() {
-	sendEvent(name: "switch", value: "OFFLINE",descriptionText: "No response from device.")
-	logWarn "CommsError: No response from device.  Device set to offline.  Refresh.  If off line " +
-			"persists, check IP address of device."
+	logDebug("setCommsError")
+	if (state.errorCount < 5) {
+		state.errorCount+= 1
+		sendCmd(state.lastCommand, state.lastAction)
+		logWarn("Attempt ${state.errorCount} to recover communications")
+	} else {
+		sendEvent(name: "commsError", value: true)
+		logWarn "CommsError: No response from device.  Refresh.  If off line " +
+				"persists, check IP address of device."
+	}
 }
 
 

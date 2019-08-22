@@ -18,6 +18,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
 				d.	Added Fast Polling as a driver-defined option. RECOMMENDATION:  DO NOT USE FAST POLLING.
 					For Switches, fast polling updates the on/off status of the device.
+7.22.19	4.3.02	Modified on/off methods to include get_sysinfo, reducing messages by 1.
+8.25.19	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
+				attempt up to 5 retransmits.
 =======================================================================================================*/
 def driverVer() { return "4.3.01" }
 metadata {
@@ -29,6 +32,7 @@ metadata {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
+		attribute "commsError", "bool"
 	}
     preferences {
 		def refreshRate = [:]
@@ -84,8 +88,8 @@ def updated() {
 		runIn(2, refresh)
 	}
 }
-//	Update methods called in updated
 def updateInstallData() {
+//	Update data from previous versions
 	logInfo("updateInstallData: Updating installation to driverVersion ${driverVer()}")
 	updateDataValue("driverVersion", driverVer())
 	if (getDataValue("plugId")) { updateDataValue("plugId", null) }
@@ -121,25 +125,20 @@ def nameSyncDevice(response) {
 //	Device Commands
 def on() {
 	logDebug("on")
-	sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}}}""", "commandResponse")
+	sendCmd("""{"system":{"set_relay_state" :{"state":1}},"system":{"get_sysinfo":{}}}""", "commandResponse")
 }
 def off() {
 	logDebug("off")
-	sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}}}""", "commandResponse")
+	sendCmd("""{"system":{"set_relay_state":{"state" :0}},"system":{"get_sysinfo":{}}}""", "commandResponse")
 }
 def refresh() {
 	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "refreshResponse")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
-//	Device command parsing methods
 def commandResponse(response) {
-	logDebug("commandResponse")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "refreshResponse")
-}
-def refreshResponse(response) {
 	def cmdResponse = parseInput(response)
 	def status = cmdResponse.system.get_sysinfo
-	logDebug("refreshResponse: status = ${status}")
+	logDebug("commandResponse: status = ${status}")
 	def pwrState = "off"
 	if (status.relay_state == 1) { pwrState = "on" }
 	if (device.currentValue("switch") != pwrState) {
@@ -153,32 +152,42 @@ def refreshResponse(response) {
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	runIn(5, setCommsError)
+	state.lastCommand = command
+	state.lastAction = action
+	runIn(3, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 4,
+		 timeout: 3,
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
 def parseInput(response) {
 	unschedule(setCommsError)
+	state.errorCount = 0
+	sendEvent(name: "commsError", value: false)
 	try {
 		def encrResponse = parseLanMessage(response).payload
 		def cmdResponse = parseJson(inputXOR(encrResponse))
-		logDebug("parseInput: cmdResponse = ${cmdResponse}")
 		return cmdResponse
 	} catch (error) {
 		logWarn "CommsError: Fragmented message returned from device."
 	}
 }
 def setCommsError() {
-	sendEvent(name: "switch", value: "OFFLINE",descriptionText: "No response from device.")
-	logWarn "CommsError: No response from device.  Device set to offline.  Refresh.  If off line " +
-			"persists, check IP address of device."
+	logDebug("setCommsError")
+	if (state.errorCount < 5) {
+		state.errorCount+= 1
+		sendCmd(state.lastCommand, state.lastAction)
+		logWarn("Attempt ${state.errorCount} to recover communications")
+	} else {
+		sendEvent(name: "commsError", value: true)
+		logWarn "CommsError: No response from device.  Refresh.  If off line " +
+				"persists, check IP address of device."
+	}
 }
 
 
