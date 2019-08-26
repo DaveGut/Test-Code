@@ -33,7 +33,7 @@ devices; primarily various users on GitHub.com as well as my own investigations.
 				d.	Set user option for a once-per-hour IP refresh (not recommended).
 				e.	Added user-selectable debug logging (default false).
 				f.	Added user-selectable info logging (default true).
-aaa=============================================================================================*/
+=============================================================================================*/
 def appVersion() { return "4.4.01" }
 import groovy.json.JsonSlurper
 definition(
