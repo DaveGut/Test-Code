@@ -30,7 +30,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 8.25.19	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
 				attempt up to 5 retransmits.
 =======================================================================================================*/
-def driverVer() { return "4.3.04" }
+def driverVer() { return "4.3.05" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
     			namespace: "davegut",
@@ -161,6 +161,7 @@ def off() {
 def refresh() {
 	logDebug("refresh")
 	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
+	if (emEnabled == true) { runIn(2, getPower) }
 }
 def commandResponse(response) {
 	def cmdResponse = parseInput(response)
