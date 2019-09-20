@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.3
+TP-Link Device Driver, Version 4.4
 
 	Copyright 2018, 2019 Dave Gutheinz
 
@@ -22,8 +22,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
 8.25.19	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
 				attempt up to 5 retransmits.
+9.21.19	4.4.01	Added link to Application that will check/update IPs if the communications fail.
 ================================================================================================*/
-def driverVer() { return "4.3.01" }
+def driverVer() { return "4.4.01" }
 metadata {
 	definition (name: "TP-Link Soft White Bulb", 
     			namespace: "davegut", 
@@ -39,23 +40,19 @@ metadata {
 		attribute "commsError", "bool"
 	}
 	preferences {
-		def refreshRate = [:]
-		refreshRate << ["1" : "Refresh every minute"]
-		refreshRate << ["5" : "Refresh every 5 minutes"]
-		refreshRate << ["15" : "Refresh every 15 minutes"]
-		refreshRate << ["30" : "Refresh every 30 minutes"]
-		def nameMaster  = [:]
-		nameMaster << ["none": "Don't synchronize"]
-		nameMaster << ["device" : "Kasa (device) alias master"]
-		nameMaster << ["hub" : "Hubitat label master"]
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 		}
-		input ("refresh_Rate", "enum", title: "Device Refresh Rate", options: refreshRate, defaultValue: "30 min")
 		input ("transition_Time", "num", title: "Default Transition time (seconds)", defaultValue: 0)
+    	input ("highRes", "bool", title: "High Resolution Hue Scale", defaultValue: false)
+		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
+			   options: ["1", "5", "15", "30"], defaultValue: "30")
+		input ("nameSync", "enum", title: "Synchronize Names", defaultValue: "none",
+			   options: ["none": "Don't synchronize",
+						 "device" : "Kasa device name master", 
+						 "hub" : "Hubitat label master"])
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
-		input ("nameSync", "enum", title: "Synchronize Names", options: nameMaster, defaultValue: "none")
 	}
 }
 
@@ -63,37 +60,42 @@ def installed() {
 	log.info "Installing .."
 	runIn(2, updated)
 }
+
 def updated() {
 	log.info "Updating .."
 	unschedule()
-	logInfo("Debug logging is ${debug}.")
-	logInfo("Description text logging is ${descriptionText}.")
-	switch(refresh_Rate) {
-		case "1 min" :
-			runEvery1Minute(refresh)
-			break
-		case "5 min" :
-			runEvery5Minutes(refresh)
-			break
-		case "15 min" :
-			runEvery15Minutes(refresh)
-			break
-		default:
-			runEvery30Minutes(refresh)
-	}
-	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
-	state.transTime = 1000*transition_Time.toInteger()
+
 	if (!getDataValue("applicationVersion")) {
-		logInfo("Setting deviceIP for program.")
+		if (!device_IP) {
+			logWarn("updated:  deviceIP  is not set.")
+			return
+		}
 		updateDataValue("deviceIP", device_IP)
+		logInfo("Device IP set to ${getDataValue("deviceIP")}")
 	}
-	if (getDataValue("driverVersion") != driverVer()) { updateInstallData() }
-	if (getDataValue("deviceIP")) {
-		if (nameSync != "none") { syncName() }
-		runIn(2, refresh)
+	if (getDataValue("driverVersion") != driverVer()) {
+		updateInstallData()
+		updateDataValue("driverVersion", driverVer())
 	}
+
+	switch(refresh_Rate) {
+		case "1" : runEvery1Minute(refresh); break
+		case "5" : runEvery5Minutes(refresh); break
+		case "15" : runEvery15Minutes(refresh); break
+		default: runEvery30Minutes(refresh)
+	}
+	state.transTime = 1000*transition_Time.toInteger()
+	state.errorCount = 0
+
+	logInfo("Debug logging is: ${debug}.")
+	logInfo("Description text logging is ${descriptionText}.")
+	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
+	logInfo("ShortPoll set for ${shortPoll}")
+
+	if (nameSync == "device" || nameSync == "hub") { runIn(5, syncName) }
+	refresh()
 }
-//	Update methods called in updated
+
 def updateInstallData() {
 	logInfo("updateInstallData: Updating installation to driverVersion ${driverVer()}")
 	updateDataValue("driverVersion", driverVer())
@@ -106,24 +108,6 @@ def updateInstallData() {
 	pauseExecution(1000)
 	state.remove("updated")
 }
-def syncName() {
-	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
-	if (nameSync == "hub") {
-		sendCmd("""{"smartlife.iot.common.system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
-	} else if (nameSync == "device") {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
-	}
-}
-def nameSyncHub(response) {
-	def cmdResponse = parseInput(response)
-	logInfo("Setting deviceIP for program.")
-}
-def nameSyncDevice(response) {
-	def cmdResponse = parseInput(response)
-	def alias = cmdResponse.system.get_sysinfo.alias
-	device.setLabel(alias)
-	logInfo("Hubit name for device changed to ${status.alias}.")
-}
 
 
 //	Device Commands
@@ -131,14 +115,17 @@ def on() {
 	logDebug("On: transition time = ${state.transTime}")
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${state.transTime}}}}""", "commandResponse")
 }
+
 def off() {
 	logDebug("Off: transition time = ${state.transTime}")
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${state.transTime}}}}""", "commandResponse")
 }
+
 def setLevel(percentage) {
 	logDebug("setLevel(x): transition time = ${state.transTime}")
 	setLevel(percentage, state.transTime)
 }
+
 def setLevel(percentage, rate) {
 	logDebug("setLevel(x,x): rate = ${rate} // percentage = ${percentage}")
 	if (percentage < 0 || percentage > 100) {
@@ -148,6 +135,7 @@ def setLevel(percentage, rate) {
 	percentage = percentage.toInteger()
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${rate}}}}""", "commandResponse")
 }
+
 def startLevelChange(direction) {
 	logDebug("startLevelChange: direction = ${direction}")
 	if (direction == "up") {
@@ -156,11 +144,13 @@ def startLevelChange(direction) {
 		levelDown()
 	}
 }
+
 def stopLevelChange() {
 	logDebug("stopLevelChange")
 	unschedule(levelUp)
 	unschedule(levelDown)
 }
+
 def levelUp() {
 	def newLevel = device.currentValue("level").toInteger() + 2
 	if (newLevel > 101) { return }
@@ -168,6 +158,7 @@ def levelUp() {
 	setLevel(newLevel, 0)
 	runInMillis(500, levelUp)
 }
+
 def levelDown() {
 	def newLevel = device.currentValue("level").toInteger() - 2
 	if (newLevel < -1) { return }
@@ -177,10 +168,13 @@ def levelDown() {
 		runInMillis(500, levelDown)
 	}
 }
+
 def refresh(){
 	logDebug("refresh")
 	sendCmd("""{"system":{"get_sysinfo":{}}}""", "refreshResponse")
 }
+
+
 //	Device command parsing methods
 def commandResponse(response) {
 	def cmdResponse = parseInput(response)
@@ -208,11 +202,31 @@ def updateBulbData(status) {
 }
 
 
+//	Synchronize Names between Device and Hubitat
+def syncName() {
+	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
+	if (nameSync == "hub") {
+		sendCmd("""{"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
+	} else if (nameSync == "device") {
+		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
+	}
+}
+def nameSyncHub(response) {
+	def cmdResponse = parseInput(response)
+	logInfo("Setting deviceIP for program.")
+}
+def nameSyncDevice(response) {
+	def cmdResponse = parseInput(response)
+	def alias = cmdResponse.system.get_sysinfo.alias
+	device.setLabel(alias)
+	logInfo("Hubit name for device changed to ${alias}.")
+}
+
+
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
-	state.lastCommand = command
-	state.lastAction = action
+	state.lastCommand = [command: "${command}", action: "${action}"]
 	runIn(3, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
@@ -238,15 +252,27 @@ def parseInput(response) {
 }
 def setCommsError() {
 	logDebug("setCommsError")
-	if (state.errorCount < 5) {
+	if (state.errorCount < 3) {
 		state.errorCount+= 1
-		sendCmd(state.lastCommand, state.lastAction)
+		repeatCommand()
 		logWarn("Attempt ${state.errorCount} to recover communications")
+	} else if (state.errorCount == 3) {
+		state.errorCount += 1
+		//	If a child device, update IPs automatically using the application.
+		if (getDataValue("applicationVersion")) {
+			logWarn("setCommsError: Parent commanded to poll for devices to correct error.")
+			parent.updateDevices()
+			runIn(90, repeatCommand)
+		}
 	} else {
 		sendEvent(name: "commsError", value: true)
-		logWarn "CommsError: No response from device.  Refresh.  If off line " +
+		logWarn "setCommsError: No response from device.  Refresh.  If off line " +
 				"persists, check IP address of device."
 	}
+}
+def repeatCommand() { 
+	logDebug("repeatCommand: ${state.lastCommand}")
+	sendCmd(state.lastCommand.command, state.lastCommand.action)
 }
 
 
@@ -277,11 +303,11 @@ private inputXOR(encrResponse) {
 	return cmdResponse
 }
 def logInfo(msg) {
-	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
+	if (descriptionText == true) { log.info "<b>${device.label} ${driverVer()}</b> ${msg}" }
 }
 def logDebug(msg){
-	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
+	if(debug == true) { log.debug "<b>${device.label} ${driverVer()}</b> ${msg}" }
 }
-def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
+def logWarn(msg){ log.warn "<b>${device.label} ${driverVer()}</b> ${msg}" }
 
 //	end-of-file
