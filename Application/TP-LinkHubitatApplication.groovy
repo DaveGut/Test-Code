@@ -1,5 +1,5 @@
 /*
-TP-Link Device Application, Version 4.3
+TP-Link Device Application, Version 4.5
 		Copyright 2018, 2019 Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file 
 except in compliance with the License. You may obtain a copy of the License at: 
@@ -183,20 +183,15 @@ def addDevices() {
 	tpLinkModel << ["HS200" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
-	//	WiFi Range Extender with smart plug.
-//	tpLinkModel << ["RE270" : "TP-Link RE Plug"]
-//	tpLinkModel << ["RE370" : "TP-Link RE Plug"]
 	//	Miltiple Outlet Plug
 	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
 	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
 	tpLinkModel << ["KP400" : "TP-Link Multi-Plug"]
 	//	Dimming Switch Devices
 	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
-	//	Energy Monitor Multi Plugs
-	tpLinkModel << ["HS300" : "TP-Link Engr Mon Multi-Plug"]
 	//	Energy Monitor Plugs
 	tpLinkModel << ["HS110" : "TP-Link Engr Mon Plug"]
-	tpLinkModel << ["HS115" : "TP-Link Engr Mon Plug"]
+	tpLinkModel << ["HS300" : "TP-Link Engr Mon Plug"]
 	//	Soft White Bulbs
 	tpLinkModel << ["KB100" : "TP-Link Soft White Bulb"]
 	tpLinkModel << ["LB100" : "TP-Link Soft White Bulb"]
