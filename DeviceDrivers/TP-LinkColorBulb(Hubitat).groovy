@@ -1,5 +1,5 @@
 /*
-TP-Link Device Driver, Version 4.4
+TP-Link Device Driver, Version 4.5
 
 	Copyright 2018, 2019 Dave Gutheinz
 
@@ -25,11 +25,17 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 9.21.19	4.4.01	Added link to Application that will check/update IPs if the communications fail.
 ================================================================================================*/
 def driverVer() { return "4.4.01" }
+def bulbType() { return "Color Bulb" }
+//	def bulbType() { return "Tunable White Bulb" }
+//	def bulbType() { return "Soft White Bulb" }
+
 metadata {
-	definition (name: "TP-Link Color Bulb",
+	definition (name: "TP-Link ${bulbType()}",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkColorBulb(Hubitat).groovy"
+//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkCTBulb(Hubitat).groovy"
+//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkWhiteBulb(Hubitat).groovy"
 			   ) {
         capability "Light"
 		capability "Switch"
@@ -37,19 +43,25 @@ metadata {
 		capability "Change Level"
  		capability "Refresh"
 		capability "Actuator"
-		capability "Color Temperature"
-		command "setCircadian"
-		attribute "circadianState", "string"
-		capability "Color Control"
-		capability "Color Mode"
 		attribute "commsError", "bool"
+		if (bulbType() == "Color Bulb" || bulbType() == "Tunable White Bulb") {
+			capability "Color Temperature"
+			command "setCircadian"
+			attribute "circadianState", "string"
+			capability "Color Mode"
+		}
+		if (bulbType() == "Color Bulb") {
+			capability "Color Control"
+		}
 	}
 	preferences {
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 		}
 		input ("transition_Time", "num", title: "Default Transition time (seconds)", defaultValue: 0)
-    	input ("highRes", "bool", title: "High Resolution Hue Scale", defaultValue: false)
+		if (type == "Color Bulb") {
+			input ("highRes", "bool", title: "High Resolution Hue Scale", defaultValue: false)
+		}
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
 			   options: ["1", "5", "15", "30"], defaultValue: "30")
 		input ("nameSync", "enum", title: "Synchronize Names", defaultValue: "none",
@@ -126,12 +138,12 @@ def off() {
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${state.transTime}}}}""", "commandResponse")
 }
 
-def setLevel(percentage) {
-	logDebug("setLevel(x): transition time = ${state.transTime}")
-	setLevel(percentage, state.transTime)
-}
+//def setLevel(percentage) {
+//	logDebug("setLevel(x): transition time = ${state.transTime}")
+//	setLevel(percentage, state.transTime)
+//}
 
-def setLevel(percentage, rate) {
+def setLevel(percentage, rate = state.transTime) {
 	logDebug("setLevel(x,x): rate = ${rate} // percentage = ${percentage}")
 	if (percentage < 0 || percentage > 100) {
 		logWarn("$device.name $device.label: Entered brightness is not from 0...100")
@@ -175,32 +187,41 @@ def levelDown() {
 }
 
 def setColorTemperature(kelvin) {
+	//	type = Color Bulb or Tunable White Bulb
 	logDebug("setColorTemperature: colorTemp = ${kelvin}")
-	if (kelvin == null) kelvin = state.lastColorTemp
-	if (kelvin < 2500) kelvin = 2500
-	if (kelvin > 9000) kelvin = 9000
-	kelvin = kelvin as int
+	Integer lowK = 2500
+	Integer highK = 9000
+	if (bulbType() == "Tunable White Bulb") {
+		lowK = 2700
+		highK = 6500
+	}
+	if (kelvin < lowK) kelvin = lowK
+	if (kelvin > highK) kelvin = highK
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp": ${kelvin},"hue":0,"saturation":0}}}""", "commandResponse")
 }
 
 def setCircadian() {
+	//	type = Color Bulb or Tunable White Bulb
 	logDebug("setCircadian")
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"circadian"}}}""", "commandResponse")
 }
 
 def setHue(hue) {
+	//	type = Color Bulb
 	logDebug("setHue:  hue = ${hue} // saturation = ${state.lastSaturation}")
 	saturation = state.lastSaturation
 	setColor([hue: hue, saturation: saturation])
 }
 
 def setSaturation(saturation) {
+	//	type = Color Bulb
 	logDebug("setSaturation: saturation = ${saturation} // hue = {state.lastHue}")
 	hue = state.lastHue
 	setColor([hue: hue, saturation: saturation])
 }
 
 def setColor(Map color) {
+	//	type = Color Bulb
 	logDebug("setColor:  color = ${color}")
 	if (color == null) color = [hue: state.lastHue, saturation: state.lastSaturation, level: device.currentValue("level")]
 	def percentage = 100
@@ -243,8 +264,7 @@ def refreshResponse(response) {
 }
 
 def updateBulbData(status) {
-	if (state.previousStatus == status) { return }
-	state.previousStatus = status
+	logDebug("updateBulbData: ${status}")
 	if (status.on_off == 0) {
 		sendEvent(name: "switch", value: "off")
 		logInfo("Power: off")
@@ -252,22 +272,34 @@ def updateBulbData(status) {
 	} else {
 		sendEvent(name: "switch", value: "on")
 		sendEvent(name: "level", value: status.brightness)
-		def color = [:]
-		def hue = status.hue.toInteger()
-		if (highRes != true) { hue = (hue / 3.6).toInteger() }
-		color << ["hue" : hue]
-		color << ["saturation" : status.saturation]
-		color << ["level" : status.brightness]
-		sendEvent(name: "circadianState", value: status.mode)
-		sendEvent(name: "colorTemperature", value: status.color_temp)
-		sendEvent(name: "hue", value: hue)
-		sendEvent(name: "saturation", value: status.saturation)
-		sendEvent(name: "color", value: color)
-		logInfo("Power: on / Brightness: ${status.brightness}% / " +
-				 "Circadian State: ${status.mode} / Color Temp: " +
-				 "${status.color_temp}K / Color: ${color}")
-		if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
-		else { setColorTempData(status.color_temp) }
+		if (bulbType() == "Soft White Bulb") {
+			logInfo("Power: on / Brightness: ${status.brightness}%")
+		}
+		if (bulbType() == "Tunable White Bulb") {
+			sendEvent(name: "circadianState", value: status.mode)
+			sendEvent(name: "colorTemperature", value: status.color_temp)
+			logInfo("Power: on / Brightness: ${status.brightness}% / " +
+					 "Circadian State: ${status.mode} / Color Temp: " +
+					 "${status.color_temp}K")
+			setColorTempData(status.color_temp)		}
+		if (bulbType() == "Color Bulb") {
+			sendEvent(name: "circadianState", value: status.mode)
+			sendEvent(name: "colorTemperature", value: status.color_temp)
+			def color = [:]
+			def hue = status.hue.toInteger()
+			if (highRes != true) { hue = (hue / 3.6).toInteger() }
+			color << ["hue" : hue]
+			color << ["saturation" : status.saturation]
+			color << ["level" : status.brightness]
+			sendEvent(name: "hue", value: hue)
+			sendEvent(name: "saturation", value: status.saturation)
+			sendEvent(name: "color", value: color)
+			logInfo("Power: on / Brightness: ${status.brightness}% / " +
+					 "Circadian State: ${status.mode} / Color Temp: " +
+					 "${status.color_temp}K / Color: ${color}")
+			if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
+			else { setColorTempData(status.color_temp) }
+		}
 	}
 }
 
