@@ -30,7 +30,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 					1.	TP-Link Dimming Switch
 					2.	TP-Link Plug-Switch (incorporates old TP-Link MultiPlug driver).
 ================================================================================================*/
-	def driverVer() { return "4.4.01" }
+	def driverVer() { return "4.5.01" }
 def type() { return "Plug-Switch" }
 //def type() { return "Dimming Switch" }
 

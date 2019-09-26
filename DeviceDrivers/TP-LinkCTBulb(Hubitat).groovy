@@ -24,7 +24,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				attempt up to 5 retransmits.
 9.21.19	4.4.01	Added link to Application that will check/update IPs if the communications fail.
 ================================================================================================*/
-def driverVer() { return "4.4.01" }
+def driverVer() { return "4.5.01" }
 //	def bulbType() { return "Color Bulb" }
 	def bulbType() { return "Tunable White Bulb" }
 //	def bulbType() { return "Soft White Bulb" }
@@ -138,16 +138,16 @@ def off() {
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${state.transTime}}}}""", "commandResponse")
 }
 
-//def setLevel(percentage) {
-//	logDebug("setLevel(x): transition time = ${state.transTime}")
-//	setLevel(percentage, state.transTime)
-//}
-
-def setLevel(percentage, rate = state.transTime) {
+def setLevel(percentage, rate = null) {
 	logDebug("setLevel(x,x): rate = ${rate} // percentage = ${percentage}")
 	if (percentage < 0 || percentage > 100) {
 		logWarn("$device.name $device.label: Entered brightness is not from 0...100")
 		return
+	}
+	if (rate == null) {
+		rate = state.transTime.toInteger()
+	} else {
+		rate = 1000*rate.toInteger()
 	}
 	percentage = percentage.toInteger()
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${rate}}}}""", "commandResponse")
