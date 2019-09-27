@@ -44,10 +44,10 @@ metadata {
 	}
     preferences {
 		if (!getDataValue("applicationVersion")) {
-			input ("plug_Type", "enum", title: "Type of Energy Monitor Plug",
-				options: ["HS110", "HS300"])
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
-			input ("plug_No", "text", title: "For HS300, the number of the plug (00, 01, 02, etc.)")
+			input ("multiPlug", "bool", title: "Device is part of a Multi-Plug)")
+			input ("plug_No", "text",
+				   title: "For multiPlug, the number of the plug (00, 01, 02, etc.)")
 		}
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
 			   options: ["1", "5", "15", "30"], defaultValue: "30")
@@ -70,29 +70,28 @@ def installed() {
 def updated() {
 	log.info "Updating .."
 	unschedule()
-	
+	state.errorCount = 0
+
 	if (!getDataValue("applicationVersion")) {
-		if (!plug_Type) {
-			logWarn("updated:  PlugType must be set to continue.")
-			return
-		} else if (!device_IP) {
+		if (!device_IP) {
 			logWarn("updated: Device IP must be set to continue.")
 			return
-		} else if (plug_Type == "HS300" && !plug_No) {
+		} else if (multiPlug == true && !plug_No) {
 			logWarn("updated: Plug Number must be set to continue.")
 			return
 		}
 		updateDataValue("deviceIP", device_IP.trim())
 		logInfo("Device IP set to ${getDataValue("deviceIP")}")
-		if (plug_Type == "HS300") {
+		if (multiPlug == true && (!getDataValue("plugNo") || getDataValue("plugNo")==null)) {
 			sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "getMultiPlugData")
 		}
 	}
+
 	if (getDataValue("driverVersion") != driverVer()) {
 		updateInstallData()
 		updateDataValue("driverVersion", driverVer())
 	}
-
+	
 	switch(refresh_Rate) {
 		case "1" : runEvery1Minute(refresh); break
 		case "5" : runEvery5Minutes(refresh); break
@@ -100,7 +99,6 @@ def updated() {
 		default: runEvery30Minutes(refresh)
 	}
 	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
-	state.errorCount = 0
 	schedule("0 01 0 * * ?", updateStats)
 	updateStats()
 	pauseExecution(1000)
@@ -116,12 +114,12 @@ def updated() {
 }
 
 def getMultiPlugData(response) {
-	logDebug("getMultiPlugData: parse plud ID")
+	logDebug("getMultiPlugData: plugNo = ${plug_No}")
 	def cmdResponse = parseInput(response)
 	def plugId = "${cmdResponse.system.get_sysinfo.deviceId}${plug_No}"
 	updateDataValue("plugNo", plug_No)
 	updateDataValue("plugId", plugId)
-	logInfo("Plug ID set to ${plugId}, plugNo set to ${plug_No}.")
+	logInfo("Plug ID = ${plugId} / Plug Number = ${plug_No}")
 }
 
 def updateInstallData() {

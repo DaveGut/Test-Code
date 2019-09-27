@@ -31,8 +31,8 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 					2.	TP-Link Plug-Switch (incorporates old TP-Link MultiPlug driver).
 ================================================================================================*/
 	def driverVer() { return "4.5.01" }
-//def type() { return "Plug-Switch" }
-def type() { return "Dimming Switch" }
+//	def type() { return "Plug-Switch" }
+	def type() { return "Dimming Switch" }
 
 metadata {
 	definition (name: "TP-Link ${type()}",
@@ -53,8 +53,7 @@ metadata {
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
 			if (type() == "Plug-Switch") {
-				input ("multiPlug", "bool", title: "Device is part of a Multi-Plug)",
-					   defaultValue: false)
+				input ("multiPlug", "bool", title: "Device is part of a Multi-Plug)")
 				input ("plug_No", "text",
 					   title: "For multiPlug, the number of the plug (00, 01, 02, etc.)")
 			}
@@ -80,6 +79,7 @@ def installed() {
 def updated() {
 	log.info "Updating .."
 	unschedule()
+	state.errorCount = 0
 
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
@@ -91,7 +91,7 @@ def updated() {
 		}
 		updateDataValue("deviceIP", device_IP.trim())
 		logInfo("Device IP set to ${getDataValue("deviceIP")}")
-		if (type() == "Plug-Switch" && multiPlug == true) {
+		if (multiPlug == true && (!getDataValue("plugNo") || getDataValue("plugNo")==null)) {
 			sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "getMultiPlugData")
 		}
 	}
@@ -108,7 +108,6 @@ def updated() {
 		default: runEvery30Minutes(refresh)
 	}
 	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
-	state.errorCount = 0
 
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
@@ -116,16 +115,16 @@ def updated() {
 	logInfo("ShortPoll set for ${shortPoll}")
 
 	if (nameSync == "device" || nameSync == "hub") { runIn(5, syncName) }
-	refresh()
+	runIn(5, refresh)
 }
 
 def getMultiPlugData(response) {
-	logDebug("getMultiPlugData: parse plud ID")
+	logDebug("getMultiPlugData: plugNo = ${plug_No}")
 	def cmdResponse = parseInput(response)
 	def plugId = "${cmdResponse.system.get_sysinfo.deviceId}${plug_No}"
 	updateDataValue("plugNo", plug_No)
 	updateDataValue("plugId", plugId)
-	logInfo("Plug ID set to ${plugId}, plugNo set to ${plug_No}.")
+	logInfo("Plug ID = ${plugId} / Plug Number = ${plug_No}")
 }
 
 def updateInstallData() {
