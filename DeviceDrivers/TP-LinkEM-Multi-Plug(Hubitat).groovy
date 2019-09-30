@@ -22,9 +22,10 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				attempt up to 5 retransmits.
 9.21	4.4.01	a.	Provided more selection for quickPoll parameters.
 				b.	Added link to Application that will check/update IPs if the communications fail.
-10.01	4.5.01	Combined HS110 and HS300 drivers to single driver. 
+10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
+10.01	4.5.02	Corrected power level extraction.
 =======================================================================================================*/
-def driverVer() { return "4.5.01" }
+def driverVer() { return "4.5.02" }
 metadata {
 	definition (name: "TP-Link Engr Mon Plug",
 				namespace: "davegut",
@@ -191,11 +192,9 @@ def powerResponse(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("powerResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse.emeter.get_realtime
-	def scale = "energy"
-	if (realtime.power == null) { scale = "power_mw" }
-	def power = realtime."${scale}"
-	if(power == null) { power = 0 }
-	else if (scale == "power_mw") { power = power / 1000 }
+
+	def power = realtime.power
+	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
 	logInfo("Power is ${power} Watts.")
@@ -215,14 +214,9 @@ def setEngrToday(response) {
 	logDebug("setEngrToday: ${cmdResponse}")
 	def month = new Date().format("M").toInteger()
 	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == month }
-	def scale = "energy"
-	def energyData
-	if (data == null) { energyData = 0 }
-	else {
-		if (data.energy == null) { scale = "energy_wh" }
-		energyData = data."${scale}"
-	}
-	if (scale == "energy_wh") { energyData = energyData/1000 }
+
+	def energyData = data.energy
+	if (energyData == null) { energyData = data.energy_wh/1000 }
 	energyData -= device.currentValue("currMonthTotal")
 	energyData = Math.round(100*energyData)/100
 	sendEvent(name: "energy", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
