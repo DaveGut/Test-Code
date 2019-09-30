@@ -30,7 +30,7 @@ metadata {
 	definition (name: "TP-Link Engr Mon Plug",
 				namespace: "davegut",
                 author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link-EmPlug(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
