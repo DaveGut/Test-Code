@@ -372,14 +372,14 @@ def nameSyncDevice(response) {
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
-	runIn(3, setCommsError)
+	runIn(5, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 3,
+		 timeout: 5,
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
