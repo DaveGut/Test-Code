@@ -29,8 +29,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				b.	Two drivers created from the single file (with 2 edits at beginning)
 					1.	TP-Link Dimming Switch
 					2.	TP-Link Plug-Switch (incorporates old TP-Link MultiPlug driver).
+10.05	4.5.02	Increased retries before polling.
 ================================================================================================*/
-	def driverVer() { return "4.5.01" }
+	def driverVer() { return "4.5.02" }
 //	def type() { return "Plug-Switch" }
 	def type() { return "Dimming Switch" }
 
@@ -267,11 +268,11 @@ def parseInput(response) {
 }
 def setCommsError() {
 	logDebug("setCommsError")
-	if (state.errorCount < 3) {
+	if (state.errorCount < 5) {
 		state.errorCount+= 1
 		repeatCommand()
 		logWarn("Attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 3) {
+	} else if (state.errorCount == 5) {
 		state.errorCount += 1
 		//	If a child device, update IPs automatically using the application.
 		if (getDataValue("applicationVersion")) {

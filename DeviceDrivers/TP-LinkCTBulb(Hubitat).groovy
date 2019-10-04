@@ -23,8 +23,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 8.25.19	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
 				attempt up to 5 retransmits.
 9.21.19	4.4.01	Added link to Application that will check/update IPs if the communications fail.
+10.5.19	4.5.02	Combined text.  Changed retry count to 5.
 ================================================================================================*/
-def driverVer() { return "4.5.01" }
+def driverVer() { return "4.5.02" }
 //	def bulbType() { return "Color Bulb" }
 	def bulbType() { return "Tunable White Bulb" }
 //	def bulbType() { return "Soft White Bulb" }
@@ -413,11 +414,11 @@ def parseInput(response) {
 }
 def setCommsError() {
 	logDebug("setCommsError")
-	if (state.errorCount < 3) {
+	if (state.errorCount < 5) {
 		state.errorCount+= 1
 		repeatCommand()
 		logWarn("Attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 3) {
+	} else if (state.errorCount == 5) {
 		state.errorCount += 1
 		//	If a child device, update IPs automatically using the application.
 		if (getDataValue("applicationVersion")) {

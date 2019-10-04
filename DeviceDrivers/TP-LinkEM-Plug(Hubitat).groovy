@@ -23,7 +23,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 9.21	4.4.01	a.	Provided more selection for quickPoll parameters.
 				b.	Added link to Application that will check/update IPs if the communications fail.
 10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
-10.01	4.5.02	Corrected power level extraction.
+10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
 =======================================================================================================*/
 def driverVer() { return "4.5.02" }
 metadata {
@@ -397,11 +397,11 @@ def parseInput(response) {
 }
 def setCommsError() {
 	logDebug("setCommsError")
-	if (state.errorCount < 3) {
+	if (state.errorCount < 5) {
 		state.errorCount+= 1
 		repeatCommand()
 		logWarn("Attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 3) {
+	} else if (state.errorCount == 5) {
 		state.errorCount += 1
 		//	If a child device, update IPs automatically using the application.
 		if (getDataValue("applicationVersion")) {
