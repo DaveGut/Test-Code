@@ -31,7 +31,7 @@ devices; primarily various users on GitHub.com as well as my own investigations.
 			b.	Scans Lan segment for Kasa Devices and creates database entry for found devices.
 			c.	Updates children device's deviceIP baseed on scanning.
 =============================================================================================*/
-def appVersion() { return "4.5.01" }
+def appVersion() { return "4.5.02" }
 import groovy.json.JsonSlurper
 definition(
 	name: "TP-Link Integration",
@@ -184,9 +184,9 @@ def addDevices() {
 	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
 	//	Miltiple Outlet Plug
-	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
-	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
-	tpLinkModel << ["KP400" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["HS107" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["KP200" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["KP400" : "TP-Link Plug-Switch"]
 	//	Dimming Switch Devices
 	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
 	//	Energy Monitor Plugs
