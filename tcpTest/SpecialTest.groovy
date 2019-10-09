@@ -61,10 +61,6 @@ def refreshResponse(response) {
 	logDebug("refreshResponse: status = ${cmdResponse}")
 	def status = cmdResponse.system.get_sysinfo
 	def relayState = status.relay_state
-	if (getDataValue("plugNo")) {
-		status = status.children.find { it.id == getDataValue("plugNo") }
-		relayState = status.state
-	}
 	def pwrState = "off"
 	if (relayState == 1) { pwrState = "on"}
 	sendEvent(name: "switch", value: "${pwrState}")
