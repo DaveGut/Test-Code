@@ -34,16 +34,16 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 =======================================================================================================*/
 	def driverVer() { return "4.5.10" }
 //	def type() { return "Plug-Switch" }
-//	def type() { return "Multi-Plug" }
-	def type() { return "Dimming Switch" }
+	def type() { return "Multi-Plug" }
+//	def type() { return "Dimming Switch" }
 
 metadata {
 	definition (name: "TP-Link ${type()}",
     			namespace: "davegut",
                 author: "Dave Gutheinz",
 //				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkPlug-Switch(Hubitat).groovy"
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkMulti-Plug(Hubitat).groovy"
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkDimmingSwitch(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkMulti-Plug(Hubitat).groovy"
+//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkDimmingSwitch(Hubitat).groovy"
 			   ) {
 		capability "Switch"
         capability "Actuator"

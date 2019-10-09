@@ -30,10 +30,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 					1.	TP-Link Dimming Switch
 					2.	TP-Link Plug-Switch (incorporates old TP-Link MultiPlug driver).
 10.05	4.5.02	Increased retries before polling.
-10.09	4.5.03	Update error that zeroized plug data
-================================================================================================*/
-	def driverVer() { return "4.5.03" }
+10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
+=======================================================================================================*/
+	def driverVer() { return "4.5.10" }
 	def type() { return "Plug-Switch" }
+//	def type() { return "Multi-Plug" }
 //	def type() { return "Dimming Switch" }
 
 metadata {
@@ -41,6 +42,7 @@ metadata {
     			namespace: "davegut",
                 author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkPlug-Switch(Hubitat).groovy"
+//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkMulti-Plug(Hubitat).groovy"
 //				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkDimmingSwitch(Hubitat).groovy"
 			   ) {
 		capability "Switch"

@@ -24,13 +24,17 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				b.	Added link to Application that will check/update IPs if the communications fail.
 10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
 10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
+10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 =======================================================================================================*/
-def driverVer() { return "4.5.02" }
+	def driverVer() { return "4.5.10" }
+	def type() { return "Engr Mon Plug" }
+//	def type() { return "Engr Mon Multi-Plug" }
 metadata {
-	definition (name: "TP-Link Engr Mon Plug",
+	definition (name: "TP-Link ${type()}",
 				namespace: "davegut",
                 author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
+//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Multi-Plug(Hubitat).groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
@@ -246,6 +250,7 @@ def powerPollResponse(response) {
 	else if (scale == "power_mw") { power = power / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+	logInfo("power = ${power}")
 	
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), powerPoll) }
 }
