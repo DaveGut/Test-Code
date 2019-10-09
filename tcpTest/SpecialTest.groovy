@@ -45,11 +45,11 @@ def updated() {
 
 def on() {
 	logDebug("on")
-	sendCmd("""{"system":{"set_relay_state":{"state":1}}""", "commandResponse")
+	sendCmd("""{"system":{"set_relay_state":{"state":1}}}""", "commandResponse")
 }
 def off() {
 	logDebug("off")
-	sendCmd("""{"system":{"set_relay_state":{"state":0}}""", "commandResponse")
+	sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "commandResponse")
 }
 def commandResponse() { refresh() }
 def refresh() {
@@ -68,9 +68,6 @@ def refreshResponse(response) {
 	def pwrState = "off"
 	if (relayState == 1) { pwrState = "on"}
 	sendEvent(name: "switch", value: "${pwrState}")
-	if (type() == "Dimming Switch") {
-		sendEvent(name: "level", value: status.brightness)
-	}
 	logInfo("Switch: ${pwrState}")
 
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), refresh) }
