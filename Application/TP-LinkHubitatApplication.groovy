@@ -30,8 +30,9 @@ devices; primarily various users on GitHub.com as well as my own investigations.
 			a.	Checks if scan has been done in last 15 minutes.  Exits if true.
 			b.	Scans Lan segment for Kasa Devices and creates database entry for found devices.
 			c.	Updates children device's deviceIP baseed on scanning.
+10.09.19	4.5.10 Updated to return to old driver types to alleviate confusions and errors.
 =============================================================================================*/
-def appVersion() { return "4.5.02" }
+def appVersion() { return "4.5.10" }
 import groovy.json.JsonSlurper
 definition(
 	name: "TP-Link Integration",
@@ -184,14 +185,16 @@ def addDevices() {
 	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
 	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
 	//	Miltiple Outlet Plug
-	tpLinkModel << ["HS107" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["KP200" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["KP400" : "TP-Link Plug-Switch"]
+	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["KP400" : "TP-Link Multi-Plug"]
 	//	Dimming Switch Devices
 	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
+	//	Energy Monitor Multi Plugs
+	tpLinkModel << ["HS300" : "TP-Link Engr Mon Multi-Plug"]
 	//	Energy Monitor Plugs
 	tpLinkModel << ["HS110" : "TP-Link Engr Mon Plug"]
-	tpLinkModel << ["HS300" : "TP-Link Engr Mon Plug"]
+	tpLinkModel << ["HS115" : "TP-Link Engr Mon Plug"]
 	//	Soft White Bulbs
 	tpLinkModel << ["KB100" : "TP-Link Soft White Bulb"]
 	tpLinkModel << ["LB100" : "TP-Link Soft White Bulb"]
