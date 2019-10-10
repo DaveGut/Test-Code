@@ -51,7 +51,10 @@ def off() {
 	logDebug("off")
 	sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "commandResponse")
 }
-def commandResponse(response) { refresh() }
+def commandResponse(response) {
+	pauseExecution(1000)
+	sendCmd("""{"system":{"get_sysinfo":{}}}""", "refreshResponse")
+}
 def refresh() {
 	logDebug("refresh")
 	sendCmd("""{"system":{"get_sysinfo":{}}}""", "refreshResponse")
