@@ -31,8 +31,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 					2.	TP-Link Plug-Switch (incorporates old TP-Link MultiPlug driver).
 10.05	4.5.02	Increased retries before polling.
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
+10.11	4.5.11	Updated Plug-Switch to handle delay in HS210 updating internal status.
 =======================================================================================================*/
-	def driverVer() { return "4.5.10" }
+	def driverVer() { return "4.5.11" }
 	def type() { return "Plug-Switch" }
 //	def type() { return "Multi-Plug" }
 //	def type() { return "Dimming Switch" }
@@ -151,6 +152,8 @@ def on() {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
 				""""system":{"set_relay_state":{"state":1}},""" +
 				""""system":{"get_sysinfo":{}}}""", "commandResponse")
+	} else if (device.name == "HS210") {
+		sendCmd("""{"system":{"set_relay_state":{"state":1}}}""", "specialResponse")
 	} else {
 		sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
 				""""system":{"get_sysinfo":{}}}""", "commandResponse")
@@ -163,10 +166,18 @@ def off() {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
 				""""system":{"set_relay_state":{"state":0}},""" +
 				""""system":{"get_sysinfo":{}}}""", "commandResponse")
+	} else if (device.name == "HS210") {
+		sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "specialResponse")
 	} else {
 		sendCmd("""{"system":{"set_relay_state":{"state":0}},""" +
 				""""system":{"get_sysinfo":{}}}""", "commandResponse")
 	}
+}
+
+def specialResponse(response) {
+	//	Created to handle delay in HS210 completing internal status update.
+	pauseExecution(1000)
+	sendCmd("""{"system":{"get_sysinfo":{}}}""", "commandResponse")
 }
 
 def setLevel(percentage, transition = null) {
@@ -204,7 +215,7 @@ def commandResponse(response) {
 	if (type() == "Dimming Switch") {
 		sendEvent(name: "level", value: status.brightness)
 	}
-	logInfo("Switch: ${pwrState}")
+	logInfo("commandResponse: Switch: ${pwrState}")
 
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), refresh) }
 }
