@@ -31,6 +31,7 @@ devices; primarily various users on GitHub.com as well as my own investigations.
 			b.	Scans Lan segment for Kasa Devices and creates database entry for found devices.
 			c.	Updates children device's deviceIP baseed on scanning.
 10.09.19	4.5.10 Updated to return to old driver types to alleviate confusions and errors.
+11.19.19	4.5.11.	Added KP303 device as a multi-plug.
 =============================================================================================*/
 def appVersion() { return "4.5.10" }
 import groovy.json.JsonSlurper
@@ -187,6 +188,7 @@ def addDevices() {
 	//	Miltiple Outlet Plug
 	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
 	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
+	tpLinkModel << ["KP303" : "TP-Link Multi-Plug"]
 	tpLinkModel << ["KP400" : "TP-Link Multi-Plug"]
 	//	Dimming Switch Devices
 	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
