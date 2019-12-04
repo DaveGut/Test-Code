@@ -32,8 +32,10 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.05	4.5.02	Increased retries before polling.
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 10.11	4.5.11	Updated Plug-Switch to handle delay in HS210 updating internal status.
+12.04	4.5.12	Updated to not send event if state is same as that of device.  Info logging will still
+				state of on/off for each poll.
 =======================================================================================================*/
-	def driverVer() { return "4.5.11" }
+	def driverVer() { return "4.5.12" }
 //	def type() { return "Plug-Switch" }
 	def type() { return "Multi-Plug" }
 //	def type() { return "Dimming Switch" }
@@ -42,14 +44,12 @@ metadata {
 	definition (name: "TP-Link ${type()}",
     			namespace: "davegut",
                 author: "Dave Gutheinz",
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkPlug-Switch(Hubitat).groovy"
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkMulti-Plug(Hubitat).groovy"
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkDimmingSwitch(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${type()replaceAll("\\s","")}(Hubitat).groovy"
 			   ) {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
-		if (type() == "Dimming Switch") {
+		if (type() == "DimmingSwitch") {
 			capability "Switch Level"
 		}
 		attribute "commsError", "bool"
@@ -211,12 +211,14 @@ def commandResponse(response) {
 	}
 	def pwrState = "off"
 	if (relayState == 1) { pwrState = "on"}
-	sendEvent(name: "switch", value: "${pwrState}")
-	if (type() == "Dimming Switch") {
-		sendEvent(name: "level", value: status.brightness)
+	if (device.currentValue("switch") != pwrState) {
+		sendEvent(name: "switch", value: "${pwrState}")
 	}
-	logInfo("commandResponse: Switch: ${pwrState}")
-
+	logInfo("commandResponse: ${pwrState}")
+	if (type() == "DimmingSwitch" && device.currentValue("level") != status.brightness) {
+		sendEvent(name: "level", value: status.brightness)
+		logInfo("commandResponse: level = status.brightness")
+	}
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), refresh) }
 }
 
