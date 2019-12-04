@@ -27,8 +27,8 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 =======================================================================================================*/
 	def driverVer() { return "4.5.10" }
-	def type() { return "Engr Mon Plug" }
-//	def type() { return "Engr Mon Multi-Plug" }
+//	def type() { return "Engr Mon Plug" }
+	def type() { return "Engr Mon Multi-Plug" }
 metadata {
 	definition (name: "TP-Link ${type()}",
 				namespace: "davegut",

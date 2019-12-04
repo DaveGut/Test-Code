@@ -25,16 +25,20 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
 10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
+12-04	4.5.12	Update to incorporate common changes.
 =======================================================================================================*/
-	def driverVer() { return "4.5.10" }
+	def driverVer() { return "4.5.12" }
 //	def type() { return "Engr Mon Plug" }
 	def type() { return "Engr Mon Multi-Plug" }
+	def gitHubName() {
+		if (type() == "Engr Mon Plug") { return "EM-Plug" }
+		else { return "EM-Multi-Plug" }
+	}
 metadata {
 	definition (name: "TP-Link ${type()}",
 				namespace: "davegut",
                 author: "Dave Gutheinz",
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Multi-Plug(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${gitHubName()}(Hubitat).groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
