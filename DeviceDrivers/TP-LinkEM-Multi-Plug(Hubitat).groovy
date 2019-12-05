@@ -25,7 +25,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
 10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
-12-04	4.5.12	Update to incorporate common changes.
+12-05	4.5.12	Update to incorporate common changes and eliminate events where state has not changed.
 =======================================================================================================*/
 	def driverVer() { return "4.5.12" }
 //	def type() { return "Engr Mon Plug" }
@@ -253,7 +253,9 @@ def powerPollResponse(response) {
 	if(power == null) { power = 0 }
 	else if (scale == "power_mw") { power = power / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
-	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+	if (device.currentValue("power") != power) {
+		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+	}
 	logInfo("power = ${power}")
 	
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), powerPoll) }
