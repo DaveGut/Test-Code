@@ -49,7 +49,7 @@ metadata {
 		capability "Switch"
         capability "Actuator"
 		capability "Refresh"
-		if (type() == "DimmingSwitch") {
+		if (type() == "Dimming Switch") {
 			capability "Switch Level"
 		}
 		attribute "commsError", "bool"
@@ -215,7 +215,7 @@ def commandResponse(response) {
 		sendEvent(name: "switch", value: "${pwrState}")
 	}
 	logInfo("commandResponse: ${pwrState}")
-	if (type() == "DimmingSwitch" && device.currentValue("level") != status.brightness) {
+	if (type() == "Dimming Switch" && device.currentValue("level") != status.brightness) {
 		sendEvent(name: "level", value: status.brightness)
 		logInfo("commandResponse: level = status.brightness")
 	}
