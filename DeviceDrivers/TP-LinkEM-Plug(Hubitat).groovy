@@ -26,8 +26,10 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 12-05	4.5.12	Update to incorporate common changes and eliminate events where state has not changed.
+12-18	4.5.13	New preference - emFuncion to enable em attributes.  Added sunset to debug log.  Updated
+				logInfo for one line per external action or refresh.
 =======================================================================================================*/
-	def driverVer() { return "4.5.12" }
+	def driverVer() { return "4.5.13" }
 	def type() { return "Engr Mon Plug" }
 //	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
@@ -58,6 +60,7 @@ metadata {
 			input ("plug_No", "text",
 				   title: "For multiPlug, the number of the plug (00, 01, 02, etc.)")
 		}
+		input ("emFunction", "bool", title: "Enable Energy Monitor Functions", defaultValue: true)
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
 			   options: ["1", "5", "15", "30"], defaultValue: "30")
 		input ("shortPoll", "number",title: "Fast Power Polling Interval ('0' = disabled)",
@@ -108,9 +111,13 @@ def updated() {
 		default: runEvery30Minutes(refresh)
 	}
 	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
-	schedule("0 01 0 * * ?", updateStats)
-	updateStats()
+	if (emFunction) {
+		schedule("0 01 0 * * ?", updateStats)
+		updateStats()
+	}
 	pauseExecution(1000)
+
+	if (debug == true) { runIn(1800, debugLogOff) }
 
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
@@ -120,6 +127,12 @@ def updated() {
 
 	if (nameSync == "device" || nameSync == "hub") { syncName() }
 	refresh()
+}
+
+def debugLogOff() {
+	device.updateSetting("debug", [type:"bool", value: false])
+	pauseExecution(5000)
+	logInfo("Debug logging is false.")
 }
 
 def getMultiPlugData(response) {
@@ -181,16 +194,19 @@ def commandResponse(response) {
 	}
 
 	logDebug("refreshResponse: status = ${status}")
-	def pwrState = "off"
-	if (relayState == 1) { pwrState = "on" }
-	sendEvent(name: "switch", value: "${pwrState}")
-	logInfo("Power: ${pwrState}")
-
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
-				"powerResponse")
+	def onOff = "off"
+	if (relayState == 1) { onOff = "on" }
+	sendEvent(name: "switch", value: onOff)
+	//	Get current energy data.  If emFunction disabled, ignore.
+	if (emFunction) {
+		if(getDataValue("plugId")) {
+			sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
+					"powerResponse")
+		} else {
+			sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+		}
 	} else {
-		sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+		logInfo("Status: [switch:${onOff}]")
 	}
 }
 
@@ -205,9 +221,8 @@ def powerResponse(response) {
 	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-	logInfo("Power is ${power} Watts.")
 	def year = new Date().format("YYYY").toInteger()
-
+	//	get total energy today
 	if(getDataValue("plugId")) {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
 				"setEngrToday")
@@ -228,11 +243,15 @@ def setEngrToday(response) {
 	energyData -= device.currentValue("currMonthTotal")
 	energyData = Math.round(100*energyData)/100
 	sendEvent(name: "energy", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
-	logInfo("Energy is ${energyData} kilowatt hours.")
-	
+	//	Log the current status.
+	def deviceStatus = [:]
+	deviceStatus << ["switch" : device.currentValue("switch")]
+	deviceStatus << ["power" : device.currentValue("power")]
+	deviceStatus << ["energy" : device.currentValue("energy")]
+	logInfo("Status: ${deviceStatus}")
+	//	Short Power Polling function.
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), powerPoll) }
 }
-
 
 //	Power Polling Methods
 def powerPoll() {
@@ -246,6 +265,7 @@ def powerPoll() {
 
 def powerPollResponse(response) {
 	def cmdResponse = parseInput(response)
+	logDebug("powerPollResponse cmdResponse: ${cmdResponse}")
 	def realtime = cmdResponse.emeter.get_realtime
 	def scale = "energy"
 	if (realtime.power == null) { scale = "power_mw" }
@@ -256,7 +276,6 @@ def powerPollResponse(response) {
 	if (device.currentValue("power") != power) {
 		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
 	}
-	logInfo("power = ${power}")
 	
 	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), powerPoll) }
 }

@@ -34,8 +34,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.11	4.5.11	Updated Plug-Switch to handle delay in HS210 updating internal status.
 12.04	4.5.12	Updated to not send event if state is same as that of device.  Info logging will still
 				state of on/off for each poll.
+12.18	4.5.13	Updated for separate fast poll parse method and stop debug logging after 30 minutes.
 =======================================================================================================*/
-	def driverVer() { return "4.5.12" }
+	def driverVer() { return "4.5.13" }
 //	def type() { return "Plug-Switch" }
 //	def type() { return "Multi-Plug" }
 	def type() { return "Dimming Switch" }
@@ -113,6 +114,7 @@ def updated() {
 		default: runEvery30Minutes(refresh)
 	}
 	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
+	if (debug == true) { runIn(1800, debugLogOff) }
 
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
@@ -121,6 +123,12 @@ def updated() {
 
 	if (nameSync == "device" || nameSync == "hub") { runIn(5, syncName) }
 	runIn(5, refresh)
+}
+
+def debugLogOff() {
+	device.updateSetting("debug", [type:"bool", value: false])
+	pauseExecution(5000)
+	logInfo("Debug logging is false.")
 }
 
 def getMultiPlugData(response) {
@@ -199,8 +207,15 @@ def refresh() {
 }
 
 
+def runShortPoll() {
+	logDebug("runShortPoll")
+	sendCmd("""{"system":{"get_sysinfo":{}}}""", "shortPollResponse")
+}
+
 //	Device command parsing methods
 def commandResponse(response) {
+	//	Will update events to system which will flow if a change.
+	//	Single log line per run.
 	def cmdResponse = parseInput(response)
 	logDebug("commandResponse: status = ${cmdResponse}")
 	def status = cmdResponse.system.get_sysinfo
@@ -209,19 +224,44 @@ def commandResponse(response) {
 		status = status.children.find { it.id == getDataValue("plugNo") }
 		relayState = status.state
 	}
-	def pwrState = "off"
-	if (relayState == 1) { pwrState = "on"}
-	if (device.currentValue("switch") != pwrState) {
-		sendEvent(name: "switch", value: "${pwrState}")
-	}
-	logInfo("commandResponse: ${pwrState}")
-	if (type() == "Dimming Switch" && device.currentValue("level") != status.brightness) {
+	def onOff = "off"
+	if (relayState == 1) { onOff = "on"}
+	sendEvent(name: "switch", value: onOff)
+	def deviceStatus = [:]
+	deviceStatus << ["power" : onOff]
+	if (type() == "Dimming Switch") {
 		sendEvent(name: "level", value: status.brightness)
-		logInfo("commandResponse: level = status.brightness")
+		deviceStatus << ["level" : status.brightness]
 	}
-	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), refresh) }
+	logInfo("Status: ${deviceStatus}")
+	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), runShortPoll) }
 }
 
+
+//	Device command parsing methods
+def shortPollResponse(response) {
+	//	Unless debug logging, short poll does not log.  It will send events for
+	//	changes in onOff and Level.
+	def cmdResponse = parseInput(response)
+	logDebug("shortPollResponse: status = ${cmdResponse}")
+	def status = cmdResponse.system.get_sysinfo
+	def relayState = status.relay_state
+	if (getDataValue("plugNo")) {
+		status = status.children.find { it.id == getDataValue("plugNo") }
+		relayState = status.state
+	}
+	def onOff = "off"
+	if (relayState == 1) { onOff = "on"}
+	if (device.currentValue("switch") != onOff) {
+		sendEvent(name: "switch", value: onOff)
+	}
+	if (type() == "Dimming Switch") {
+		if (device.currentValue("level") != status.brightness) {
+			sendEvent(name: "level", value: status.brightness)
+		}
+	}
+	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), runShortPoll) }
+}
 
 //	Synchronize Names between Device and Hubitat
 def syncName() {

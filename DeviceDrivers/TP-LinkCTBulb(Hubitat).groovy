@@ -24,19 +24,24 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 				attempt up to 5 retransmits.
 9.21.19	4.4.01	Added link to Application that will check/update IPs if the communications fail.
 10.5.19	4.5.02	Combined text.  Changed retry count to 5.
+12.5.19	4.5.12	Updated to common format.
+12.18 	4.5.13	Updated to reducing logging (eliminate debug after 30 minutes, reduce messaging).
 ================================================================================================*/
-def driverVer() { return "4.5.02" }
+def driverVer() { return "4.5.13" }
 //	def bulbType() { return "Color Bulb" }
 	def bulbType() { return "Tunable White Bulb" }
 //	def bulbType() { return "Soft White Bulb" }
+def gitHubName() {
+	if (bulbType() == "Color Bulb") { return "ColorBulb" }
+	else if (bulbType() == "Tunable White Bulb") { return "CTBulb" }
+	else { return "WhiteBulb" }
+}
 
 metadata {
 	definition (name: "TP-Link ${bulbType()}",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkColorBulb(Hubitat).groovy"
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkCTBulb(Hubitat).groovy"
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkWhiteBulb(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${gitHubName()}(Hubitat).groovy"
 			   ) {
         capability "Light"
 		capability "Switch"
@@ -104,6 +109,8 @@ def updated() {
 	}
 	state.transTime = 1000*transition_Time.toInteger()
 	state.errorCount = 0
+	
+	if (debug == true) { runIn(1800, debugLogOff) }
 
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
@@ -112,6 +119,12 @@ def updated() {
 
 	if (nameSync == "device" || nameSync == "hub") { runIn(5, syncName) }
 	refresh()
+}
+
+def debugLogOff() {
+	device.updateSetting("debug", [type:"bool", value: false])
+	pauseExecution(5000)
+	logInfo("Debug logging is false.")
 }
 
 def updateInstallData() {
@@ -126,7 +139,6 @@ def updateInstallData() {
 	pauseExecution(1000)
 	state.remove("updated")
 }
-
 
 //	Device Commands
 def on() {
@@ -187,8 +199,9 @@ def levelDown() {
 	}
 }
 
+
+//	type = Color Bulb or Tunable White Bulb
 def setColorTemperature(kelvin) {
-	//	type = Color Bulb or Tunable White Bulb
 	logDebug("setColorTemperature: colorTemp = ${kelvin}")
 	Integer lowK = 2500
 	Integer highK = 9000
@@ -202,27 +215,25 @@ def setColorTemperature(kelvin) {
 }
 
 def setCircadian() {
-	//	type = Color Bulb or Tunable White Bulb
 	logDebug("setCircadian")
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"circadian"}}}""", "commandResponse")
 }
 
+
+//	type = Color Bulb
 def setHue(hue) {
-	//	type = Color Bulb
 	logDebug("setHue:  hue = ${hue} // saturation = ${state.lastSaturation}")
 	saturation = state.lastSaturation
 	setColor([hue: hue, saturation: saturation])
 }
 
 def setSaturation(saturation) {
-	//	type = Color Bulb
 	logDebug("setSaturation: saturation = ${saturation} // hue = {state.lastHue}")
 	hue = state.lastHue
 	setColor([hue: hue, saturation: saturation])
 }
 
 def setColor(Map color) {
-	//	type = Color Bulb
 	logDebug("setColor:  color = ${color}")
 	if (color == null) color = [hue: state.lastHue, saturation: state.lastSaturation, level: device.currentValue("level")]
 	def percentage = 100
@@ -242,6 +253,7 @@ def setColor(Map color) {
     }
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"color_temp":0,"hue":${hue},"saturation":${saturation}}}}""", "commandResponse")
 }
+
 
 def refresh(){
 	logDebug("refresh")
@@ -266,61 +278,71 @@ def refreshResponse(response) {
 
 def updateBulbData(status) {
 	logDebug("updateBulbData: ${status}")
-	if (status.on_off == 0) {
-		sendEvent(name: "switch", value: "off")
-		logInfo("Power: off")
-		sendEvent(name: "circadianState", value: "normal")
-	} else {
-		sendEvent(name: "switch", value: "on")
-		sendEvent(name: "level", value: status.brightness)
-		if (bulbType() == "Soft White Bulb") {
-			logInfo("Power: on / Brightness: ${status.brightness}%")
+	def onOff = "on"
+	if (status.on_off == 0) { onOff = "off" }
+	sendEvent(name: "switch", value: onOff)
+	def bulbStatus = [:]
+	bulbStatus << ["power" : onOff]
+	if (onOff == "off") {
+		if (bulbType() != "Soft White Bulb") {
+			sendEvent(name: "circadianState", value: "normal")
 		}
-		if (bulbType() == "Tunable White Bulb") {
-			sendEvent(name: "circadianState", value: status.mode)
-			sendEvent(name: "colorTemperature", value: status.color_temp)
-			logInfo("Power: on / Brightness: ${status.brightness}% / " +
-					 "Circadian State: ${status.mode} / Color Temp: " +
-					 "${status.color_temp}K")
-			setColorTempData(status.color_temp)		}
-		if (bulbType() == "Color Bulb") {
-			sendEvent(name: "circadianState", value: status.mode)
-			sendEvent(name: "colorTemperature", value: status.color_temp)
-			def color = [:]
-			def hue = status.hue.toInteger()
-			if (highRes != true) { hue = (hue / 3.6).toInteger() }
-			color << ["hue" : hue]
-			color << ["saturation" : status.saturation]
-			color << ["level" : status.brightness]
-			sendEvent(name: "hue", value: hue)
-			sendEvent(name: "saturation", value: status.saturation)
-			sendEvent(name: "color", value: color)
-			logInfo("Power: on / Brightness: ${status.brightness}% / " +
-					 "Circadian State: ${status.mode} / Color Temp: " +
-					 "${status.color_temp}K / Color: ${color}")
-			if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
-			else { setColorTempData(status.color_temp) }
-		}
+		logInfo("Status: ${bulbStatus}")
+		return
 	}
+	sendEvent(name: "level", value: status.brightness, unit: "%")
+	bulbStatus << ["level" : status.brightness]
+	
+	if (bulbType() == "Tunable White Bulb") {
+		sendEvent(name: "circadianState", value: status.mode)
+		bulbStatus << ["circadian" : status.mode]
+		sendEvent(name: "colorTemperature", value: status.color_temp, unit: "°K")
+		bulbStatus << ["colorTemp" : status.color_temp]
+		setColorTempData(status.color_temp)
+	}
+
+	if (bulbType() == "Color Bulb") {
+		sendEvent(name: "circadianState", value: status.mode)
+		bulbStatus << ["mode" : status.mode]
+		sendEvent(name: "colorTemperature", value: status.color_temp, unit: "°K")
+		bulbStatus << ["colorTemp" : status.color_temp]
+		def hue = status.hue.toInteger()
+		if (highRes != true) { hue = (hue / 3.6).toInteger() }
+		sendEvent(name: "hue", value: hue)
+		bulbStatus << ["hue" : hue]
+		sendEvent(name: "saturation", value: status.saturation)
+		bulbStatus << ["sat" : status.saturation]
+		def color = [:]
+		color << ["hue" : hue]
+		color << ["saturation" : status.saturation]
+		color << ["level" : status.brightness]
+		sendEvent(name: "color", value: color)
+		if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
+		else { setColorTempData(status.color_temp) }
+	}
+	logInfo("Status: ${bulbStatus}")
 }
 
 def setColorTempData(temp){
 	logDebug("setColorTempData: color temperature = ${temp}")
     def value = temp.toInteger()
 	state.lastColorTemp = value
-    def genericName
-	if (value <= 2800) { genericName = "Incandescent" }
-	else if (value <= 3300) { genericName = "Soft White" }
-	else if (value <= 3500) { genericName = "Warm White" }
-	else if (value <= 4150) { genericName = "Moonlight" }
-	else if (value <= 5000) { genericName = "Horizon" }
-	else if (value <= 5500) { genericName = "Daylight" }
-	else if (value <= 6000) { genericName = "Electronic" }
-	else if (value <= 6500) { genericName = "Skylight" }
-	else { genericName = "Polar" }
-	logInfo "${device.getDisplayName()} Color Mode is CT.  Color is ${genericName}."
+    def colorName
+	if (value <= 2800) { colorName = "Incandescent" }
+	else if (value <= 3300) { colorName = "Soft White" }
+	else if (value <= 3500) { colorName = "Warm White" }
+	else if (value <= 4150) { colorName = "Moonlight" }
+	else if (value <= 5000) { colorName = "Horizon" }
+	else if (value <= 5500) { colorName = "Daylight" }
+	else if (value <= 6000) { colorName = "Electronic" }
+	else if (value <= 6500) { colorName = "Skylight" }
+	else { colorName = "Polar" }
+	if (device.currentValue("colorMode") == "CT" && device.currentValue("colorName") == colorName) {
+		return
+	}
+	logInfo "${device.getDisplayName()} Color Mode is CT.  Color is ${colorName}."
  	sendEvent(name: "colorMode", value: "CT")
-    sendEvent(name: "colorName", value: genericName)
+    sendEvent(name: "colorName", value: colorName)
 }
 
 def setRgbData(hue, saturation){
@@ -358,6 +380,9 @@ def setRgbData(hue, saturation){
 		case 346..360: colorName = "Red"
             break
     }
+	if (device.currentValue("colorMode") == "RGB" && device.currentValue("colorName") == colorName) {
+		return
+	}
 	logInfo "${device.getDisplayName()} Color Mode is RGB.  Color is ${colorName}."
  	sendEvent(name: "colorMode", value: "RGB")
     sendEvent(name: "colorName", value: colorName)
@@ -373,10 +398,12 @@ def syncName() {
 		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
 	}
 }
+
 def nameSyncHub(response) {
 	def cmdResponse = parseInput(response)
 	logInfo("Setting deviceIP for program.")
 }
+
 def nameSyncDevice(response) {
 	def cmdResponse = parseInput(response)
 	def alias = cmdResponse.system.get_sysinfo.alias
@@ -400,6 +427,7 @@ private sendCmd(command, action) {
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
+
 def parseInput(response) {
 	unschedule(setCommsError)
 	state.errorCount = 0
@@ -412,6 +440,7 @@ def parseInput(response) {
 		logWarn "CommsError: Fragmented message returned from device."
 	}
 }
+
 def setCommsError() {
 	logDebug("setCommsError")
 	if (state.errorCount < 5) {
@@ -432,6 +461,7 @@ def setCommsError() {
 				"persists, check IP address of device."
 	}
 }
+
 def repeatCommand() { 
 	logDebug("repeatCommand: ${state.lastCommand}")
 	sendCmd(state.lastCommand.command, state.lastCommand.action)
@@ -450,6 +480,7 @@ private outputXOR(command) {
 	}
    	return encrCmd
 }
+
 private inputXOR(encrResponse) {
 	String[] strBytes = encrResponse.split("(?<=\\G.{2})")
 	def cmdResponse = ""
@@ -464,12 +495,15 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
+
 def logInfo(msg) {
 	if (descriptionText == true) { log.info "<b>${device.label} ${driverVer()}</b> ${msg}" }
 }
+
 def logDebug(msg){
 	if(debug == true) { log.debug "<b>${device.label} ${driverVer()}</b> ${msg}" }
 }
+
 def logWarn(msg){ log.warn "<b>${device.label} ${driverVer()}</b> ${msg}" }
 
 //	end-of-file
