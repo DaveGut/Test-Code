@@ -32,8 +32,11 @@ devices; primarily various users on GitHub.com as well as my own investigations.
 			c.	Updates children device's deviceIP baseed on scanning.
 10.09.19	4.5.10 Updated to return to old driver types to alleviate confusions and errors.
 11.19.19	4.5.11.	Added KP303 device as a multi-plug.
+12.21.10	4.5.12. Added app?.removeSetting("selectedAddDevices") to initialize to preclude
+			error where a null device is detected and causes drop out in add devices before
+			removing the setting.
 =============================================================================================*/
-def appVersion() { return "4.5.10" }
+def appVersion() { return "4.5.12" }
 import groovy.json.JsonSlurper
 definition(
 	name: "TP-Link Integration",
@@ -63,6 +66,7 @@ def initialize() {
 	logDebug("initialize")
 	unschedule()
 	app?.updateSetting("pollEnabled", [type:"bool", value: true])
+	app?.removeSetting("selectedAddDevices")
 	if (state.deviceIps) { state.remove("deviceIps") }
 	if (selectedAddDevices) { addDevices() }
 }
@@ -96,6 +100,7 @@ def mainPage() {
 				   submitOnChange: true,
 				   title: "Enable Application Debug Logging")
 			paragraph "<b>Recommendation:  Set Static IP Address in your WiFi router for Kasa Devices."
+			paragraph "<b>Note:  If you have problems with this application, Manual installation is supported by all drivers."
 		}
 	}
 }
