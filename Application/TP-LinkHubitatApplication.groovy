@@ -14,27 +14,12 @@ supported by TP-Link. All  development is based upon open-source data on the TP-
 devices; primarily various users on GitHub.com as well as my own investigations.
 
 ===== Version Description =====
-09.20.19	Version 4.5 update.
-			Application Execution Options
-			a.	Install Kasa Devices.
-				1.	Scans Lan segment for Kasa Devices and creates database entry for found devices.
-				2.	Updates children device's deviceIP baseed on scanning.
-				3.	Offers non-children devices for installation.
-				4.	Installs user-selected devices.
-			b.	Lists Kasa Devices.
-				1.	Scans Lan segment for Kasa Devices and creates database entry for found devices.
-				2.	Updates children device's deviceIP baseed on scanning.
-				3.	Displays all found Kasa devices.
-			c.	Selection of information and debug logging.
-			Child-Device Called IP Poll (scan)
-			a.	Checks if scan has been done in last 15 minutes.  Exits if true.
-			b.	Scans Lan segment for Kasa Devices and creates database entry for found devices.
-			c.	Updates children device's deviceIP baseed on scanning.
-10.09.19	4.5.10 Updated to return to old driver types to alleviate confusions and errors.
-11.19.19	4.5.11.	Added KP303 device as a multi-plug.
-12.21.10	4.5.12. Added app?.removeSetting("selectedAddDevices") to initialize to preclude
-			error where a null device is detected and causes drop out in add devices before
-			removing the setting.
+09.20	Version 4.5 update. Updated Application Execution options.
+10.09	4.5.10. Updated to return to old driver types to alleviate confusions and errors.
+11.19	4.5.11.	Added KP303 device as a multi-plug.
+12.21	4.5.12. Added app?.removeSetting("selectedAddDevices") to method initialize.
+===== GitHub Repository =====
+	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =============================================================================================*/
 def appVersion() { return "4.5.12" }
 import groovy.json.JsonSlurper
