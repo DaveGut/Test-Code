@@ -9,25 +9,14 @@ language governing permissions and limitations under the License.
 DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 ===== 2019 History =====
-2.04	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions.
-3.28	4.2.01	a.	Added capability Change Level implementation.
-				c.	Added user command to synchronize the Kasa App name with the Hubitat device label.
-				d.	Added method updateInstallData called from app on initial update only.
-7.01	4.3.01	a.	Updated communications architecture, reducing required logic (and error potentials).
-				b.	Added import ability for driver from the HE editor.
-				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
-				d.	Initial release of Engr Mon Multi-Plug driver
-7.22	4.3.02	Modified on/off methods to include get_sysinfo, reducing messages by 1.
-8.25	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
-				attempt up to 5 retransmits.
-9.21	4.4.01	a.	Provided more selection for quickPoll parameters.
-				b.	Added link to Application that will check/update IPs if the communications fail.
 10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
 10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 12-05	4.5.12	Update to incorporate common changes and eliminate events where state has not changed.
 12-18	4.5.13	New preference - emFuncion to enable em attributes.  Added sunset to debug log.  Updated
 				logInfo for one line per external action or refresh.
+===== GitHub Repository =====
+	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
 	def driverVer() { return "4.5.13" }
 //	def type() { return "Engr Mon Plug" }

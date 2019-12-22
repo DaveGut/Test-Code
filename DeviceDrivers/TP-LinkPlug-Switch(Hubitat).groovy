@@ -12,19 +12,7 @@ language governing permissions and limitations under the License.
 DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
-===== 2019 History =====
-2.04	4.1.01.	Final code for Hubitat without reference to deviceType and enhancement of logging functions.
-3.28	4.2.01	a.	Added capability Change Level implementation.
-				c.	Added user command to synchronize the Kasa App name with the Hubitat device label.
-				d.	Added method updateInstallData called from app on initial update only.
-7.01	4.3.01	a.	Updated communications architecture, reducing required logic (and error potentials).
-				b.	Added import ability for driver from the HE editor.
-				c.	Added preference for synching name between hub and device.  Deleted command syncKasaName.
-7.22	4.3.02	Modified on/off methods to include get_sysinfo, reducing messages by 1.
-8.25	4.3.02	Added comms re-transmit on FIRST time a communications doesn't succeed.  Device will
-				attempt up to 5 retransmits.
-9.21	4.4.01	a.	Provided more selection for quickPoll parameters.
-				b.	Added link to Application that will check/update IPs if the communications fail.
+===== History =====
 10.01	4.5.01	a.	Converted to single file for dimming switch, multi-plug, and switch-plug.
 				b.	Two drivers created from the single file (with 2 edits at beginning)
 					1.	TP-Link Dimming Switch
@@ -35,17 +23,20 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 12.04	4.5.12	Updated to not send event if state is same as that of device.  Info logging will still
 				state of on/off for each poll.
 12.18	4.5.13	Updated for separate fast poll parse method and stop debug logging after 30 minutes.
+===== GitHub Repository =====
+	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
 	def driverVer() { return "4.5.13" }
 	def type() { return "Plug-Switch" }
 //	def type() { return "Multi-Plug" }
 //	def type() { return "Dimming Switch" }
+	def gitHubName() { return type().replaceAll("\\s","") }
 
 metadata {
 	definition (name: "TP-Link ${type()}",
     			namespace: "davegut",
                 author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${type()replaceAll("\\s","")}(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${gitHubName()}(Hubitat).groovy"
 			   ) {
 		capability "Switch"
         capability "Actuator"
