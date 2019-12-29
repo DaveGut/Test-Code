@@ -19,8 +19,8 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
 	def driverVer() { return "4.5.13" }
-	def type() { return "Engr Mon Plug" }
-//	def type() { return "Engr Mon Multi-Plug" }
+//	def type() { return "Engr Mon Plug" }
+	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
 		if (type() == "Engr Mon Plug") { return "EM-Plug" }
 		else { return "EM-Multi-Plug" }
