@@ -14,13 +14,14 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 12-05	4.5.12	Update to incorporate common changes and eliminate events where state has not changed.
 12-18	4.5.13	New preference - emFuncion to enable em attributes.  Added sunset to debug log.  Updated
+12-29	4.5.14	Changed year function due to error.  Added method thisYear and moded 214, 277, and 311. 
 				logInfo for one line per external action or refresh.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.5.13" }
-//	def type() { return "Engr Mon Plug" }
-	def type() { return "Engr Mon Multi-Plug" }
+	def driverVer() { return "4.5.14" }
+	def type() { return "Engr Mon Plug" }
+//	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
 		if (type() == "Engr Mon Plug") { return "EM-Plug" }
 		else { return "EM-Multi-Plug" }
@@ -210,7 +211,7 @@ def powerResponse(response) {
 	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-	def year = new Date().format("YYYY").toInteger()
+	def year = thisYear()
 	//	get total energy today
 	if(getDataValue("plugId")) {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
@@ -273,7 +274,7 @@ def powerPollResponse(response) {
 //	Update this and last month's stats (at 00:01 AM).  Called from updated.
 def updateStats() {
 	logDebug("updateStats")
-	def year = new Date().format("YYYY").toInteger()
+	def year = thisYear()
 	if(getDataValue("plugId")) {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
 				"setThisMonth")
@@ -307,7 +308,7 @@ def setThisMonth(response) {
 	sendEvent(name: "currMonthTotal", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
 	sendEvent(name: "currMonthAvg", value: avgEnergy, descriptionText: "KiloWatt Hours per Day", unit: "KWH/D")
 	logInfo("This month's energy stats set to ${energyData} // ${avgEnergy}")
-	def year = new Date().format("YYYY").toInteger()
+	def year = thisYear()
 	if (month == 1) { year = year -1 }
 	if(getDataValue("plugId")) {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
@@ -441,6 +442,11 @@ def repeatCommand() {
 
 
 //	Utility Methods
+def thisYear() {
+	def year = new Date().format("yyyy")
+	return year.toInteger()
+}
+
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
