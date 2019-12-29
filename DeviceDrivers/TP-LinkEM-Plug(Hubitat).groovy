@@ -14,14 +14,15 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
 12-05	4.5.12	Update to incorporate common changes and eliminate events where state has not changed.
 12-18	4.5.13	New preference - emFuncion to enable em attributes.  Added sunset to debug log.  Updated
-12-29	4.5.14	Changed year function due to error.  Added method thisYear and moded 214, 277, and 311. 
+12-29	4.5.14	Interim Changed year function due to error.  Added method thisYear and moded 214, 277, and 311. 
 				logInfo for one line per external action or refresh.
+12-29	4.5.15	Final.  Update day, month, year processing to account for changes in Groovy Date.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
 	def driverVer() { return "4.5.15" }
-	def type() { return "Engr Mon Plug" }
-//	def type() { return "Engr Mon Multi-Plug" }
+//	def type() { return "Engr Mon Plug" }
+	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
 		if (type() == "Engr Mon Plug") { return "EM-Plug" }
 		else { return "EM-Multi-Plug" }
