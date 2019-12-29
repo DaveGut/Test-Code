@@ -19,7 +19,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.5.14" }
+	def driverVer() { return "4.5.15" }
 //	def type() { return "Engr Mon Plug" }
 	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
@@ -211,13 +211,12 @@ def powerResponse(response) {
 	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-	def year = thisYear()
 	//	get total energy today
 	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
+		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
 				"setEngrToday")
 	} else {
-		sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""",
+		sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
 				"setEngrToday")
 	}
 }
@@ -225,9 +224,7 @@ def powerResponse(response) {
 def setEngrToday(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("setEngrToday: ${cmdResponse}")
-	def month = new Date().format("M").toInteger()
-	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == month }
-
+	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == thisMonth() }
 	def energyData = data.energy
 	if (energyData == null) { energyData = data.energy_wh/1000 }
 	energyData -= device.currentValue("currMonthTotal")
@@ -274,12 +271,11 @@ def powerPollResponse(response) {
 //	Update this and last month's stats (at 00:01 AM).  Called from updated.
 def updateStats() {
 	logDebug("updateStats")
-	def year = thisYear()
 	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
+		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
 				"setThisMonth")
 	} else {
-		sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""",
+		sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
 				"setThisMonth")
 	}
 }
@@ -287,9 +283,7 @@ def updateStats() {
 def setThisMonth(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("setThisMonth: energyScale = ${state.energyScale}, cmdResponse = ${cmdResponse}")
-	def month = new Date().format("M").toInteger()
-	def day = new Date().format("d").toInteger()
-	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == month }
+	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == thisMonth() }
 	def scale = "energy"
 	def energyData
 	if (data == null) { energyData = 0 }
@@ -298,6 +292,7 @@ def setThisMonth(response) {
 		energyData = data."${scale}"
 	}
 	def avgEnergy = 0
+	def day = today()
 	if (day !=1) { avgEnergy = energyData/(day - 1) }
 	if (scale == "energy_wh") {
 		energyData = energyData/1000
@@ -309,7 +304,7 @@ def setThisMonth(response) {
 	sendEvent(name: "currMonthAvg", value: avgEnergy, descriptionText: "KiloWatt Hours per Day", unit: "KWH/D")
 	logInfo("This month's energy stats set to ${energyData} // ${avgEnergy}")
 	def year = thisYear()
-	if (month == 1) { year = year -1 }
+	if (thisMonth() == 1) { year = year -1 }
 	if(getDataValue("plugId")) {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
 				"setLastMonth")
@@ -322,7 +317,8 @@ def setThisMonth(response) {
 def setLastMonth(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("setThisMonth: energyScale = ${state.energyScale}, cmdResponse = ${cmdResponse}")
-	def lastMonth = new Date().format("M").toInteger() - 1
+	def lastMonth = thisMonth() -1
+	if (lastMonth == 0) { lastMonth = 12 }
 	def monthLength
 	switch(lastMonth) {
 		case 4:
@@ -333,6 +329,7 @@ def setLastMonth(response) {
 			break
 		case 2:
 			monthLength = 28
+			def year = thisYear()
 			if (year == 2020 || year == 2024 || year == 2028) { monthLength = 29 }
 			break
 		default:
@@ -446,7 +443,14 @@ def thisYear() {
 	def year = new Date().format("yyyy")
 	return year.toInteger()
 }
-
+def thisMonth() {
+	def month = new Date().format("M")
+	return month.toInteger()
+}
+def today() {
+	def day = new Date().format("d")
+	return day.toInteger()
+}
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
