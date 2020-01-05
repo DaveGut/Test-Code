@@ -1,23 +1,28 @@
 /*
-TP-Link Energy Monitor Plug Device Driver, Version 4.6
-	Copyright Dave Gutheinz
+TP-Link Device Driver, Version 4.5
+	Copyright 2018, 2019 Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
 Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific 
 language governing permissions and limitations under the License.
-
 DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
-
-===== 2020 History =====
-01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
+===== 2019 History =====
+10.01	4.5.01	Combined HS110 and HS300 drivers to single driver.
+10.05	4.5.02	Corrected power level extraction.  Increased error count for retry.
+10.10	4.5.10	Updated to create individual types for the devices to alleviate confusion and errors.
+12-05	4.5.12	Update to incorporate common changes and eliminate events where state has not changed.
+12-18	4.5.13	New preference - emFuncion to enable em attributes.  Added sunset to debug log.  Updated
+12-29	4.5.14	Interim Changed year function due to error.  Added method thisYear and moded 214, 277, and 311. 
+				logInfo for one line per external action or refresh.
+12-29	4.5.15	Final.  Update day, month, year processing to account for changes in Groovy Date.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.01" }
-	def type() { return "Engr Mon Plug" }
-//	def type() { return "Engr Mon Multi-Plug" }
+	def driverVer() { return "4.5.15" }
+//	def type() { return "Engr Mon Plug" }
+	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
 		if (type() == "Engr Mon Plug") { return "EM-Plug" }
 		else { return "EM-Multi-Plug" }
@@ -49,7 +54,7 @@ metadata {
 		input ("emFunction", "bool", title: "Enable Energy Monitor Functions", defaultValue: true)
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
 			   options: ["1", "5", "15", "30"], defaultValue: "30")
-		input ("shortPoll", "number",title: "Fast Power Polling Interval - <b>Caution</b> ('0' = disabled)",
+		input ("shortPoll", "number",title: "Fast Power Polling Interval ('0' = disabled)",
 			   defaultValue: 0)
 		input ("nameSync", "enum", title: "Synchronize Names", defaultValue: "none",
 			   options: ["none": "Don't synchronize",
@@ -60,7 +65,6 @@ metadata {
 	}
 }
 
-//	Installation and update
 def installed() {
 	log.info "Installing .."
 	runIn(2, updated)
@@ -70,7 +74,6 @@ def updated() {
 	log.info "Updating .."
 	unschedule()
 	state.errorCount = 0
-	sendEvent(name: "commsError", value: false)
 
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
@@ -145,7 +148,8 @@ def updateInstallData() {
 	state.remove("updated")
 }
 
-//	Plug Commands
+
+//	Device Commands
 def on() {
 	logDebug("on")
 	if(getDataValue("plugId")) {
@@ -168,9 +172,7 @@ def off() {
 
 def refresh() {
 	logDebug("refresh")
-	if (state.errorCount < 1) {
-		sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
 
 def commandResponse(response) {
@@ -182,7 +184,7 @@ def commandResponse(response) {
 		relayState = status.state
 	}
 
-	logDebug("commandResponse: status = ${status}")
+	logDebug("refreshResponse: status = ${status}")
 	def onOff = "off"
 	if (relayState == 1) { onOff = "on" }
 	sendEvent(name: "switch", value: onOff)
@@ -198,6 +200,7 @@ def commandResponse(response) {
 		logInfo("Status: [switch:${onOff}]")
 	}
 }
+
 
 //	Update Today's power data.  Called from refreshResponse.
 def powerResponse(response) {
@@ -235,8 +238,36 @@ def setEngrToday(response) {
 	deviceStatus << ["energy" : device.currentValue("energy")]
 	logInfo("Status: ${deviceStatus}")
 	//	Short Power Polling function.
-	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
+	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), powerPoll) }
 }
+
+//	Power Polling Methods
+def powerPoll() {
+	if(getDataValue("plugId")) {
+		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
+				"powerPollResponse")
+	} else {
+		sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerPollResponse")
+	}
+}
+
+def powerPollResponse(response) {
+	def cmdResponse = parseInput(response)
+	logDebug("powerPollResponse cmdResponse: ${cmdResponse}")
+	def realtime = cmdResponse.emeter.get_realtime
+	def scale = "energy"
+	if (realtime.power == null) { scale = "power_mw" }
+	def power = realtime."${scale}"
+	if(power == null) { power = 0 }
+	else if (scale == "power_mw") { power = power / 1000 }
+	power = (0.5 + Math.round(100*power)/100).toInteger()
+	if (device.currentValue("power") != power) {
+		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+	}
+	
+	if (shortPoll.toInteger() > 0) { runIn(shortPoll.toInteger(), powerPoll) }
+}
+
 
 //	Update this and last month's stats (at 00:01 AM).  Called from updated.
 def updateStats() {
@@ -252,7 +283,7 @@ def updateStats() {
 
 def setThisMonth(response) {
 	def cmdResponse = parseInput(response)
-	logDebug("setThisMonth: cmdResponse = ${cmdResponse}")
+	logDebug("setThisMonth: energyScale = ${state.energyScale}, cmdResponse = ${cmdResponse}")
 	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == thisMonth() }
 	def scale = "energy"
 	def energyData
@@ -325,7 +356,8 @@ def setLastMonth(response) {
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
-//	Name Sync with the Kasa Device Name
+
+//	===== Synchronize naming between the device and Hubitat =====
 def syncName() {
 	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
 	if (nameSync == "hub") {
@@ -339,12 +371,10 @@ def syncName() {
 		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
 	}
 }
-
 def nameSyncHub(response) {
 	def cmdResponse = parseInput(response)
 	logInfo("Kasa name for device changed.")
 }
-
 def nameSyncDevice(response) {
 	def cmdResponse = parseInput(response)
 	def status = cmdResponse.system.get_sysinfo
@@ -355,22 +385,22 @@ def nameSyncDevice(response) {
 	logInfo("Hubit name for device changed to ${status.alias}.")
 }
 
+
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
-	runIn(3, setCommsError)
+	runIn(5, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 2,
+		 timeout: 5,
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
-
 def parseInput(response) {
 	unschedule(setCommsError)
 	state.errorCount = 0
@@ -383,101 +413,45 @@ def parseInput(response) {
 		logWarn "CommsError: Fragmented message returned from device."
 	}
 }
-
-//	Communications Error Handling
 def setCommsError() {
 	logDebug("setCommsError")
-	state.errorCount += 1
-	if (state.errorCount > 6) {
-		return
-	} else if (state.errorCount < 5) {
+	if (state.errorCount < 5) {
+		state.errorCount+= 1
 		repeatCommand()
-		logWarn("Executing attempt ${state.errorCount} to recover communications")
+		logWarn("Attempt ${state.errorCount} to recover communications")
 	} else if (state.errorCount == 5) {
-		sendEvent(name: "commsError", value: true)
+		state.errorCount += 1
+		//	If a child device, update IPs automatically using the application.
 		if (getDataValue("applicationVersion")) {
 			logWarn("setCommsError: Parent commanded to poll for devices to correct error.")
-			parent.updateDeviceIps()
-			runIn(40, repeatCommand)
-		} else {
-			repeatCommand()
+			parent.updateDevices()
+			runIn(90, repeatCommand)
 		}
-	} else if (state.errorCount == 6) {		
-		logWarn "<b>setCommsError</b>: Your device is not reachable at IP ${getDataValue("deviceIP")}.\r" +
-				"<b>Corrective Action</b>: \r"+
-				"Your action is required to re-enable the device.\r" +
-				"a.  If the device was removed, disable the device in Hubitat.\r" +
-				"b.  Check the device in the Kasa App and assure it works.\r" +
-				"c.  If a manual installation, update your IP and Refresh Rate in the device preferences.\r" +
-				"d.  For TP-Link Integration installation:\r" +
-				"\t1.  Assure the device is working in the Kasa App.\r" +
-				"\t2.  Run the TP-Link Integration app (this will update the IP address).\r" +
-				"\t3.  Execute any command except Refresh.  This should reconnect the device.\r"
-				"\t4.  A Save Preferences will reset the error data and force a restart the interface."
+	} else {
+		sendEvent(name: "commsError", value: true)
+		logWarn "setCommsError: No response from device.  Refresh.  If off line " +
+				"persists, check IP address of device."
 	}
 }
-
 def repeatCommand() { 
 	logDebug("repeatCommand: ${state.lastCommand}")
 	sendCmd(state.lastCommand.command, state.lastCommand.action)
 }
 
-//	Power Polling Methods
-def powerPoll() {
-	if(getDataValue("plugId")) {
-		sendPowerPollCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
-				"powerPollResponse")
-	} else {
-		sendPowerPollCmd("""{"emeter":{"get_realtime":{}}}""", "powerPollResponse")
-	}
-}
-
-private sendPowerPollCmd(command, action) {
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 3,
-		 callback: action])
-	sendHubCommand(myHubAction)
-}
-
-def powerPollResponse(response) {
-	logDebug("powerPollResponse")
-	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse = parseJson(inputXOR(encrResponse))
-	def realtime = cmdResponse.emeter.get_realtime
-	def scale = "energy"
-	if (realtime.power == null) { scale = "power_mw" }
-	def power = realtime."${scale}"
-	if(power == null) { power = 0 }
-	else if (scale == "power_mw") { power = power / 1000 }
-	power = (0.5 + Math.round(100*power)/100).toInteger()
-	if (device.currentValue("power") != power) {
-		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-		logDebug("powerPollResponse: Power set to ${power} watts")
-	}
-	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
-}
 
 //	Utility Methods
 def thisYear() {
 	def year = new Date().format("yyyy")
 	return year.toInteger()
 }
-
 def thisMonth() {
 	def month = new Date().format("M")
 	return month.toInteger()
 }
-
 def today() {
 	def day = new Date().format("d")
 	return day.toInteger()
 }
-
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -489,7 +463,6 @@ private outputXOR(command) {
 	}
    	return encrCmd
 }
-
 private inputXOR(encrResponse) {
 	String[] strBytes = encrResponse.split("(?<=\\G.{2})")
 	def cmdResponse = ""
@@ -504,15 +477,12 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
-
 def logInfo(msg) {
-	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
+	if (descriptionText == true) { log.info "<b>${device.label} ${driverVer()}</b> ${msg}" }
 }
-
 def logDebug(msg){
-	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
+	if(debug == true) { log.debug "<b>${device.label} ${driverVer()}</b> ${msg}" }
 }
-
-def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
+def logWarn(msg){ log.warn "<b>${device.label} ${driverVer()}</b> ${msg}" }
 
 //	end-of-file
