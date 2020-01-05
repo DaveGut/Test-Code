@@ -1,27 +1,22 @@
 /*
-TP-Link Device Application, Version 4.5
-		Copyright 2018, 2019 Dave Gutheinz
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file 
-except in compliance with the License. You may obtain a copy of the License at: 
-		http://www.apache.org/licenses/LICENSE-2.0.
-Unless required by applicable law or agreed to in writing,software distributed under the 
-License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, 
-either express or implied. See the License for the specific language governing permissions 
-and limitations under the License.
+TP-Link Integration Application, Version 4.6
+	Copyright Dave Gutheinz
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
+License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
+Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific 
+language governing permissions and limitations under the License.
 
-DISCLAIMER:  This Applicaion and the associated Device Drivers are in not sanctioned nor 
-supported by TP-Link. All  development is based upon open-source data on the TP-Link 
-devices; primarily various users on GitHub.com as well as my own investigations.
+DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
+All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
-===== Version Description =====
-09.20	Version 4.5 update. Updated Application Execution options.
-10.09	4.5.10. Updated to return to old driver types to alleviate confusions and errors.
-11.19	4.5.11.	Added KP303 device as a multi-plug.
-12.21	4.5.12. Added app?.removeSetting("selectedAddDevices") to method initialize.
+===== 2020 History =====
+01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
+
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =============================================================================================*/
-def appVersion() { return "4.5.12" }
+def appVersion() { return "4.6.01" }
 import groovy.json.JsonSlurper
 definition(
 	name: "TP-Link Integration",
@@ -34,6 +29,7 @@ definition(
 	singleInstance: true,
 	importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/Application/TP-LinkHubitatApplication.groovy"
 )
+
 preferences {
 	page(name: "mainPage")
 	page(name: "addDevicesPage")
@@ -52,10 +48,10 @@ def initialize() {
 	unschedule()
 	app?.updateSetting("pollEnabled", [type:"bool", value: true])
 	app?.removeSetting("selectedAddDevices")
+	app?.removeSetting("missingDevice")
 	if (state.deviceIps) { state.remove("deviceIps") }
 	if (selectedAddDevices) { addDevices() }
 }
-
 
 //	=====	Main Page	=====
 def mainPage() {
@@ -90,11 +86,10 @@ def mainPage() {
 	}
 }
 
-
 //	=====	Add Devices	=====
 def addDevicesPage() {
 	state.devices = [:]
-	findDevices(200, "parseDeviceData")
+	findDevices(100, "parseDeviceData")
     def devices = state.devices
 	def newDevices = [:]
 	devices.each {
@@ -241,12 +236,11 @@ def addDevices() {
 	app?.removeSetting("selectedAddDevices")
 }
 
-
 //	=====	Update Device IPs	=====
 def listDevicesPage() {
 	logDebug("listDevicesPage")
 	state.devices = [:]
-	findDevices(200, "parseDeviceData")
+	findDevices(100, "parseDeviceData")
 	def devices = state.devices
 	def foundDevices = "<b>Found Devices (Installed / DNI / IP / Label):</b>"
 	def count = 1
@@ -267,62 +261,28 @@ def listDevicesPage() {
 	}
 }
 
-
 //	===== IP Check =====
 def updateDeviceIps() {
-	logDebug("updateDeviceIps: Updating Device IPs after hub reboot.")
+	logDebug("updateDeviceIps: Updating Device IPs.")
 	runIn(5, updateDevices)
 }
 
 def updateDevices() {
 	if (pollEnabled == true) {
 		app?.updateSetting("pollEnabled", [type:"bool", value: false])
-		runIn(900, pollEnable)
+		runIn(3600, pollEnable)
 	} else {
-		logWarn("updateDevices: a poll was run within the last 15 minutes.  Exited.")
+		logWarn("updateDevices: a poll was run within the last hour.  Exited.")
 		return
 	}
-	def children = getChildDevices()
-	logDebug("UpdateDevices: ${children} / ${pollEnabled}")
-	app?.updateSetting("missingDevice", [type:"bool", value: false])
-	children.each {
-		if (it.isDisabled()) {
-			logDebug("updateDevices: ${it} is disabled and not checked.")
-			return
-		}
-		def ip = it.getDataValue("deviceIP")
-		runIn(2, setMissing)
-		sendPoll(ip, "checkValid")
-		pauseExecution(3000)
-	}
-	runIn(2, pollIfMissing)
-}
-
-def pollIfMissing() {
-	logDebug("pollIfMissing: ${missingDevice}.")
-	if (missingDevice == true) {
-		state.devices= [:]
-		findDevices(200, parseDeviceData)
-		app?.updateSetting("missingDevice", [type:"bool", value: false])
-	}
-}
-
-def checkValid(response) {
-	unschedule("setMissing")
-	def resp = parseLanMessage(response.description)
-	logDebug("checkValid: response received from ${convertHexToIP(resp.ip)}")
-}
-
-def setMissing() {
-	logWarn("setMissing: Setting missingDevice to true")
-	app?.updateSetting("missingDevice", [type:"bool", value: true])
+	state.devices= [:]
+	findDevices(100, parseDeviceData)
 }
 
 def pollEnable() {
 	logDebug("pollEnable")
 	app?.updateSetting("pollEnabled", [type:"bool", value: true])
 }
-
 
 //	=====	Kasa Specific Communications	=====
 def findDevices(pollInterval, action) {
@@ -342,6 +302,7 @@ def findDevices(pollInterval, action) {
 	}
 	pauseExecution(3000)
 }
+
 private sendPoll(ip, action) {
 	def myHubAction = new hubitat.device.HubAction(
 		"d0f281f88bff9af7d5f5cfb496f194e0bfccb5c6afc1a7c8eacaf08bf68bf6",
@@ -353,6 +314,7 @@ private sendPoll(ip, action) {
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
+
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -364,6 +326,7 @@ private outputXOR(command) {
 	}
    	return encrCmd
 }
+
 private inputXOR(encrResponse) {
 	String[] strBytes = encrResponse.split("(?<=\\G.{2})")
 	def cmdResponse = ""
@@ -379,23 +342,27 @@ private inputXOR(encrResponse) {
 	return cmdResponse
 }
 
-
 //	===== General Utility methods =====
 def uninstalled() {
     getAllChildDevices().each { 
         deleteChildDevice(it.deviceNetworkId)
     }
 }
+
 private String convertHexToIP(hex) {
 	[convertHexToInt(hex[0..1]),convertHexToInt(hex[2..3]),convertHexToInt(hex[4..5]),convertHexToInt(hex[6..7])].join(".")
 }
+
 private Integer convertHexToInt(hex) { Integer.parseInt(hex,16) }
+
 def logDebug(msg){
-	if(debugLog == true) { log.debug "<b>${appVersion()}</b> ${msg}" }
+	if(debugLog == true) { log.debug "${appVersion()} ${msg}" }
 }
+
 def logInfo(msg){
-	if(infoLog == true) { log.info "<b>${appVersion()}</b> ${msg}" }
+	if(infoLog == true) { log.info "${appVersion()} ${msg}" }
 }
-def logWarn(msg) { log.warn "<b>${appVersion()}</b> ${msg}" }
+
+def logWarn(msg) { log.warn "${appVersion()} ${msg}" }
 
 //	end-of-file
