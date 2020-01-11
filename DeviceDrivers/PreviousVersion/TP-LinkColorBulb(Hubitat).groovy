@@ -1,8 +1,6 @@
 /*
-TP-Link Device Driver, Version 4.5
-
-	Copyright 2018, 2019 Dave Gutheinz
-
+TP-Link Bulb Device Driver, Version 4.6
+	Copyright Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
 Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
@@ -12,22 +10,20 @@ language governing permissions and limitations under the License.
 DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
-===== 2019 History =====
-10.05	4.5.02	Combined text.  Changed retry count to 5.
-12.05	4.5.12	Updated to common format.
-12.18	4.5.13	Updated to reducing logging (eliminate debug after 30 minutes, reduce messaging).
+===== 2020 History =====
+01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 ================================================================================================*/
-	def driverVer() { return "4.5.13" }
+	def driverVer() { return "4.6.01" }
 	def bulbType() { return "Color Bulb" }
 //	def bulbType() { return "Tunable White Bulb" }
 //	def bulbType() { return "Soft White Bulb" }
 	def gitHubName() {
-	if (bulbType() == "Color Bulb") { return "ColorBulb" }
-	else if (bulbType() == "Tunable White Bulb") { return "CTBulb" }
-	else { return "WhiteBulb" }
-}
+		if (bulbType() == "Color Bulb") { return "ColorBulb" }
+		else if (bulbType() == "Tunable White Bulb") { return "CTBulb" }
+		else { return "WhiteBulb" }
+	}
 
 metadata {
 	definition (name: "TP-Link ${bulbType()}",
@@ -71,6 +67,7 @@ metadata {
 	}
 }
 
+//	Installation and update
 def installed() {
 	log.info "Installing .."
 	runIn(2, updated)
@@ -79,6 +76,8 @@ def installed() {
 def updated() {
 	log.info "Updating .."
 	unschedule()
+	state.errorCount = 0
+	sendEvent(name: "commsError", value: false)
 
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
@@ -100,7 +99,6 @@ def updated() {
 		default: runEvery30Minutes(refresh)
 	}
 	state.transTime = 1000*transition_Time.toInteger()
-	state.errorCount = 0
 	
 	if (debug == true) { runIn(1800, debugLogOff) }
 
@@ -132,7 +130,7 @@ def updateInstallData() {
 	state.remove("updated")
 }
 
-//	Device Commands
+//	User Commands and response parsing
 def on() {
 	logDebug("On: transition time = ${state.transTime}")
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${state.transTime}}}}""", "commandResponse")
@@ -191,8 +189,6 @@ def levelDown() {
 	}
 }
 
-
-//	type = Color Bulb or Tunable White Bulb
 def setColorTemperature(kelvin) {
 	logDebug("setColorTemperature: colorTemp = ${kelvin}")
 	Integer lowK = 2500
@@ -211,8 +207,6 @@ def setCircadian() {
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"circadian"}}}""", "commandResponse")
 }
 
-
-//	type = Color Bulb
 def setHue(hue) {
 	logDebug("setHue:  hue = ${hue} // saturation = ${state.lastSaturation}")
 	saturation = state.lastSaturation
@@ -246,14 +240,13 @@ def setColor(Map color) {
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"color_temp":0,"hue":${hue},"saturation":${saturation}}}}""", "commandResponse")
 }
 
-
 def refresh(){
 	logDebug("refresh")
-	sendCmd("""{"system":{"get_sysinfo":{}}}""", "refreshResponse")
+	if (state.errorCount < 1) {
+		sendCmd("""{"system":{"get_sysinfo":{}}}""", "refreshResponse")
+	}
 }
 
-
-//	Device command parsing methods
 def commandResponse(response) {
 	def cmdResponse = parseInput(response)
 	def status = cmdResponse["smartlife.iot.smartbulb.lightingservice"].transition_light_state
@@ -288,7 +281,7 @@ def updateBulbData(status) {
 	if (bulbType() == "Tunable White Bulb") {
 		sendEvent(name: "circadianState", value: status.mode)
 		bulbStatus << ["circadian" : status.mode]
-		sendEvent(name: "colorTemperature", value: status.color_temp, unit: "°K")
+		sendEvent(name: "colorTemperature", value: status.color_temp, unit: " K")
 		bulbStatus << ["colorTemp" : status.color_temp]
 		setColorTempData(status.color_temp)
 	}
@@ -296,7 +289,7 @@ def updateBulbData(status) {
 	if (bulbType() == "Color Bulb") {
 		sendEvent(name: "circadianState", value: status.mode)
 		bulbStatus << ["mode" : status.mode]
-		sendEvent(name: "colorTemperature", value: status.color_temp, unit: "°K")
+		sendEvent(name: "colorTemperature", value: status.color_temp, unit: " K")
 		bulbStatus << ["colorTemp" : status.color_temp]
 		def hue = status.hue.toInteger()
 		if (highRes != true) { hue = (hue / 3.6).toInteger() }
@@ -380,8 +373,7 @@ def setRgbData(hue, saturation){
     sendEvent(name: "colorName", value: colorName)
 }
 
-
-//	Synchronize Names between Device and Hubitat
+//	Name Sync with the Kasa Device Name
 def syncName() {
 	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
 	if (nameSync == "hub") {
@@ -403,19 +395,18 @@ def nameSyncDevice(response) {
 	logInfo("Hubit name for device changed to ${alias}.")
 }
 
-
-//	Communications and initial common parsing
+//	Common Communications Methods
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
-	runIn(5, setCommsError)
+	runIn(3, setCommsError)
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 5,
+		 timeout: 2,
 		 callback: action])
 	sendHubCommand(myHubAction)
 }
@@ -433,24 +424,36 @@ def parseInput(response) {
 	}
 }
 
+//	Communications Error Handling
 def setCommsError() {
 	logDebug("setCommsError")
-	if (state.errorCount < 5) {
-		state.errorCount+= 1
+	state.errorCount += 1
+	if (state.errorCount > 6) {
+		return
+	} else if (state.errorCount < 5) {
 		repeatCommand()
-		logWarn("Attempt ${state.errorCount} to recover communications")
+		logWarn("Executing attempt ${state.errorCount} to recover communications")
 	} else if (state.errorCount == 5) {
-		state.errorCount += 1
-		//	If a child device, update IPs automatically using the application.
+		sendEvent(name: "commsError", value: true)
 		if (getDataValue("applicationVersion")) {
 			logWarn("setCommsError: Parent commanded to poll for devices to correct error.")
-			parent.updateDevices()
-			runIn(90, repeatCommand)
+			parent.updateDeviceIps()
+			runIn(40, repeatCommand)
+		} else {
+			repeatCommand()
 		}
-	} else {
-		sendEvent(name: "commsError", value: true)
-		logWarn "setCommsError: No response from device.  Refresh.  If off line " +
-				"persists, check IP address of device."
+	} else if (state.errorCount == 6) {		
+		logWarn "<b>setCommsError</b>: Your device is not reachable at IP ${getDataValue("deviceIP")}.\r" +
+				"<b>Corrective Action</b>: \r"+
+				"Your action is required to re-enable the device.\r" +
+				"a.  If the device was removed, disable the device in Hubitat.\r" +
+				"b.  Check the device in the Kasa App and assure it works.\r" +
+				"c.  If a manual installation, update your IP and Refresh Rate in the device preferences.\r" +
+				"d.  For TP-Link Integration installation:\r" +
+				"\t1.  Assure the device is working in the Kasa App.\r" +
+				"\t2.  Run the TP-Link Integration app (this will update the IP address).\r" +
+				"\t3.  Execute any command except Refresh.  This should reconnect the device.\r"
+				"\t4.  A Save Preferences will reset the error data and force a restart the interface."
 	}
 }
 
@@ -458,7 +461,6 @@ def repeatCommand() {
 	logDebug("repeatCommand: ${state.lastCommand}")
 	sendCmd(state.lastCommand.command, state.lastCommand.action)
 }
-
 
 //	Utility Methods
 private outputXOR(command) {
@@ -489,13 +491,13 @@ private inputXOR(encrResponse) {
 }
 
 def logInfo(msg) {
-	if (descriptionText == true) { log.info "<b>${device.label} ${driverVer()}</b> ${msg}" }
+	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
 }
 
 def logDebug(msg){
-	if(debug == true) { log.debug "<b>${device.label} ${driverVer()}</b> ${msg}" }
+	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
 }
 
-def logWarn(msg){ log.warn "<b>${device.label} ${driverVer()}</b> ${msg}" }
+def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
 
 //	end-of-file
