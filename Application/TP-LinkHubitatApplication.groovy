@@ -12,11 +12,12 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 
 ===== 2020 History =====
 01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
+01.16	4.6.02	Added updating driver application version.
 
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =============================================================================================*/
-def appVersion() { return "4.6.01" }
+def appVersion() { return "4.6.02" }
 import groovy.json.JsonSlurper
 definition(
 	name: "TP-Link Integration",
@@ -157,6 +158,7 @@ def addData(dni, model, ip, alias, type, plugNo = null, plugId = null) {
 	def isChild = getChildDevice(dni)
 	if (isChild) {
 		isChild.updateDataValue("deviceIP", ip)
+		isChild.updateDataValue("applicationVersion", appVersion())
 	}		
 }
 
