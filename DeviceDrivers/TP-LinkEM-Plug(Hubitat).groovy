@@ -13,10 +13,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 ===== 2020 History =====
 01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
 01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
+01.20	4.6.03	Corrected error precluding kicking off fast poll.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.02" }
+	def driverVer() { return "4.6.03" }
 	def type() { return "Engr Mon Plug" }
 //	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
@@ -110,7 +111,6 @@ def updated() {
 	logInfo("ShortPoll set for ${shortPoll}")
 	logInfo("Scheduled nightly energy statistics update.")
 
-	if (nameSync == "device" || nameSync == "hub") { syncName() }
 	refresh()
 }
 
@@ -194,6 +194,7 @@ def commandResponse(response) {
 	} else {
 		logInfo("Status: [switch:${onOff}]")
 	}
+	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }
 
 //	Update Today's power data.  Called from refreshResponse.
