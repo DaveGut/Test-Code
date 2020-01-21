@@ -14,10 +14,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
 01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
 01.20	4.6.03	Corrected error precluding kicking off fast poll.
+01.21	4.6.04	Further fixes for fast polling of energy (HS110 not reporting).
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.03" }
+	def driverVer() { return "4.6.04" }
 //	def type() { return "Engr Mon Plug" }
 	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
@@ -412,20 +413,19 @@ private sendPowerPollCmd(command, action) {
 	sendHubCommand(myHubAction)
 }
 
+
+
 def powerPollResponse(response) {
-	logDebug("powerPollResponse")
 	def encrResponse = parseLanMessage(response).payload
 	def cmdResponse = parseJson(inputXOR(encrResponse))
+	logDebug("powerPollResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse.emeter.get_realtime
-	def scale = "energy"
-	if (realtime.power == null) { scale = "power_mw" }
-	def power = realtime."${scale}"
-	if(power == null) { power = 0 }
-	else if (scale == "power_mw") { power = power / 1000 }
+	def power = realtime.power
+	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	if (device.currentValue("power") != power) {
 		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-		logDebug("powerPollResponse: Power set to ${power} watts")
+		logInfo("powerPollResponse: Power set to ${power} watts")
 	}
 	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }
