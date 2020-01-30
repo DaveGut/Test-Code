@@ -63,7 +63,7 @@ metadata {
 //	Installation and update
 def installed() {
 	log.info "Installing .."
-	runIn(2, updated)
+	updated()
 }
 
 def updated() {
@@ -98,7 +98,7 @@ def updated() {
 	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
 	if (emFunction) {
 		schedule("0 01 0 * * ?", updateStats)
-		runIn(5, updateStats)
+		runIn(2, updateStats)
 	}
 	if (debug == true) { runIn(1800, debugLogOff) }
 	logInfo("Debug logging is: ${debug}.")
@@ -106,7 +106,7 @@ def updated() {
 	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
 	logInfo("ShortPoll set for ${shortPoll}")
 	logInfo("Scheduled nightly energy statistics update.")
-	refresh()
+	runIn(7, refresh)
 }
 
 def debugLogOff() {
@@ -240,7 +240,7 @@ def checkDate() {
 def checkDateResponse(response) {
 	def data = parseInput(response).time.get_time
 	logInfo("checkDateResponse: current date = ${data}")
-	def newDate = newDate()
+	def newDate = new Date()
 	def year = newDate.format("yyyy").toInteger()
 	def month = newDate.format("M").toInteger()
 	def day = newDate.format("d").toInteger()
