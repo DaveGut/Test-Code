@@ -15,10 +15,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
 01.20	4.6.03	Corrected error precluding kicking off fast poll.
 01.21	4.6.04	Further fixes for fast polling of energy (HS110 not reporting).
+01.30	4.6.05	Updated time handling to check time when updating stats and update if not correct.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.04" }
+	def driverVer() { return "4.6.05" }
 	def type() { return "Engr Mon Plug" }
 //	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
@@ -70,7 +71,6 @@ def updated() {
 	unschedule()
 	state.errorCount = 0
 	sendEvent(name: "commsError", value: false)
-
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
 			logWarn("updated: Device IP must be set to continue.")
@@ -85,12 +85,10 @@ def updated() {
 			sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "getMultiPlugData")
 		}
 	}
-
 	if (getDataValue("driverVersion") != driverVer()) {
 		updateInstallData()
 		updateDataValue("driverVersion", driverVer())
 	}
-	
 	switch(refresh_Rate) {
 		case "1" : runEvery1Minute(refresh); break
 		case "5" : runEvery5Minutes(refresh); break
@@ -100,18 +98,14 @@ def updated() {
 	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
 	if (emFunction) {
 		schedule("0 01 0 * * ?", updateStats)
-		updateStats()
+		runIn(5, updateStats)
 	}
-	pauseExecution(1000)
-
 	if (debug == true) { runIn(1800, debugLogOff) }
-
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
 	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
 	logInfo("ShortPoll set for ${shortPoll}")
 	logInfo("Scheduled nightly energy statistics update.")
-
 	refresh()
 }
 
@@ -143,7 +137,6 @@ def updateInstallData() {
 	state.remove("updated")
 }
 
-//	Plug Commands
 def on() {
 	logDebug("on")
 	if(getDataValue("plugId")) {
@@ -166,9 +159,7 @@ def off() {
 
 def refresh() {
 	logDebug("refresh")
-	if (state.errorCount < 1) {
-		sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
 
 def commandResponse(response) {
@@ -198,7 +189,6 @@ def commandResponse(response) {
 	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }
 
-//	Update Today's power data.  Called from refreshResponse.
 def powerResponse(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("powerResponse: cmdResponse = ${cmdResponse}")
@@ -237,16 +227,52 @@ def setEngrToday(response) {
 	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }
 
-//	Update this and last month's stats (at 00:01 AM).  Called from updated.
 def updateStats() {
 	logDebug("updateStats")
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
-				"setThisMonth")
+	checkDate()
+}
+
+def checkDate() {
+	logInfo("checkDate")
+	sendCmd("""{"time":{"get_time":null}}""", "checkDateResponse")
+}
+
+def checkDateResponse(response) {
+	def data = parseInput(response).time.get_time
+	logInfo("checkDateResponse: current date = ${data}")
+	def newDate = newDate()
+	def year = newDate.format("yyyy").toInteger()
+	def month = newDate.format("M").toInteger()
+	def day = newDate.format("d").toInteger()
+	if(year == data.year.toInteger() && month == data.month.toInteger() && day == data.mday.toInteger()) {
+		state.currDate = [data.year, data.month, data.mday]
+		pauseExecution(1000)
+		logInfo("checkDateResponse: currDate = ${state.currDate}")
+		if(getDataValue("plugId")) {
+			sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
+					"setThisMonth")
+		} else {
+			sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
+					"setThisMonth")
+		}
 	} else {
-		sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
-				"setThisMonth")
+		logInfo("checkDateResponse: date is not current.")
+		def hour = newDate.format("H").toInteger()
+		def min = newDate.format("m").toInteger()
+		def sec = newDate.format("s").toInteger()
+		changeDate(year, month, day, hour, min, sec)
 	}
+}
+
+def changeDate(year, month, mday, hour, min, sec) {
+	logInfo("changeDate: Updating date to ${year} /${month} /${mday} /${hour} /${min} /${sec}")
+	sendCmd("""{"time":{"set_timezone":{"year":${year},"month":${month},"mday":${mday},"hour":${hour},"min":${min},"sec":${sec},"index":55}}}""", 
+			"changeDateResponse")
+}
+
+def changeDateResponse(response) { 
+	logInfo("changeDateResponse: response = ${parseInput(response)}")
+	checkDate()
 }
 
 def setThisMonth(response) {
@@ -324,7 +350,18 @@ def setLastMonth(response) {
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
-//	Communications and initial common parsing
+def thisYear() {
+	return state.currDate[0].toInteger()
+}
+
+def thisMonth() {
+	return state.currDate[1].toInteger()
+}
+
+def today() {
+	return state.currDate[2].toInteger()
+}
+
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
@@ -353,7 +390,6 @@ def parseInput(response) {
 	}
 }
 
-//	Communications Error Handling
 def setCommsError() {
 	logDebug("setCommsError")
 	state.errorCount += 1
@@ -391,7 +427,6 @@ def repeatCommand() {
 	sendCmd(state.lastCommand.command, state.lastCommand.action)
 }
 
-//	Power Polling Methods
 def powerPoll() {
 	if(getDataValue("plugId")) {
 		sendPowerPollCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
@@ -413,8 +448,6 @@ private sendPowerPollCmd(command, action) {
 	sendHubCommand(myHubAction)
 }
 
-
-
 def powerPollResponse(response) {
 	def encrResponse = parseLanMessage(response).payload
 	def cmdResponse = parseJson(inputXOR(encrResponse))
@@ -428,22 +461,6 @@ def powerPollResponse(response) {
 		logInfo("powerPollResponse: Power set to ${power} watts")
 	}
 	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
-}
-
-//	Utility Methods
-def thisYear() {
-	def year = new Date().format("yyyy")
-	return year.toInteger()
-}
-
-def thisMonth() {
-	def month = new Date().format("M")
-	return month.toInteger()
-}
-
-def today() {
-	def day = new Date().format("d")
-	return day.toInteger()
 }
 
 private outputXOR(command) {
