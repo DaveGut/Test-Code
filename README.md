@@ -1,12 +1,10 @@
-# Hubitat-TP-Link-Integration
-TP-Link devices Hubitat Integration without a need for a Node Applet nor a Kasa Account (login).
+# Local Hubitat-TP-Link-Integration
+Local (non-cloud) integration of TP-Link Devices into Hubitat Environment.  This set supports:
 
-# See file "Documentation.pdf" for installation instructions and functional descriptions.
+a. Manual installation where the user enters the IP address and other information.  Does not utilize the integration application.
 
-A TP-Link integration without the need for a Node.js server nor the need for a Kasa Cloud login.  Uses UDP messaging on Hubitat, so the solution is cloudless and a single integration for all situations.
+b. Integrated installation using the Application.
 
-APPLICATION FEATURES
+# See the link below for information and instructions.
 
-1.  Automatically installs the selected devices setting all data required to operate.
-
-2.  Whenever opened, checks for device IP changes and updates the devices.
+https://github.com/DaveGut/Hubitat-TP-Link-Integration/wiki
