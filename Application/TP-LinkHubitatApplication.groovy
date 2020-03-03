@@ -155,7 +155,7 @@ def parseDeviceData(response) {
 		def childPlugs = cmdResp.children
 		childPlugs.each {
 			plugNo = it.id
-			def plugDni = "${dni}_${plugNo}"
+			def plugDni = "${dni}${plugNo}"
 			plugId = cmdResp.deviceId + plugNo
 			alias = it.alias
 			updateDevices(plugDni, ip, alias, model, type, plugNo, plugId)
@@ -259,7 +259,7 @@ def addDevices() {
 			try {
 				addChildDevice(
 					"davegut",
-					"Kasa Local ${device.value.type}",
+					"Kasa ${device.value.type}",
 					device.value.dni,
 					hubId, [
 						"label": device.value.alias,
