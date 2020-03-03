@@ -1,5 +1,4 @@
-/*
-TP-Link Integration Application, Version 4.6
+/*	Kasa Local Integration
 	Copyright Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
@@ -11,23 +10,25 @@ DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way san
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
 ===== 2020 History =====
-01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
-01.16	4.6.02	Added updating driver application version.
+02.28	New version 5.0
+		a.	Changed version number to Ln.n.n format.
+		b.	Updated error handling request from children.
+03.03	Automated installation using app verified.  Updated doc and import links.
+Removed test code.  Tested Update Method.
 
-===== GitHub Repository =====
-	https://github.com/DaveGut/Hubitat-TP-Link-Integration
-=============================================================================================*/
-def appVersion() { return "4.6.02" }
+========================================================*/
+def appVersion() { return "L5.0.1" }
 import groovy.json.JsonSlurper
 definition(
-	name: "TP-Link Integration",
+	name: "Kasa Integration",
 	namespace: "davegut",
 	author: "Dave Gutheinz",
-	description: "Application to install TP-Link bulbs, plugs, and switches.  Does not require a Kasa Account nor a Node Applet",
+	description: "Application to install TP-Link bulbs, plugs, and switches.",
 	category: "Convenience",
 	iconUrl: "",
 	iconX2Url: "",
 	singleInstance: true,
+	documentationLink: "https://github.com/DaveGut/Hubitat-TP-Link-Integration/wiki",
 	importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/Application/TP-LinkHubitatApplication.groovy"
 )
 
@@ -49,54 +50,52 @@ def initialize() {
 	unschedule()
 	app?.updateSetting("pollEnabled", [type:"bool", value: true])
 	app?.removeSetting("selectedAddDevices")
-	app?.removeSetting("missingDevice")
 	if (state.deviceIps) { state.remove("deviceIps") }
 	if (selectedAddDevices) { addDevices() }
+	if (debugLog) { runIn(1800, debugOff) }
 }
 
-//	=====	Main Page	=====
+def uninstalled() {
+    getAllChildDevices().each { 
+        deleteChildDevice(it.deviceNetworkId)
+    }
+}
+
 def mainPage() {
 	logDebug("mainPage")
 	initialize()
 	return dynamicPage(name:"mainPage",
-		title:"<b>Kasa Device Manager</b>",
-		uninstall: true,
-		install: true) {
+					   title:"<b>Kasa Local Hubitat Integration</b>\n" +
+					   "Help via <b>?</b> is enabled!",
+					   uninstall: true,
+					   install: true) {
 		section() {
 			href "addDevicesPage",
 				title: "<b>Install Kasa Devices</b>",
-				description: "Gets device information. Then offers new devices for installation.\n" +
-							 "It may take several minutes for the next page to load."
+				description: "<b>Note</b>: Set a static IP address before installing a new device."
 			href "listDevicesPage",
-				title: "<b>Update the Hubitat WiFi IP Definitions</b>",
-				description: "List all available Kasa deevices and update the IP address for installed devices.\n" +
-							 "It may take several minutes for the next page to load."
-			input ("infoLog", "bool",
-				   defaultValue: true,
-				   required: false,
-				   submitOnChange: true,
-				   title: "Enable Application Info Logging")
+				title: "<b>List Kasa Devices</b>",
+				description: "List all Kasa devices and (if installed) updates the IP addresses."
+		}
+		section() {
 			input ("debugLog", "bool",
 				   defaultValue: false,
 				   required: false,
 				   submitOnChange: true,
-				   title: "Enable Application Debug Logging")
-			paragraph "<b>Recommendation:  Set Static IP Address in your WiFi router for Kasa Devices."
-			paragraph "<b>Note:  If you have problems with this application, Manual installation is supported by all drivers."
+				   title: "Enable Application Debug Logging for 30 minutes")
 		}
 	}
 }
 
-//	=====	Add Devices	=====
 def addDevicesPage() {
 	state.devices = [:]
-	findDevices(100, "parseDeviceData")
+	findDevices(50, "parseDeviceData")
     def devices = state.devices
 	def newDevices = [:]
 	devices.each {
-		def isChild = getChildDevice(it.value.DNI)
+		def isChild = getChildDevice(it.value.dni)
 		if (!isChild) {
-			newDevices["${it.value.DNI}"] = "${it.value.model} ${it.value.alias}"
+			newDevices["${it.value.dni}"] = "${it.value.model} ${it.value.alias}"
 		}
 	}
 	logDebug("addDevicesPage: newDevices = ${newDevices}")
@@ -114,142 +113,17 @@ def addDevicesPage() {
 	}
 }
 
-def parseDeviceData(response) {
-	def resp = parseLanMessage(response.description)
-	def parser = new JsonSlurper()
-	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
-	logDebug("parseDeviceData: ${convertHexToIP(resp.ip)} // ${cmdResp}")
-	def type
-	if (cmdResp.mic_type) { type = cmdResp.mic_type }
-	else { type = cmdResp.type }
-	def dni
-	if (type == "IOT.SMARTBULB") { dni = cmdResp.mic_mac }
-	else { dni = cmdResp.mac.replace(/:/, "") }
-	def model
-	if (cmdResp.system) { model = cmdResp.system.model.substring(0,5) }
-	else { model = cmdResp.model.substring(0,5) }
-
-	if (cmdResp.children) {
-		def totPlugs = cmdResp.child_num
-		def children = cmdResp.children
-		for (def i = 0; i < totPlugs; i++) {
-			addData("${resp.mac}${children[i].id}", model, convertHexToIP(resp.ip), 
-					children[i].alias, type, children[i].id, "${cmdResp.deviceId}${children[i].id}")
-		}
-	} else {
-		addData(dni, model, convertHexToIP(resp.ip), cmdResp.alias, type)
-	}
-}
-
-def addData(dni, model, ip, alias, type, plugNo = null, plugId = null) {
-	logInfo("addData: DNI = ${dni}, model = ${model}, ip = ${ip}, alias = ${alias}, type = ${type}, plugNo = ${plugNo}, plugId = ${plugId}")
-	if (model == "RE270" || model == "RE370") { return }
-	def device = [:]
-	device["DNI"] = dni
-	device["IP"] = ip
-	device["alias"] = alias
-	device["model"] = model
-	device["type"] = type
-	if (plugNo) {
-		device["plugNo"] = plugNo
-		device["plugId"] = plugId
-	}
-	state.devices << ["${dni}" : device]
-	def isChild = getChildDevice(dni)
-	if (isChild) {
-		isChild.updateDataValue("deviceIP", ip)
-		isChild.updateDataValue("applicationVersion", appVersion())
-	}		
-}
-
-def addDevices() {
-	logDebug("addDevices: ${selectedAddDevices}")
-	def tpLinkModel = [:]
-	//	Plug-Switch Devices (no energy monitor capability)
-	tpLinkModel << ["HS100" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["HS103" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["HS105" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["HS200" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["HS210" : "TP-Link Plug-Switch"]
-	tpLinkModel << ["KP100" : "TP-Link Plug-Switch"]
-	//	Miltiple Outlet Plug
-	tpLinkModel << ["HS107" : "TP-Link Multi-Plug"]
-	tpLinkModel << ["KP200" : "TP-Link Multi-Plug"]
-	tpLinkModel << ["KP303" : "TP-Link Multi-Plug"]
-	tpLinkModel << ["KP400" : "TP-Link Multi-Plug"]
-	//	Dimming Switch Devices
-	tpLinkModel << ["HS220" : "TP-Link Dimming Switch"]
-	//	Energy Monitor Multi Plugs
-	tpLinkModel << ["HS300" : "TP-Link Engr Mon Multi-Plug"]
-	//	Energy Monitor Plugs
-	tpLinkModel << ["HS110" : "TP-Link Engr Mon Plug"]
-	tpLinkModel << ["HS115" : "TP-Link Engr Mon Plug"]
-	//	Soft White Bulbs
-	tpLinkModel << ["KB100" : "TP-Link Soft White Bulb"]
-	tpLinkModel << ["LB100" : "TP-Link Soft White Bulb"]
-	tpLinkModel << ["LB110" : "TP-Link Soft White Bulb"]
-	tpLinkModel << ["KL110" : "TP-Link Soft White Bulb"]
-	tpLinkModel << ["LB200" : "TP-Link Soft White Bulb"]
-	//	Tunable White Bulbs
-	tpLinkModel << ["LB120" : "TP-Link Tunable White Bulb"]
-	tpLinkModel << ["KL120" : "TP-Link Tunable White Bulb"]
-	//	Color Bulbs
-	tpLinkModel << ["KB130" : "TP-Link Color Bulb"]
-	tpLinkModel << ["LB130" : "TP-Link Color Bulb"]
-	tpLinkModel << ["KL130" : "TP-Link Color Bulb"]
-	tpLinkModel << ["LB230" : "TP-Link Color Bulb"]
-	def hub
-	try { hub = location.hubs[0] }
-	catch (error) { 
-		logWarn("Hub not detected.  You must have a hub to install this app.")
-		return
-	}
-	def hubId = hub.id
-	selectedAddDevices.each { dni ->
-		def isChild = getChildDevice(dni)
-		if (!isChild) {
-			def device = state.devices.find { it.value.DNI == dni }
-			def deviceModel = device.value.model
-			def deviceData = [:]
-			deviceData["applicationVersion"] = appVersion()
-			deviceData["deviceIP"] = device.value.IP
-			if (device.value.plugNo != null) {
-				deviceData["plugNo"] = device.value.plugNo
-				deviceData["plugId"] = device.value.plugId
-			}
-			logDebug("addDevices: ${tpLinkModel["${deviceModel}"]} / ${device.value.DNI} / ${hubId} / ${device.value.alias} / ${deviceModel} / ${deviceData}")
-			logInfo("Adding device: ${tpLinkModel["${deviceModel}"]} / ${device.value.alias}.")
-			try {
-				addChildDevice(
-					"davegut",
-					tpLinkModel["${deviceModel}"],
-					device.value.DNI,
-					hubId, [
-						"label" : device.value.alias,
-						"name" : deviceModel,
-						"data" : deviceData
-					]
-				)
-			} catch (error) {
-				logWarn("Failed to install ${device.value.alias}.  Driver ${tpLinkModel["${deviceModel}"]} most likely not installed.")
-			}
-		}
-	}
-	app?.removeSetting("selectedAddDevices")
-}
-
-//	=====	Update Device IPs	=====
 def listDevicesPage() {
 	logDebug("listDevicesPage")
 	state.devices = [:]
-	findDevices(100, "parseDeviceData")
+	findDevices(50, "parseDeviceData")
 	def devices = state.devices
-	def foundDevices = "<b>Found Devices (Installed / DNI / IP / Label):</b>"
+	def foundDevices = "<b>Found Devices (Installed / IP / Label/ DNI ):</b>"
 	def count = 1
 	devices.each {
 		def installed = false
-		if (getChildDevice(it.value.DNI)) { installed = true }
-		foundDevices += "\n${count}:\t${installed}\t${it.value.DNI}\t${it.value.IP}\t${it.value.alias}"
+		if (getChildDevice(it.value.dni)) { installed = true }
+		foundDevices += "\n${count}:\t${installed}\t${it.value.ip}\t${it.value.alias}\t${it.value.dni}"
 		count += 1
 	}
 	return dynamicPage(name:"listDevicesPage",
@@ -263,31 +137,185 @@ def listDevicesPage() {
 	}
 }
 
-//	===== IP Check =====
-def updateDeviceIps() {
-	logDebug("updateDeviceIps: Updating Device IPs.")
-	runIn(5, updateDevices)
+def parseDeviceData(response) {
+	def resp = parseLanMessage(response.description)
+	def parser = new JsonSlurper()
+	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
+	def ip = convertHexToIP(resp.ip)
+	logDebug("parseDeviceData: ${ip} // ${cmdResp}")
+	def dni
+	if (cmdResp.mic_mac) { dni = cmdResp.mic_mac }
+	else { dni = cmdResp.mac.replace(/:/, "") }
+	def alias = cmdResp.alias
+	def model = cmdResp.model.substring(0,5)
+	def type = getType(model)
+	def plugNo
+	def plugId
+	if (cmdResp.children) {
+		def childPlugs = cmdResp.children
+		childPlugs.each {
+			plugNo = it.id
+			def plugDni = "${dni}_${plugNo}"
+			plugId = cmdResp.deviceId + plugNo
+			alias = it.alias
+			updateDevices(plugDni, ip, alias, model, type, plugNo, plugId)
+		}
+	} else {
+		updateDevices(dni, ip, alias, model, type, plugNo, plugId)
+	}
 }
 
-def updateDevices() {
-	if (pollEnabled == true) {
-		app?.updateSetting("pollEnabled", [type:"bool", value: false])
-		runIn(3600, pollEnable)
-	} else {
-		logWarn("updateDevices: a poll was run within the last hour.  Exited.")
+def getType(model) {
+	switch(model) {
+		case "HS100" :
+		case "HS103" :
+		case "HS105" :
+		case "HS200" :
+		case "HS210" :
+		case "KP100" :
+			return "Plug Switch"
+			break
+		case "HS110" :
+			return "EM Plug"
+			break
+		case "KP200" :
+		case "HS107" :
+		case "KP303" :
+		case "KP400" :
+			return "Multi Plug"
+			break
+		case "HS300" :
+			return "EM Multi Plug"
+			break
+		case "HS220" :
+			return "Dimming Switch"
+			break
+		case "KB100" :
+		case "LB100" :
+		case "LB110" :
+		case "KL110" :
+		case "LB200" :
+		case "KL50(" :
+		case "KL60(" :
+			return "Mono Bulb"
+			break
+		case "LB120" :
+		case "KL120" :
+			return "CT Bulb"
+			break
+		case "KB130" :
+		case "LB130" :
+		case "KL130" :
+		case "LB230" :
+			return "Color Bulb"
+			break
+		default :
+			logWarn("getType: Model not on current list.  Contact developer.")
+	}
+}
+
+def updateDevices(dni, ip, alias, model, type, plugNo, plugId) {
+	logDebug("updateDevices")
+	def devices = state.devices
+	def device = [:]
+	device["dni"] = dni
+	device["ip"] = ip
+	device["alias"] = alias
+	device["model"] = model
+	device["type"] = type
+	device["plugNo"] = plugNo
+	device["plugId"] = plugId
+	devices << ["${dni}" : device]
+	def child = getChildDevice(dni)
+	if (child) {
+		logInfo("updateDevices: ${alias} IP updated to ${ip}")
+		child.updateDataValue("deviceIP", ip)
+		child.updateDataValue("applicationVersion", appVersion())
+		logInfo("updateDevices: ${alias} IP updated to ${ip}")
+	}		
+	logInfo("updateDevices: ${alias} added to devices array")
+}
+
+def addDevices() {
+	logDebug("addDevices: ${selectedAddDevices}")
+	def hub
+	try { hub = location.hubs[0] }
+	catch (error) { 
+		logWarn("Hub not detected.  You must have a hub to install this app.")
 		return
 	}
-	state.devices= [:]
-	findDevices(100, parseDeviceData)
+	def hubId = hub.id
+	selectedAddDevices.each { dni ->
+		def isChild = getChildDevice(dni)
+		if (!isChild) {
+			def device = state.devices.find { it.value.dni == dni }
+			def deviceData = [:]
+			deviceData["applicationVersion"] = appVersion()
+			deviceData["deviceIP"] = device.value.ip
+			if (device.value.type == "Multi Plug" || device.value.type == "EM Multi Plug") {
+				deviceData["plugNo"] = device.value.plugNo
+				deviceData["plugId"] = device.value.plugId
+			}
+			try {
+				addChildDevice(
+					"davegut",
+					"Kasa Local ${device.value.type}",
+					device.value.dni,
+					hubId, [
+						"label": device.value.alias,
+						"name" : device.value.model,
+						"data" : deviceData
+					]
+				)
+				logInfo("Installed Kasa ${model} with alias ${device.value.alias}")
+			} catch (error) {
+				logWarn("Failed to install ${device.value.alias}.  Driver most likely not installed.")
+			}
+		}
+	}
+	app?.removeSetting("selectedAddDevices")
+}
+
+def requestDataUpdate() {
+	logInfo("requestDataUpdate: Received device IP request from a Kasa device.")
+	runIn(5, pollForIps)
+}
+
+def pollForIps() {
+	if (pollEnabled == false) {
+		logWarn("pollForIps: a poll was run within the last hour.  Poll not run.  Try running manually through the application.")
+	} else {
+		logInfo("pollForIps: Diabling poll capability for one hour")
+		app?.updateSetting("pollEnabled", [type:"bool", value: false])
+		runIn(3600, pollEnable)
+		logInfo("pollForIps: starting poll for Kasa Device IPs.")
+		state.devices= [:]
+		findDevices(50, updateDeviceIps)
+	}
 }
 
 def pollEnable() {
-	logDebug("pollEnable")
+	logInfo("pollEnable: polling capability enabled.")
 	app?.updateSetting("pollEnabled", [type:"bool", value: true])
 }
 
-//	=====	Kasa Specific Communications	=====
+def updateDeviceIps(response) {
+	def resp = parseLanMessage(response.description)
+	def parser = new JsonSlurper()
+	def cmdResp = parser.parseText(inputXOR(resp.payload)).system.get_sysinfo
+	def ip = convertHexToIP(resp.ip)
+	def dni
+	if (cmdResp.mic_mac) { dni = cmdResp.mic_mac }
+	else { dni = cmdResp.mac.replace(/:/, "") }
+	def child = getChildDevice(dni)
+	if (child) {
+		child.updateDataValue("deviceIP", ip)
+		logInfo("updateDeviceIps: updated IP for device ${dni} to ${ip}.")
+	}		
+}
+
 def findDevices(pollInterval, action) {
+	logInfo("findDevices: This process will generate a LOT of WARNING messages related to UDP Timeout.  THIS IS NORMAL!")
 	def hub
 	try { hub = location.hubs[0] }
 	catch (error) { 
@@ -299,13 +327,13 @@ def findDevices(pollInterval, action) {
 	logInfo("findDevices: IP Segment = ${networkPrefix}")
 	for(int i = 2; i < 255; i++) {
 		def deviceIP = "${networkPrefix}.${i.toString()}"
-		sendPoll(deviceIP, action)
+		sendCmd(deviceIP, action)
 		pauseExecution(pollInterval)
 	}
 	pauseExecution(3000)
 }
 
-private sendPoll(ip, action) {
+private sendCmd(ip, action) {
 	def myHubAction = new hubitat.device.HubAction(
 		"d0f281f88bff9af7d5f5cfb496f194e0bfccb5c6afc1a7c8eacaf08bf68bf6",
 		hubitat.device.Protocol.LAN,
@@ -344,26 +372,21 @@ private inputXOR(encrResponse) {
 	return cmdResponse
 }
 
-//	===== General Utility methods =====
-def uninstalled() {
-    getAllChildDevices().each { 
-        deleteChildDevice(it.deviceNetworkId)
-    }
-}
-
 private String convertHexToIP(hex) {
 	[convertHexToInt(hex[0..1]),convertHexToInt(hex[2..3]),convertHexToInt(hex[4..5]),convertHexToInt(hex[6..7])].join(".")
 }
 
 private Integer convertHexToInt(hex) { Integer.parseInt(hex,16) }
 
+def debugOff() {
+	app?.updateSetting("debugLog", [type:"bool", value: false])
+}
+
 def logDebug(msg){
 	if(debugLog == true) { log.debug "${appVersion()} ${msg}" }
 }
 
-def logInfo(msg){
-	if(infoLog == true) { log.info "${appVersion()} ${msg}" }
-}
+def logInfo(msg){ log.info "${appVersion()} ${msg}" }
 
 def logWarn(msg) { log.warn "${appVersion()} ${msg}" }
 
