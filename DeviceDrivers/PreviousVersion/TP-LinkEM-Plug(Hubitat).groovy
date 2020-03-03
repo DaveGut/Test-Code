@@ -12,10 +12,13 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 
 ===== 2020 History =====
 01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
+01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
+01.20	4.6.03	Corrected error precluding kicking off fast poll.
+01.21	4.6.04	Further fixes for fast polling of energy (HS110 not reporting).
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.01" }
+	def driverVer() { return "4.6.04" }
 	def type() { return "Engr Mon Plug" }
 //	def type() { return "Engr Mon Multi-Plug" }
 	def gitHubName() {
@@ -51,10 +54,6 @@ metadata {
 			   options: ["1", "5", "15", "30"], defaultValue: "30")
 		input ("shortPoll", "number",title: "Fast Power Polling Interval - <b>Caution</b> ('0' = disabled)",
 			   defaultValue: 0)
-		input ("nameSync", "enum", title: "Synchronize Names", defaultValue: "none",
-			   options: ["none": "Don't synchronize",
-						 "device" : "Kasa device name master", 
-						 "hub" : "Hubitat label master"])
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
@@ -113,7 +112,6 @@ def updated() {
 	logInfo("ShortPoll set for ${shortPoll}")
 	logInfo("Scheduled nightly energy statistics update.")
 
-	if (nameSync == "device" || nameSync == "hub") { syncName() }
 	refresh()
 }
 
@@ -197,6 +195,7 @@ def commandResponse(response) {
 	} else {
 		logInfo("Status: [switch:${onOff}]")
 	}
+	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }
 
 //	Update Today's power data.  Called from refreshResponse.
@@ -325,36 +324,6 @@ def setLastMonth(response) {
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
-//	Name Sync with the Kasa Device Name
-def syncName() {
-	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
-	if (nameSync == "hub") {
-		if(getDataValue("plugId")) {
-			sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"system":{"set_dev_alias":{"alias":"${device.label}"}}}""",
-					"nameSyncHub")
-		} else {
-			sendCmd("""{"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
-		}
-	} else if (nameSync == "device") {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
-	}
-}
-
-def nameSyncHub(response) {
-	def cmdResponse = parseInput(response)
-	logInfo("Kasa name for device changed.")
-}
-
-def nameSyncDevice(response) {
-	def cmdResponse = parseInput(response)
-	def status = cmdResponse.system.get_sysinfo
-	if(getDataValue("plugId")) {
-		status = status.children.find { it.id == getDataValue("plugNo") }
-	}
-	device.setLabel(status.alias)
-	logInfo("Hubit name for device changed to ${status.alias}.")
-}
-
 //	Communications and initial common parsing
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
@@ -444,20 +413,19 @@ private sendPowerPollCmd(command, action) {
 	sendHubCommand(myHubAction)
 }
 
+
+
 def powerPollResponse(response) {
-	logDebug("powerPollResponse")
 	def encrResponse = parseLanMessage(response).payload
 	def cmdResponse = parseJson(inputXOR(encrResponse))
+	logDebug("powerPollResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse.emeter.get_realtime
-	def scale = "energy"
-	if (realtime.power == null) { scale = "power_mw" }
-	def power = realtime."${scale}"
-	if(power == null) { power = 0 }
-	else if (scale == "power_mw") { power = power / 1000 }
+	def power = realtime.power
+	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	if (device.currentValue("power") != power) {
 		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-		logDebug("powerPollResponse: Power set to ${power} watts")
+		logInfo("powerPollResponse: Power set to ${power} watts")
 	}
 	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }

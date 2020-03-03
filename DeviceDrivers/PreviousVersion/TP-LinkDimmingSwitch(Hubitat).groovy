@@ -12,10 +12,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 
 ===== 2020 History =====
 01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
+01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
 ===== GitHub Repository =====
 	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.01" }
+	def driverVer() { return "4.6.02" }
 //	def type() { return "Plug-Switch" }
 //	def type() { return "Multi-Plug" }
 	def type() { return "Dimming Switch" }
@@ -48,10 +49,6 @@ metadata {
 			   options: ["1", "5", "15", "30"], defaultValue: "30")
 		input ("shortPoll", "number",title: "Fast Polling Interval - <b>Caution</b> ('0' = disabled and preferred)",
 			   defaultValue: 0, descriptionText: "TTTTTTT")
-		input ("nameSync", "enum", title: "Synchronize Names", defaultValue: "none",
-			   options: ["none": "Don't synchronize",
-						 "device" : "Kasa device name master", 
-						 "hub" : "Hubitat label master"])
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
@@ -103,7 +100,6 @@ def updated() {
 	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
 	logInfo("ShortPoll set for ${shortPoll}")
 
-	if (nameSync == "device" || nameSync == "hub") { runIn(5, syncName) }
 	runIn(5, refresh)
 }
 
@@ -207,37 +203,6 @@ def commandResponse(response) {
 	}
 	logInfo("Status: ${deviceStatus}")
 	if (shortPoll > 0) { runIn(shortPoll, runShortPoll) }
-}
-
-//	Name Sync with the Kasa Device Name
-def syncName() {
-	logDebug("syncName. Synchronizing device name and label with master = ${nameSync}")
-	if (nameSync == "hub") {
-		if(getDataValue("plugId")) {
-			sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
-					""""system":{"set_dev_alias":{"alias":"${device.label}"}}}""",
-					"nameSyncHub")
-		} else {
-			sendCmd("""{"system":{"set_dev_alias":{"alias":"${device.label}"}}}""", "nameSyncHub")
-		}
-	} else if (nameSync == "device") {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""", "nameSyncDevice")
-	}
-}
-
-def nameSyncHub(response) {
-	def cmdResponse = parseInput(response)
-	logInfo("Kasa name for device changed.")
-}
-
-def nameSyncDevice(response) {
-	def cmdResponse = parseInput(response)
-	def status = cmdResponse.system.get_sysinfo
-	if(getDataValue("plugId")) {
-		status = status.children.find { it.id == getDataValue("plugNo") }
-	}
-	device.setLabel(status.alias)
-	logInfo("Hubit name for device changed to ${status.alias}.")
 }
 
 //	Common Communications Methods

@@ -1,6 +1,6 @@
 /*
-TP-Link Energy Monitor Plug Device Driver, Version 4.6
-	Copyright Dave Gutheinz
+Kasa Local Device Driver
+		Copyright Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
 Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
@@ -11,58 +11,49 @@ DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way san
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
 ===== 2020 History =====
-01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
-01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
-01.20	4.6.03	Corrected error precluding kicking off fast poll.
-01.21	4.6.04	Further fixes for fast polling of energy (HS110 not reporting).
-01.30	4.6.05	Updated time handling to check time when updating stats and update if not correct.
+02.28	New version 5.0
+		a.	Changed version number to Ln.n.n format where the L refers to LOCAL installation.
+		b.	Moved Quick Polling from preferences to a command with number (seconds) input value.  A value of
+			blank or 0 is disabled.  A value below 5 is read as 5.
+		c.	Upaded all drivers to eight individual divers.
+03.03	Manual install and functional testing of On/Off.  EM Functions not tested.  Auto Installation testing complete.
 ===== GitHub Repository =====
-	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.05" }
-	def type() { return "Engr Mon Plug" }
-//	def type() { return "Engr Mon Multi-Plug" }
-	def gitHubName() {
-		if (type() == "Engr Mon Plug") { return "EM-Plug" }
-		else { return "EM-Multi-Plug" }
-	}
+def driverVer() { return "L5.0.1" }
+
 metadata {
-	definition (name: "TP-Link ${type()}",
-				namespace: "davegut",
-                author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${gitHubName()}(Hubitat).groovy"
+	definition (name: "Kasa EM Plug",
+    			namespace: "davegut",
+				author: "Dave Gutheinz",
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
 		capability "Refresh"
+		command "setPollFreq", [[name: "Set polling frequency in seconds", type: "NUMBER"]]
 		capability "Power Meter"
 		capability "Energy Meter"
 		attribute "currMonthTotal", "number"
 		attribute "currMonthAvg", "number"
 		attribute "lastMonthTotal", "number"
 		attribute "lastMonthAvg", "number"
-		attribute "commsError", "bool"
 	}
     preferences {
 		if (!getDataValue("applicationVersion")) {
-			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
-			input ("multiPlug", "bool", title: "Device is part of a Multi-Plug)")
-			input ("plug_No", "text",
-				   title: "For multiPlug, the number of the plug (00, 01, 02, etc.)")
+			input ("device_IP", "text", title: "Device IP", defaultValue: getDataValue("deviceIP"))
 		}
-		input ("emFunction", "bool", title: "Enable Energy Monitor Functions", defaultValue: true)
+		input ("emFunction", "bool", title: "Enable Energy Monitor Function", defaultValue: true)
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
-			   options: ["1", "5", "15", "30"], defaultValue: "30")
-		input ("shortPoll", "number",title: "Fast Power Polling Interval - <b>Caution</b> ('0' = disabled)",
-			   defaultValue: 0)
-		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
+			   options: ["1", "5", "10", "15", "30"], defaultValue: "30")
+		input ("debug", "bool", title: "Enable debug logging", defaultValue: true)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
 }
 
-//	Installation and update
 def installed() {
 	log.info "Installing .."
+	updateDataValue("driverVersion", driverVer())
+	state.pollFreq = 0
 	updated()
 }
 
@@ -70,142 +61,75 @@ def updated() {
 	log.info "Updating .."
 	unschedule()
 	state.errorCount = 0
-	sendEvent(name: "commsError", value: false)
-	if (!getDataValue("applicationVersion")) {
-		if (!device_IP) {
-			logWarn("updated: Device IP must be set to continue.")
-			return
-		} else if (multiPlug == true && !plug_No) {
-			logWarn("updated: Plug Number must be set to continue.")
-			return
-		}
-		updateDataValue("deviceIP", device_IP.trim())
-		logInfo("Device IP set to ${getDataValue("deviceIP")}")
-		if (multiPlug == true && (!getDataValue("plugNo") || getDataValue("plugNo")==null)) {
-			sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "getMultiPlugData")
+	if (device.currentValue("driverVersion") != driverVer()) {
+		updateDataValue("driverVersion", driverVer())
+		if (shortPoll) {
+			setPollFreq(shortPoll)
+			device.removeSetting("shortPoll")
 		}
 	}
-	if (getDataValue("driverVersion") != driverVer()) {
-		updateInstallData()
-		updateDataValue("driverVersion", driverVer())
+	if (!getDataValue("applicationVersion")) {
+		if (!device_IP) {
+			logWarn("updated: Device IP is not set.")
+			return
+		}
+		if (getDataValue("deviceIP") != device_IP.trim()) {
+			updateDataValue("deviceIP", device_IP.trim())
+			logInfo("updated: Device IP set to ${device_IP.trim()}")
+		}
 	}
 	switch(refresh_Rate) {
 		case "1" : runEvery1Minute(refresh); break
 		case "5" : runEvery5Minutes(refresh); break
+		case "10" : runEvery10Minutes(refresh); break
 		case "15" : runEvery15Minutes(refresh); break
 		default: runEvery30Minutes(refresh)
 	}
-	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
+	logInfo("updated: Refresh set for every ${refresh_Rate} minute(s).")
+	if (debug == true) { runIn(1800, debugLogOff) }
+	logInfo("updated: Debug logging is: ${debug} for 30 minutes.")
+	logInfo("updated: Description text logging is ${descriptionText}.")
 	if (emFunction) {
 		schedule("0 01 0 * * ?", updateStats)
-		runIn(2, updateStats)
+		runIn(1, updateStats)
+		logInfo("updated: Scheduled nightly energy statistics update.")
 	}
-	if (debug == true) { runIn(1800, debugLogOff) }
-	logInfo("Debug logging is: ${debug}.")
-	logInfo("Description text logging is ${descriptionText}.")
-	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
-	logInfo("ShortPoll set for ${shortPoll}")
-	logInfo("Scheduled nightly energy statistics update.")
-	runIn(7, refresh)
+	runIn(5, refresh)
 }
 
-def debugLogOff() {
-	device.updateSetting("debug", [type:"bool", value: false])
-	pauseExecution(5000)
-	logInfo("Debug logging is false.")
-}
-
-def getMultiPlugData(response) {
-	logDebug("getMultiPlugData: plugNo = ${plug_No}")
-	def cmdResponse = parseInput(response)
-	def plugId = "${cmdResponse.system.get_sysinfo.deviceId}${plug_No}"
-	updateDataValue("plugNo", plug_No)
-	updateDataValue("plugId", plugId)
-	logInfo("Plug ID = ${plugId} / Plug Number = ${plug_No}")
-}
-
-def updateInstallData() {
-	//	Usage is for updating parameters on driver change to clean up as much as possible.
-	logInfo("updateInstallData: Updating installation to driverVersion ${driverVer()}")
-	updateDataValue("driverVersion", driverVer())
-	state.remove("multiPlugInstalled")
-	pauseExecution(1000)
-	state.remove("currentError")
-	pauseExecution(1000)
-	state.remove("commsErrorCount")
-	pauseExecution(1000)
-	state.remove("updated")
-}
-
+//	Device Cloud and Local Common Methods
 def on() {
 	logDebug("on")
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"system":{"set_relay_state":{"state": 1}},""" +
-				""""system" :{"get_sysinfo" :{}}}""", "commandResponse")
-	} else {
-		sendCmd("""{"system" :{"set_relay_state" :{"state" : 1}},"system" :{"get_sysinfo" :{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system":{"set_relay_state":{"state":1}}}""", "commandResponse")
 }
 
 def off() {
 	logDebug("off")
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"system":{"set_relay_state":{"state": 0}},""" +
-				""""system" :{"get_sysinfo" :{}}}""", "commandResponse")
-	} else {
-		sendCmd("""{"system" :{"set_relay_state" :{"state" : 0}},"system" :{"get_sysinfo" :{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "commandResponse")
 }
 
 def refresh() {
 	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "statusResponse")
 }
 
 def commandResponse(response) {
-	def cmdResponse = parseInput(response)
-	def status = cmdResponse.system.get_sysinfo
-	def relayState = status.relay_state
-	if (getDataValue("plugNo")) {
-		status = status.children.find { it.id == getDataValue("plugNo") }
-		relayState = status.state
-	}
-
-	logDebug("commandResponse: status = ${status}")
-	def onOff = "off"
-	if (relayState == 1) { onOff = "on" }
-	sendEvent(name: "switch", value: onOff)
-	//	Get current energy data.  If emFunction disabled, ignore.
-	if (emFunction) {
-		if(getDataValue("plugId")) {
-			sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
-					"powerResponse")
-		} else {
-			sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
-		}
-	} else {
-		logInfo("Status: [switch:${onOff}]")
-	}
-	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
+	logDebug("commandResponse")
+	sendCmd("""{"system":{"get_sysinfo":{}}}""", "statusResponse")
 }
 
 def powerResponse(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("powerResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse.emeter.get_realtime
-
 	def power = realtime.power
 	if (power == null) { power = realtime.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
-	sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-	//	get total energy today
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
-				"setEngrToday")
-	} else {
-		sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
-				"setEngrToday")
+	if (power != device.currentValue("power")) {
+		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
 	}
+	logInfo("powerResponse: [power: ${power}]")
+	sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""","setEngrToday")
 }
 
 def setEngrToday(response) {
@@ -216,30 +140,21 @@ def setEngrToday(response) {
 	if (energyData == null) { energyData = data.energy_wh/1000 }
 	energyData -= device.currentValue("currMonthTotal")
 	energyData = Math.round(100*energyData)/100
-	sendEvent(name: "energy", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
-	//	Log the current status.
-	def deviceStatus = [:]
-	deviceStatus << ["switch" : device.currentValue("switch")]
-	deviceStatus << ["power" : device.currentValue("power")]
-	deviceStatus << ["energy" : device.currentValue("energy")]
-	logInfo("Status: ${deviceStatus}")
-	//	Short Power Polling function.
-	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
+	if (energyData != device.currentValue("energyData")) {
+		sendEvent(name: "energy", value: energyData, descriptionText: "KiloWatt Hours", unit: "KWH")
+	}
+	logInfo("setEngrToday: [energy: ${energyData}]")
 }
 
 def updateStats() {
 	logDebug("updateStats")
-	checkDate()
-}
-
-def checkDate() {
-	logInfo("checkDate")
 	sendCmd("""{"time":{"get_time":null}}""", "checkDateResponse")
 }
 
 def checkDateResponse(response) {
-	def data = parseInput(response).time.get_time
-	logInfo("checkDateResponse: current date = ${data}")
+	def cmdResponse = parseInput(response)
+	logDebug("checkDateResponse: ${cmdResponse}")
+	def data = cmdResponse.time.get_time
 	def newDate = new Date()
 	def year = newDate.format("yyyy").toInteger()
 	def month = newDate.format("M").toInteger()
@@ -248,13 +163,7 @@ def checkDateResponse(response) {
 		state.currDate = [data.year, data.month, data.mday]
 		pauseExecution(1000)
 		logInfo("checkDateResponse: currDate = ${state.currDate}")
-		if(getDataValue("plugId")) {
-			sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
-					"setThisMonth")
-		} else {
-			sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""",
-					"setThisMonth")
-		}
+		sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""", "setThisMonth")
 	} else {
 		logInfo("checkDateResponse: date is not current.")
 		def hour = newDate.format("H").toInteger()
@@ -271,8 +180,21 @@ def changeDate(year, month, mday, hour, min, sec) {
 }
 
 def changeDateResponse(response) { 
-	logInfo("changeDateResponse: response = ${parseInput(response)}")
-	checkDate()
+	def cmdResponse = parseInput(response)
+	logInfo("changeDateResponse: cmdResponse = cmdResponse}")
+	updateStats()
+}
+
+def thisYear() {
+	return state.currDate[0].toInteger()
+}
+
+def thisMonth() {
+	return state.currDate[1].toInteger()
+}
+
+def today() {
+	return state.currDate[2].toInteger()
 }
 
 def setThisMonth(response) {
@@ -300,18 +222,12 @@ def setThisMonth(response) {
 	logInfo("This month's energy stats set to ${energyData} // ${avgEnergy}")
 	def year = thisYear()
 	if (thisMonth() == 1) { year = year -1 }
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_monthstat":{"year": ${year}}}}""",
-				"setLastMonth")
-	} else {
-		sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""",
-				"setLastMonth")
-	}
+	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""", "setLastMonth")
 }
 
 def setLastMonth(response) {
 	def cmdResponse = parseInput(response)
-	logDebug("setThisMonth: energyScale = ${state.energyScale}, cmdResponse = ${cmdResponse}")
+	logDebug("setLastMonth: cmdResponse = ${cmdResponse}")
 	def lastMonth = thisMonth() -1
 	if (lastMonth == 0) { lastMonth = 12 }
 	def monthLength
@@ -350,18 +266,126 @@ def setLastMonth(response) {
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
-def thisYear() {
-	return state.currDate[0].toInteger()
+//	Device Local Only Methods
+def setPollFreq(interval = 0) {
+	logDebug("setPollFreq: interval = ${interval}")
+	interval = interval.toInteger()
+	if (interval !=0 && interval < 5) { interval = 5 }
+	if (interval != state.pollFreq) {
+		state.pollFreq = interval
+		refresh()
+		logInfo("setPollFreq: interval set to ${interval}")
+	} else {
+		logWarn("setPollFreq: No change in interval from command.")
+	}
 }
 
-def thisMonth() {
-	return state.currDate[1].toInteger()
+def statusResponse(response) {
+	def status = parseInput(response).system.get_sysinfo
+	logDebug("statusResponse: status = ${status}")
+	def onOff = "on"
+	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff)
+	}
+	logInfo("statusResponse: switch: ${onOff}")
+	if (!emFunction) {
+		if (state.pollFreq > 0) {
+			runIn(state.pollFreq, quickPoll)
+		}
+	} else {
+		sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+		if (state.pollFreq > 0) {
+			runIn(state.pollFreq, powerPoll)
+		}
+	}
 }
 
-def today() {
-	return state.currDate[2].toInteger()
+def quickPoll() {
+	logDebug("quickPoll: executing a quickPoll")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "quickPollResponse")
 }
 
+def quickPollResponse(response) {
+	logDebug("quickPollResponse")
+	def status = parseInput(response).system.get_sysinfo
+	def onOff = "on"
+	if (status.relay_state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff)
+		logInfo("quickPollResponse: switch: ${onOff}")
+	}
+	if (state.pollFreq > 0) {
+		runIn(state.pollFreq, quickPoll)
+	}
+}
+	
+def powerPoll() {
+	sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+}
+
+def powerPollResponse(response) {
+	logDebug("powerPollResponse")
+	def status = parseInput(response).emeter.realtime
+	def power = status.power
+	if (power == null) { power = status.power_mw / 1000 }
+	power = (0.5 + Math.round(100*power)/100).toInteger()
+	def curPwr = device.currentValue("power").toInteger()
+	if (power > curPwr + 3 || power < curPwr - 3) { 
+		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+		logInfo("powerPollResponse: power = ${power}")
+	}
+	if (emFunction && state.pollFreq > 0) {
+		runIn(state.pollFreq, powerPoll)
+	}
+}
+
+//	Cloud and Local Common Methods
+def setCommsError() {
+	logWarn("setCommsError")
+	state.errorCount += 1
+	if (state.errorCount > 4) {
+		return
+	} else if (state.errorCount < 3) {
+		repeatCommand()
+		logInfo("Executing attempt ${state.errorCount} to recover communications")
+	} else if (state.errorCount == 3) {
+		if (getDataValue("applicationVersion")) {
+			logWarn("setCommsError: Attempting to update Kasa Device IPs.")
+			parent.requestDataUpdate()
+			runIn(30, repeatCommand)
+		} else {
+			runIn(3, repeatCommand)
+			logInfo("Executing attempt ${state.errorCount} to recover communications")
+		}
+	} else if (state.errorCount == 4) {	
+		def warnText = "<b>setCommsError</b>: Your device is not reachable.\r" +
+						"Complete corrective action then execute any command to continue"
+		logWarn(warnText)
+	}
+}
+
+def repeatCommand() { 
+	logDebug("repeatCommand: ${state.lastCommand}")
+	sendCmd(state.lastCommand.command, state.lastCommand.action)
+}
+
+def logInfo(msg) {
+	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
+}
+
+def debugLogOff() {
+	device.updateSetting("debug", [type:"bool", value: false])
+	logInfo("Debug logging is false.")
+}
+
+def logDebug(msg){
+	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
+}
+
+def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
+
+//	Local Communications Methods
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
@@ -380,87 +404,11 @@ private sendCmd(command, action) {
 def parseInput(response) {
 	unschedule(setCommsError)
 	state.errorCount = 0
-	sendEvent(name: "commsError", value: false)
 	try {
-		def encrResponse = parseLanMessage(response).payload
-		def cmdResponse = parseJson(inputXOR(encrResponse))
-		return cmdResponse
-	} catch (error) {
-		logWarn "CommsError: Fragmented message returned from device."
+		return parseJson(inputXOR(parseLanMessage(response).payload))
+	} catch (e) {
+		logWarn("parseInput: JsonParse failed. Response = ${inputXOR(parseLanMessage(response).payload)}.")
 	}
-}
-
-def setCommsError() {
-	logDebug("setCommsError")
-	state.errorCount += 1
-	if (state.errorCount > 6) {
-		return
-	} else if (state.errorCount < 5) {
-		repeatCommand()
-		logWarn("Executing attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 5) {
-		sendEvent(name: "commsError", value: true)
-		if (getDataValue("applicationVersion")) {
-			logWarn("setCommsError: Parent commanded to poll for devices to correct error.")
-			parent.updateDeviceIps()
-			runIn(40, repeatCommand)
-		} else {
-			repeatCommand()
-		}
-	} else if (state.errorCount == 6) {		
-		logWarn "<b>setCommsError</b>: Your device is not reachable at IP ${getDataValue("deviceIP")}.\r" +
-				"<b>Corrective Action</b>: \r"+
-				"Your action is required to re-enable the device.\r" +
-				"a.  If the device was removed, disable the device in Hubitat.\r" +
-				"b.  Check the device in the Kasa App and assure it works.\r" +
-				"c.  If a manual installation, update your IP and Refresh Rate in the device preferences.\r" +
-				"d.  For TP-Link Integration installation:\r" +
-				"\t1.  Assure the device is working in the Kasa App.\r" +
-				"\t2.  Run the TP-Link Integration app (this will update the IP address).\r" +
-				"\t3.  Execute any command except Refresh.  This should reconnect the device.\r"
-				"\t4.  A Save Preferences will reset the error data and force a restart the interface."
-	}
-}
-
-def repeatCommand() { 
-	logDebug("repeatCommand: ${state.lastCommand}")
-	sendCmd(state.lastCommand.command, state.lastCommand.action)
-}
-
-def powerPoll() {
-	if(getDataValue("plugId")) {
-		sendPowerPollCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"emeter":{"get_realtime":{}}}""", 
-				"powerPollResponse")
-	} else {
-		sendPowerPollCmd("""{"emeter":{"get_realtime":{}}}""", "powerPollResponse")
-	}
-}
-
-private sendPowerPollCmd(command, action) {
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 3,
-		 callback: action])
-	sendHubCommand(myHubAction)
-}
-
-def powerPollResponse(response) {
-	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse = parseJson(inputXOR(encrResponse))
-	logDebug("powerPollResponse: cmdResponse = ${cmdResponse}")
-	def realtime = cmdResponse.emeter.get_realtime
-	def power = realtime.power
-	if (power == null) { power = realtime.power_mw / 1000 }
-	power = (0.5 + Math.round(100*power)/100).toInteger()
-	if (device.currentValue("power") != power) {
-		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-		logInfo("powerPollResponse: Power set to ${power} watts")
-	}
-	if (shortPoll > 0) { runIn(shortPoll, powerPoll) }
 }
 
 private outputXOR(command) {
@@ -489,15 +437,5 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
-
-def logInfo(msg) {
-	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
-}
-
-def logDebug(msg){
-	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
-}
-
-def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
 
 //	end-of-file
