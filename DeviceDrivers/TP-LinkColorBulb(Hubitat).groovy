@@ -19,7 +19,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 03.03	Manual install and functional testing complete.  Auto Installation testing complete.
 ===== GitHub Repository =====
 =======================================================================================================*/
-def driverVer() { return "L5.0.1" }
+def driverVer() { return "L5.0.2" }
 
 metadata {
 	definition (name: "Kasa Color Bulb",
@@ -178,15 +178,15 @@ def setColor(Map color) {
 	if (color.level) { level = color.level }
 	def hue = device.currentValue("hue")
 	if (color.hue) { hue = color.hue.toInteger() }
-	def saturation = devicce.currentValue("saturation")
+	def saturation = device.currentValue("saturation")
 	if (color.saturation) { saturation = color.saturation }
-	if (hue < 0 || hue > 100 || saturation < 0 || saturation > 0 || level < 0 || level > 100) {
-		logWarn("setColor: Entered hue, saturation, or level out of range!")
-        return
-    }
 	if (highRes != true) {
 		hue = Math.round(0.5 + hue * 3.6).toInteger()
 	}
+	if (hue < 0 || hue > 360 || saturation < 0 || saturation > 100 || level < 0 || level > 100) {
+		logWarn("setColor: Entered hue, saturation, or level out of range! (H:${hue}, S:${saturation}, L:${level}")
+        return
+    }
 	sendCmd("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${level},"color_temp":0,"hue":${hue},"saturation":${saturation}}}}""", "commandResponse")
 }
 
