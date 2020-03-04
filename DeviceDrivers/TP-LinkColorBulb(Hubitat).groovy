@@ -19,7 +19,7 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 03.03	Manual install and functional testing complete.  Auto Installation testing complete.
 ===== GitHub Repository =====
 =======================================================================================================*/
-def driverVer() { return "L5.0.2" }
+def driverVer() { return "L5.0.3" }
 
 metadata {
 	definition (name: "Kasa Color Bulb",
@@ -177,9 +177,9 @@ def setColor(Map color) {
 	def level = device.currentValue("level")
 	if (color.level) { level = color.level }
 	def hue = device.currentValue("hue")
-	if (color.hue) { hue = color.hue.toInteger() }
+	if (color.hue || color.hue == 0) { hue = color.hue.toInteger() }
 	def saturation = device.currentValue("saturation")
-	if (color.saturation) { saturation = color.saturation }
+	if (color.saturation || color.saturation == 0) { saturation = color.saturation }
 	if (highRes != true) {
 		hue = Math.round(0.5 + hue * 3.6).toInteger()
 	}
