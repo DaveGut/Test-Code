@@ -18,9 +18,10 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 		c.	Upaded all drivers to eight individual divers.
 03.03	Manual install and functional testing of on/off only tested on HS200.  No test of level.
 		Auto Installation testing complete.
+04.05	5.0.2	Added value to sendEvent for "switch".
 ===== GitHub Repository =====
 =======================================================================================================*/
-def driverVer() { return "L5.0.1" }
+def driverVer() { return "L5.0.2" }
 
 metadata {
 	definition (name: "Kasa Dimming Switch",
@@ -47,7 +48,6 @@ metadata {
 
 def installed() {
 	log.info "Installing .."
-	updateDataValue("driverVersion", driverVer())	
 	state.pollFreq = 0
 	updated()
 }
@@ -161,7 +161,7 @@ def quickPollResponse(response) {
 	def onOff = "on"
 	if (status.relay_state == 0) { onOff = "off" }
 	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff)
+		sendEvent(name: "switch", type: "physical", value: onOff)
 		logInfo("quickPoll: switch: ${onOff}")
 	} else if (status.level != device.currentValue("level")) {
 		sendEvent(name: "level", value: status.level)
