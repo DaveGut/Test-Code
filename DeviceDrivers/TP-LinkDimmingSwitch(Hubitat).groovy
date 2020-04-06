@@ -19,9 +19,10 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 03.03	Manual install and functional testing of on/off only tested on HS200.  No test of level.
 		Auto Installation testing complete.
 04.05	5.0.2	Added value to sendEvent for "switch".
+04.06	5.0.3	Further clean-up and correction
 ===== GitHub Repository =====
 =======================================================================================================*/
-def driverVer() { return "L5.0.2" }
+def driverVer() { return "L5.0.3" }
 
 metadata {
 	definition (name: "Kasa Dimming Switch",
@@ -100,7 +101,7 @@ def off() {
 	sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "commandResponse")
 }
 
-def setLevel(percentage, transition = null) {
+def setLevel(percentage) {
 	logDebug("setLevel: level = ${percentage}")
 	percentage = percentage.toInteger()
 	if (percentage < 0) { percentage = 0 }
@@ -140,12 +141,12 @@ def statusResponse(response) {
 	def onOff = "on"
 	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
 	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff)
+		sendEvent(name: "switch", value: onOff, type: "digital")
 	}
-	if(status.level != device.currentValue("level")) {
-		sendEvent(name: "level", value: status.level)
+	if(status.brightness != device.currentValue("level")) {
+		sendEvent(name: "level", value: status.brightness)
 	}
-	logInfo("statusResponse: switch: ${onOff}, level: ${status.level}]")
+	logInfo("statusResponse: switch: ${onOff}, level: ${status.brightness}]")
 	if (state.pollFreq > 0) {
 		runIn(state.pollFreq, quickPoll)
 	}
@@ -163,9 +164,9 @@ def quickPollResponse(response) {
 	if (onOff != device.currentValue("switch")) {
 		sendEvent(name: "switch", type: "physical", value: onOff)
 		logInfo("quickPoll: switch: ${onOff}")
-	} else if (status.level != device.currentValue("level")) {
-		sendEvent(name: "level", value: status.level)
-		logInfo("quickPoll: level: ${status.level}")
+	} else if (status.brightness != device.currentValue("level")) {
+		sendEvent(name: "level", value: status.brightness)
+		logInfo("quickPoll: level: ${status.brightness}")
 	}
 	if (state.pollFreq > 0) {
 		runIn(state.pollFreq, quickPoll)
