@@ -1,6 +1,6 @@
 /*
-TP-Link Switch and Plug Device Driver, Version 4.6
-	Copyright Dave Gutheinz
+Kasa Local Device Driver
+		Copyright Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
 License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
 Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
@@ -11,201 +11,214 @@ DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way san
 All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
 
 ===== 2020 History =====
-01.03	4.6.01	Update from 4.5 to incorporate enhanced communications error processing.
-01.11	4.6.02	Removed Name Sync.  TP-Link has removed command from the devices in latest firmware.
+02.28	New version 5.0
+		a.	Changed version number to Ln.n.n format where the L refers to LOCAL installation.
+		b.	Moved Quick Polling from preferences to a command with number (seconds) input value.  A value of
+			blank or 0 is disabled.  A value below 5 is read as 5.
+		c.	Upaded all drivers to eight individual divers.
+03.03	Manual install and functional testing of on/off only tested on HS200.  No test of level.
+		Auto Installation testing complete.
+04.05	5.0.2	Added value to sendEvent for "switch".
+04.06	5.0.3	Further clean-up and correction
 ===== GitHub Repository =====
-	https://github.com/DaveGut/Hubitat-TP-Link-Integration
 =======================================================================================================*/
-	def driverVer() { return "4.6.02" }
-//	def type() { return "Plug-Switch" }
-//	def type() { return "Multi-Plug" }
-	def type() { return "Dimming Switch" }
-	def gitHubName() { return type().replaceAll("\\s","") }
+def driverVer() { return "L5.0.3" }
 
 metadata {
-	definition (name: "TP-Link ${type()}",
+	definition (name: "Kasa Dimming Switch",
     			namespace: "davegut",
-                author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-Link${gitHubName()}(Hubitat).groovy"
+				author: "Dave Gutheinz",
+				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkDimmingSwitch(Hubitat).groovy"
 			   ) {
 		capability "Switch"
-        capability "Actuator"
+		capability "Actuator"
 		capability "Refresh"
-		if (type() == "Dimming Switch") {
-			capability "Switch Level"
-		}
-		attribute "commsError", "bool"
+		capability "Switch Level"
+		command "setPollFreq", ["NUMBER"]
 	}
-	preferences {
+    preferences {
 		if (!getDataValue("applicationVersion")) {
-			input ("device_IP", "text", title: "Device IP (Current = ${getDataValue("deviceIP")})")
-			if (type() == "Plug-Switch") {
-				input ("multiPlug", "bool", title: "Device is part of a Multi-Plug)")
-				input ("plug_No", "text",
-					   title: "For multiPlug, the number of the plug (00, 01, 02, etc.)")
-			}
+			input ("device_IP", "text", title: "Device IP", defaultValue: getDataValue("deviceIP"))
 		}
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
-			   options: ["1", "5", "15", "30"], defaultValue: "30")
-		input ("shortPoll", "number",title: "Fast Polling Interval - <b>Caution</b> ('0' = disabled and preferred)",
-			   defaultValue: 0, descriptionText: "TTTTTTT")
+			   options: ["1", "5", "10", "15", "30"], defaultValue: "30")
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
 }
 
-//	Installation and update
 def installed() {
 	log.info "Installing .."
-	runIn(2, updated)
+	state.pollFreq = 0
+	updated()
 }
 
 def updated() {
 	log.info "Updating .."
 	unschedule()
 	state.errorCount = 0
-	sendEvent(name: "commsError", value: false)
-
+	if (device.currentValue("driverVersion") != driverVer()) {
+		updateDataValue("driverVersion", driverVer())
+		if (shortPoll) {
+			state.pollFreq = shortPoll
+			removeSetting("shortPoll")
+		} else {
+			state.pollFreq = 0
+		}
+	}
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
-			logWarn("updated: Device IP must be set to continue.")
-			return
-		} else if (type() == "Plug-Switch" && multiPlug == true && !plug_No) {
-			logWarn("updated: Plug Number must be set to continue.")
+			logWarn("updated: Device IP is not set.")
 			return
 		}
-		updateDataValue("deviceIP", device_IP.trim())
-		logInfo("Device IP set to ${getDataValue("deviceIP")}")
-		if (multiPlug == true && (!getDataValue("plugNo") || getDataValue("plugNo")==null)) {
-			sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "getMultiPlugData")
+		if (getDataValue("deviceIP") != device_IP.trim()) {
+			updateDataValue("deviceIP", device_IP.trim())
+			logInfo("updated: Device IP set to ${device_IP.trim()}")
 		}
 	}
-
-	if (getDataValue("driverVersion") != driverVer()) {
-		updateInstallData()
-		updateDataValue("driverVersion", driverVer())
-	}
-
 	switch(refresh_Rate) {
 		case "1" : runEvery1Minute(refresh); break
 		case "5" : runEvery5Minutes(refresh); break
+		case "10" : runEvery10Minutes(refresh); break
 		case "15" : runEvery15Minutes(refresh); break
 		default: runEvery30Minutes(refresh)
 	}
-	if (shortPoll == null) { device.updateSetting("shortPoll",[type:"number", value:0]) }
+	logInfo("updated: Refresh set for every ${refresh_Rate} minute(s).")
 	if (debug == true) { runIn(1800, debugLogOff) }
-
-	logInfo("Debug logging is: ${debug}.")
-	logInfo("Description text logging is ${descriptionText}.")
-	logInfo("Refresh set for every ${refresh_Rate} minute(s).")
-	logInfo("ShortPoll set for ${shortPoll}")
-
-	runIn(5, refresh)
+	logInfo("updated: Debug logging is: ${debug} for 30 minutes.")
+	logInfo("updated: Description text logging is ${descriptionText}.")
+	refresh()
 }
 
-def debugLogOff() {
-	device.updateSetting("debug", [type:"bool", value: false])
-	pauseExecution(5000)
-	logInfo("Debug logging is false.")
-}
-
-def getMultiPlugData(response) {
-	logDebug("getMultiPlugData: plugNo = ${plug_No}")
-	def cmdResponse = parseInput(response)
-	def plugId = "${cmdResponse.system.get_sysinfo.deviceId}${plug_No}"
-	updateDataValue("plugNo", plug_No)
-	updateDataValue("plugId", plugId)
-	logInfo("Plug ID = ${plugId} / Plug Number = ${plug_No}")
-}
-
-def updateInstallData() {
-	logInfo("updateInstallData: Updating installation to driverVersion ${driverVer()}")
-	updateDataValue("driverVersion", driverVer())
-	state.remove("multiPlugInstalled")
-	pauseExecution(1000)
-	state.remove("currentError")
-	pauseExecution(1000)
-	state.remove("commsErrorCount")
-	pauseExecution(1000)
-	state.remove("updated")
-}
-
-//	User Commands and response parsing
+//	Device Cloud and Local Common Methods
 def on() {
 	logDebug("on")
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
-				""""system":{"set_relay_state":{"state":1}},""" +
-				""""system":{"get_sysinfo":{}}}""", "commandResponse")
-	} else if (device.name == "HS210") {
-		sendCmd("""{"system":{"set_relay_state":{"state":1}}}""", "specialResponse")
-	} else {
-		sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
-				""""system":{"get_sysinfo":{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system":{"set_relay_state":{"state":1}}}""", "commandResponse")
 }
 
 def off() {
 	logDebug("off")
-	if(getDataValue("plugId")) {
-		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
-				""""system":{"set_relay_state":{"state":0}},""" +
-				""""system":{"get_sysinfo":{}}}""", "commandResponse")
-	} else if (device.name == "HS210") {
-		sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "specialResponse")
-	} else {
-		sendCmd("""{"system":{"set_relay_state":{"state":0}},""" +
-				""""system":{"get_sysinfo":{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "commandResponse")
 }
 
-def specialResponse(response) {
-	pauseExecution(1000)
-	sendCmd("""{"system":{"get_sysinfo":{}}}""", "commandResponse")
-}
-
-def setLevel(percentage, transition = null) {
+def setLevel(percentage) {
 	logDebug("setLevel: level = ${percentage}")
-	if (percentage < 0 || percentage > 100) {
-		logWarn("$device.name $device.label: Entered brightness is not from 0...100")
-		return
-	}
+	percentage = percentage.toInteger()
+	if (percentage < 0) { percentage = 0 }
+	if (percentage > 100) { percentage = 100 }
 	percentage = percentage.toInteger()
 	sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
-			""""smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
-			""""system":{"get_sysinfo":{}}}""", "commandResponse")
+			""""smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}}}""", "commandResponse")
 }
 
 def refresh() {
 	logDebug("refresh")
-	if (state.errorCount < 1) {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""", "commandResponse")
-	}
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "statusResponse")
 }
 
 def commandResponse(response) {
-	def cmdResponse = parseInput(response)
-	logDebug("commandResponse: status = ${cmdResponse}")
-	def status = cmdResponse.system.get_sysinfo
-	def relayState = status.relay_state
-	if (getDataValue("plugNo")) {
-		status = status.children.find { it.id == getDataValue("plugNo") }
-		relayState = status.state
-	}
-	def onOff = "off"
-	if (relayState == 1) { onOff = "on"}
-	sendEvent(name: "switch", value: onOff)
-	def deviceStatus = [:]
-	deviceStatus << ["power" : onOff]
-	if (type() == "Dimming Switch") {
-		sendEvent(name: "level", value: status.brightness)
-		deviceStatus << ["level" : status.brightness]
-	}
-	logInfo("Status: ${deviceStatus}")
-	if (shortPoll > 0) { runIn(shortPoll, runShortPoll) }
+	logDebug("commandResponse")
+	sendCmd("""{"system":{"get_sysinfo":{}}}""", "statusResponse")
 }
 
-//	Common Communications Methods
+//	Device Local Only Methods
+def setPollFreq(interval = 0) {
+	logDebug("setPollFreq: interval = ${interval}")
+	interval = interval.toInteger()
+	if (interval !=0 && interval < 5) { interval = 5 }
+	if (interval != state.pollFreq) {
+		state.pollFreq = interval
+		refresh()
+		logInfo("setPollFreq: interval set to ${interval}")
+	} else {
+		logWarn("setPollFreq: No change in interval from command.")
+	}
+}
+
+def statusResponse(response) {
+	def status = parseInput(response).system.get_sysinfo
+	logDebug("statusResponse: status = ${status}")
+	def onOff = "on"
+	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff, type: "digital")
+	}
+	if(status.brightness != device.currentValue("level")) {
+		sendEvent(name: "level", value: status.brightness)
+	}
+	logInfo("statusResponse: switch: ${onOff}, level: ${status.brightness}]")
+	if (state.pollFreq > 0) {
+		runIn(state.pollFreq, quickPoll)
+	}
+}
+
+def quickPoll() {
+	logDebug("quickPoll: executing a quickPoll")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "quickPollResponse")
+}
+
+def quickPollResponse(response) {
+	def status = parseInput(response).system.get_sysinfo
+	def onOff = "on"
+	if (status.relay_state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", type: "physical", value: onOff)
+		logInfo("quickPoll: switch: ${onOff}")
+	} else if (status.brightness != device.currentValue("level")) {
+		sendEvent(name: "level", value: status.brightness)
+		logInfo("quickPoll: level: ${status.brightness}")
+	}
+	if (state.pollFreq > 0) {
+		runIn(state.pollFreq, quickPoll)
+	}
+}
+	
+//	Cloud and Local Common Methods
+def setCommsError() {
+	logWarn("setCommsError")
+	state.errorCount += 1
+	if (state.errorCount > 4) {
+		return
+	} else if (state.errorCount < 3) {
+		repeatCommand()
+		logInfo("Executing attempt ${state.errorCount} to recover communications")
+	} else if (state.errorCount == 3) {
+		if (getDataValue("applicationVersion")) {
+			logWarn("setCommsError: Attempting to update Kasa Device IPs.")
+			parent.requestDataUpdate()
+			runIn(30, repeatCommand)
+		} else {
+			runIn(3, repeatCommand)
+			logInfo("Executing attempt ${state.errorCount} to recover communications")
+		}
+	} else if (state.errorCount == 4) {	
+		def warnText = "<b>setCommsError</b>: Your device is not reachable.\r" +
+						"Complete corrective action then execute any command to continue"
+		logWarn(warnText)
+	}
+}
+
+def repeatCommand() { 
+	logDebug("repeatCommand: ${state.lastCommand}")
+	sendCmd(state.lastCommand.command, state.lastCommand.action)
+}
+
+def logInfo(msg) {
+	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
+}
+
+def debugLogOff() {
+	device.updateSetting("debug", [type:"bool", value: false])
+	logInfo("Debug logging is false.")
+}
+
+def logDebug(msg){
+	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
+}
+
+def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
+
+//	Local Communications Methods
 private sendCmd(command, action) {
 	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
@@ -224,95 +237,13 @@ private sendCmd(command, action) {
 def parseInput(response) {
 	unschedule(setCommsError)
 	state.errorCount = 0
-	sendEvent(name: "commsError", value: false)
 	try {
-		def encrResponse = parseLanMessage(response).payload
-		def cmdResponse = parseJson(inputXOR(encrResponse))
-		return cmdResponse
-	} catch (error) {
-		logWarn "CommsError: Fragmented message returned from device."
+		return parseJson(inputXOR(parseLanMessage(response).payload))
+	} catch (e) {
+		logWarn("parseInput: JsonParse failed. Response = ${inputXOR(parseLanMessage(response).payload)}.")
 	}
 }
 
-//	Communications Error Handling
-def setCommsError() {
-	logDebug("setCommsError")
-	state.errorCount += 1
-	if (state.errorCount > 6) {
-		return
-	} else if (state.errorCount < 5) {
-		repeatCommand()
-		logWarn("Executing attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 5) {
-		sendEvent(name: "commsError", value: true)
-		if (getDataValue("applicationVersion")) {
-			logWarn("setCommsError: Parent commanded to poll for devices to correct error.")
-			parent.updateDeviceIps()
-			runIn(40, repeatCommand)
-		} else {
-			repeatCommand()
-		}
-	} else if (state.errorCount == 6) {		
-		logWarn "<b>setCommsError</b>: Your device is not reachable at IP ${getDataValue("deviceIP")}.\r" +
-				"<b>Corrective Action</b>: \r"+
-				"Your action is required to re-enable the device.\r" +
-				"a.  If the device was removed, disable the device in Hubitat.\r" +
-				"b.  Check the device in the Kasa App and assure it works.\r" +
-				"c.  If a manual installation, update your IP and Refresh Rate in the device preferences.\r" +
-				"d.  For TP-Link Integration installation:\r" +
-				"\t1.  Assure the device is working in the Kasa App.\r" +
-				"\t2.  Run the TP-Link Integration app (this will update the IP address).\r" +
-				"\t3.  Execute any command except Refresh.  This should reconnect the device.\r"
-				"\t4.  A Save Preferences will reset the error data and force a restart the interface."
-	}
-}
-
-def repeatCommand() { 
-	logDebug("repeatCommand: ${state.lastCommand}")
-	sendCmd(state.lastCommand.command, state.lastCommand.action)
-}
-
-//	Short Polling Methods
-def runShortPoll() {
-	sendShortPollCmd("""{"system":{"get_sysinfo":{}}}""", "shortPollResponse")
-}
-
-private sendShortPollCmd(command, action) {
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
-		hubitat.device.Protocol.LAN,
-		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-		 destinationAddress: "${getDataValue("deviceIP")}:9999",
-		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-		 timeout: 3,
-		 callback: action])
-	sendHubCommand(myHubAction)
-}
-
-def shortPollResponse(response) {
-	logDebug("shortPollResponse")
-	def encrResponse = parseLanMessage(response).payload
-	def cmdResponse = parseJson(inputXOR(encrResponse))
-	def status = cmdResponse.system.get_sysinfo
-	def relayState = status.relay_state
-	if (getDataValue("plugNo")) {
-		status = status.children.find { it.id == getDataValue("plugNo") }
-		relayState = status.state
-	}
-	def onOff = "off"
-	if (relayState == 1) { onOff = "on"}
-	if (device.currentValue("switch") != onOff) {
-		sendEvent(name: "switch", value: onOff)
-	}
-	if (type() == "Dimming Switch") {
-		if (device.currentValue("level") != status.brightness) {
-			sendEvent(name: "level", value: status.brightness)
-		}
-	}
-	if (shortPoll > 0) { runIn(shortPoll, runShortPoll) }
-}
-
-//	Utility Methods
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -339,15 +270,5 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
-
-def logInfo(msg) {
-	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
-}
-
-def logDebug(msg){
-	if(debug == true) { log.debug "${device.label} ${driverVer()} ${msg}" }
-}
-
-def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
 
 //	end-of-file

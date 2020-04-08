@@ -17,9 +17,11 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 			blank or 0 is disabled.  A value below 5 is read as 5.
 		c.	Upaded all drivers to eight individual divers.
 03.03	Manual install and functional testing complete.  Auto Installation testing complete.
-===== GitHub Repository =====
+04.08	L5.0.4.  Initial development started for next version:
+		a.	Add type to attribute "switch",
+		b.	Add 60 and 180 minute refresh rates.  Change default to 60 minutes.
 =======================================================================================================*/
-def driverVer() { return "L5.0.3" }
+def driverVer() { return "L5.0.4" }
 
 metadata {
 	definition (name: "Kasa Color Bulb",
@@ -46,7 +48,7 @@ metadata {
 		input ("transition_Time", "num", title: "Default Transition time (seconds)", defaultValue: 0)
 		input ("highRes", "bool", title: "High Resolution Hue Scale", defaultValue: false)
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
-			   options: ["1", "5", "15", "30"], defaultValue: "30")
+			   options: ["1", "5", "10", "15", "30", "60", "180"], defaultValue: "60")
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
@@ -79,7 +81,9 @@ def updated() {
 		case "5" : runEvery5Minutes(refresh); break
 		case "10" : runEvery10Minutes(refresh); break
 		case "15" : runEvery15Minutes(refresh); break
-		default: runEvery30Minutes(refresh)
+		case "30" : runEvery30Minutes(refresh); break
+		case "180": runEvery3Hours(refresh); break
+		default: runEvery1Hour(refresh)
 	}
 	logInfo("updated: Refresh set for every ${refresh_Rate} minute(s).")
 	state.transTime = 1000*transition_Time.toInteger()
@@ -211,11 +215,11 @@ def updateBulbData(status) {
 	logDebug("updateBulbData: ${status}")
 	def deviceStatus = [:]
 	if (status.on_off == 0) { 
-		sendEvent(name: "switch", value: "off")
+		sendEvent(name: "switch", value: "off", type: "digital")
 		sendEvent(name: "circadianState", value: "normal")
 		deviceStatus << ["power" : "off"]
 	} else {
-		sendEvent(name: "switch", value: "on")
+		sendEvent(name: "switch", value: "on", type: "digital")
 		deviceStatus << ["power" : "on"]
 		sendEvent(name: "level", value: status.brightness, unit: "%")
 		deviceStatus << ["level" : status.brightness]
@@ -232,7 +236,11 @@ def updateBulbData(status) {
 		def color = [:]
 		color << ["hue" : hue]
 		color << ["saturation" : status.saturation]
-		color << ["level" : status.brightness]
+		if (status.color_temp.toInteger() > 2000) {
+			color << ["level" : 0]
+		} else {
+			color << ["level" : status.brightness]
+		}
 		sendEvent(name: "color", value: color)
 		if (status.color_temp.toInteger() == 0) { setRgbData(hue, status.saturation) }
 		else { setColorTempData(status.color_temp) }

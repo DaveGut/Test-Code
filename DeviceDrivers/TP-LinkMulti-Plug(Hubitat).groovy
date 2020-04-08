@@ -17,9 +17,12 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 			blank or 0 is disabled.  A value below 5 is read as 5.
 		c.	Upaded all drivers to eight individual divers.
 03.03	Manual install and functional testing complete.  Auto Installation testing complete.
-===== GitHub Repository =====
+04.08	L5.0.2.  Initial development started for next version:
+		a.	Add type to attribute "switch",
+		b.	Sending multiple command for on/off eliminating need to send separate status command.
+		c.	Add 60 and 180 minute refresh rates.  Change default to 60 minutes.
 =======================================================================================================*/
-def driverVer() { return "L5.0.1" }
+def driverVer() { return "L5.0.2" }
 
 metadata {
 	definition (name: "Kasa Multi Plug",
@@ -39,7 +42,7 @@ metadata {
 				options: ["00", "01", "02", "03", "04", "05"])
 		}
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
-			   options: ["1", "5", "10", "15", "30"], defaultValue: "30")
+			   options: ["1", "5", "10", "15", "30", "60", "180"], defaultValue: "60")
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
@@ -59,8 +62,10 @@ def updated() {
 	if (device.currentValue("driverVersion") != driverVer()) {
 		updateDataValue("driverVersion", driverVer())
 		if (shortPoll) {
-			setPollFreq(shortPoll)
-			device.removeSetting("shortPoll")
+			state.pollFreq = shortPoll
+			removeSetting("shortPoll")
+		} else {
+			state.pollFreq = 0
 		}
 	}
 	if (!getDataValue("applicationVersion")) {
@@ -83,13 +88,15 @@ def updated() {
 		case "5" : runEvery5Minutes(refresh); break
 		case "10" : runEvery10Minutes(refresh); break
 		case "15" : runEvery15Minutes(refresh); break
-		default: runEvery30Minutes(refresh)
+		case "30" : runEvery30Minutes(refresh); break
+		case "180": runEvery3Hours(refresh); break
+		default: runEvery1Hour(refresh)
 	}
 	logInfo("updated: Refresh set for every ${refresh_Rate} minute(s).")
 	if (debug == true) { runIn(1800, debugLogOff) }
 	logInfo("updated: Debug logging is: ${debug} for 30 minutes.")
 	logInfo("updated: Description text logging is ${descriptionText}.")
-	runIn(5, refresh)
+	refresh()
 }
 
 def getMultiPlugData(response) {
@@ -103,24 +110,37 @@ def getMultiPlugData(response) {
 //	Device Cloud and Local Common Methods
 def on() {
 	logDebug("on")
-	sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"system":{"set_relay_state":{"state": 1}}}""",
+	sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
+			""""system":{"set_relay_state":{"state": 1}},""" +
+			""""system" :{"get_sysinfo" :{}}}""",
 			"commandResponse")
 }
 
 def off() {
 	logDebug("off")
-	sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},"system":{"set_relay_state":{"state": 0}}}""",
+	sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
+			""""system":{"set_relay_state":{"state": 0}},""" +
+			""""system" :{"get_sysinfo" :{}}}""",
 			"commandResponse")
 }
 
 def refresh() {
 	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "statusResponse")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
 
 def commandResponse(response) {
-	logDebug("commandResponse")
-	sendCmd("""{"system":{"get_sysinfo":{}}}""", "statusResponse")
+	def status = parseInput(response).system.get_sysinfo.children.find { it.id == getDataValue("plugNo") }
+	logDebug("commandResponse: status = ${status}")
+	def onOff = "on"
+	if (status.state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff, type: "digital")
+	}
+	logInfo("commandResponse: switch: ${onOff}")
+	if (state.pollFreq > 0) {
+		runIn(state.pollFreq, quickPoll)
+	}
 }
 
 //	Device Local Only Methods
@@ -137,20 +157,6 @@ def setPollFreq(interval = 0) {
 	}
 }
 
-def statusResponse(response) {
-	def status = parseInput(response).system.get_sysinfo.children.find { it.id == getDataValue("plugNo") }
-	logDebug("statusResponse: status = ${status}")
-	def onOff = "on"
-	if (status.state == 0) { onOff = "off" }
-	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff)
-	}
-	logInfo("statusResponse: switch: ${onOff}")
-	if (state.pollFreq > 0) {
-		runIn(state.pollFreq, quickPoll)
-	}
-}
-
 def quickPoll() {
 	logDebug("quickPoll: executing a quickPoll")
 	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "quickPollResponse")
@@ -161,7 +167,7 @@ def quickPollResponse(response) {
 	def onOff = "on"
 	if (status.state == 0) { onOff = "off" }
 	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff)
+		sendEvent(name: "switch", value: onOff, type: "physical")
 		logInfo("quickPollResponse: switch: ${onOff}")
 	}
 	if (state.pollFreq > 0) {
