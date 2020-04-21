@@ -15,9 +15,9 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 		b.	Updated error handling request from children.
 03.03	Automated installation using app verified.  Updated doc and import links.
 Removed test code.  Tested Update Method.
-
-========================================================*/
-def appVersion() { return "L5.0.1" }
+04.20	5.1.0	Update for Hubitat Package Manager
+=======================================================================================================*/
+def appVersion() { return "5.1.0" }
 import groovy.json.JsonSlurper
 definition(
 	name: "Kasa Integration",
@@ -29,7 +29,7 @@ definition(
 	iconX2Url: "",
 	singleInstance: true,
 	documentationLink: "https://github.com/DaveGut/Hubitat-TP-Link-Integration/wiki",
-	importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/Application/TP-LinkHubitatApplication.groovy"
+	importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/Application/KasaIntegrationApp.groovy"
 )
 
 preferences {
