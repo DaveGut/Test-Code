@@ -17,15 +17,18 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 			blank or 0 is disabled.  A value below 5 is read as 5.
 		c.	Upaded all drivers to eight individual divers.
 03.03	Manual install and functional testing of On/Off.  EM Functions not tested.  Auto Installation testing complete.
-===== GitHub Repository =====
+04.08	L5.0.2.  Initial development started for next version:
+		a.	Add type to attribute "switch",
+		b.	Sending multiple command for on/off eliminating need to send separate status command.
+		c.	Add 60 and 180 minute refresh rates.  Change default to 60 minutes.
+04.20	5.1.0	Update for Hubitat Program Manager
 =======================================================================================================*/
-def driverVer() { return "L5.0.1" }
-
+def driverVer() { return "5.1.0" }
 metadata {
 	definition (name: "Kasa EM Plug",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/Hubitat-TP-Link-Integration/master/DeviceDrivers/TP-LinkEM-Plug(Hubitat).groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Plug.groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
@@ -44,15 +47,14 @@ metadata {
 		}
 		input ("emFunction", "bool", title: "Enable Energy Monitor Function", defaultValue: true)
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
-			   options: ["1", "5", "10", "15", "30"], defaultValue: "30")
-		input ("debug", "bool", title: "Enable debug logging", defaultValue: true)
+			   options: ["1", "5", "10", "15", "30", "60", "180"], defaultValue: "60")
+		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
 }
 
 def installed() {
 	log.info "Installing .."
-	updateDataValue("driverVersion", driverVer())
 	state.pollFreq = 0
 	updated()
 }
@@ -64,8 +66,10 @@ def updated() {
 	if (device.currentValue("driverVersion") != driverVer()) {
 		updateDataValue("driverVersion", driverVer())
 		if (shortPoll) {
-			setPollFreq(shortPoll)
-			device.removeSetting("shortPoll")
+			state.pollFreq = shortPoll
+			removeSetting("shortPoll")
+		} else {
+			state.pollFreq = 0
 		}
 	}
 	if (!getDataValue("applicationVersion")) {
@@ -83,7 +87,9 @@ def updated() {
 		case "5" : runEvery5Minutes(refresh); break
 		case "10" : runEvery10Minutes(refresh); break
 		case "15" : runEvery15Minutes(refresh); break
-		default: runEvery30Minutes(refresh)
+		case "30" : runEvery30Minutes(refresh); break
+		case "180": runEvery3Hours(refresh); break
+		default: runEvery1Hour(refresh)
 	}
 	logInfo("updated: Refresh set for every ${refresh_Rate} minute(s).")
 	if (debug == true) { runIn(1800, debugLogOff) }
@@ -100,22 +106,42 @@ def updated() {
 //	Device Cloud and Local Common Methods
 def on() {
 	logDebug("on")
-	sendCmd("""{"system":{"set_relay_state":{"state":1}}}""", "commandResponse")
+	sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
+			""""system" :{"get_sysinfo" :{}}}""", 
+			"commandResponse")
 }
 
 def off() {
 	logDebug("off")
-	sendCmd("""{"system":{"set_relay_state":{"state":0}}}""", "commandResponse")
+	sendCmd("""{"system":{"set_relay_state":{"state":0}},""" +
+			""""system" :{"get_sysinfo" :{}}}""", 
+			"commandResponse")
 }
 
 def refresh() {
 	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "statusResponse")
+	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
 }
 
 def commandResponse(response) {
-	logDebug("commandResponse")
-	sendCmd("""{"system":{"get_sysinfo":{}}}""", "statusResponse")
+	def status = parseInput(response).system.get_sysinfo
+	logDebug("commandResponse: status = ${status}")
+	def onOff = "on"
+	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff, type: "digital")
+	}
+	logInfo("commandResponse: switch: ${onOff}")
+	if (!emFunction) {
+		if (state.pollFreq > 0) {
+			runIn(state.pollFreq, quickPoll)
+		}
+	} else {
+		sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+		if (state.pollFreq > 0) {
+			runIn(state.pollFreq, powerPoll)
+		}
+	}
 }
 
 def powerResponse(response) {
@@ -280,27 +306,6 @@ def setPollFreq(interval = 0) {
 	}
 }
 
-def statusResponse(response) {
-	def status = parseInput(response).system.get_sysinfo
-	logDebug("statusResponse: status = ${status}")
-	def onOff = "on"
-	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
-	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff)
-	}
-	logInfo("statusResponse: switch: ${onOff}")
-	if (!emFunction) {
-		if (state.pollFreq > 0) {
-			runIn(state.pollFreq, quickPoll)
-		}
-	} else {
-		sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
-		if (state.pollFreq > 0) {
-			runIn(state.pollFreq, powerPoll)
-		}
-	}
-}
-
 def quickPoll() {
 	logDebug("quickPoll: executing a quickPoll")
 	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "quickPollResponse")
@@ -312,7 +317,7 @@ def quickPollResponse(response) {
 	def onOff = "on"
 	if (status.relay_state == 0) { onOff = "off" }
 	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff)
+		sendEvent(name: "switch", value: onOff, type: "physical")
 		logInfo("quickPollResponse: switch: ${onOff}")
 	}
 	if (state.pollFreq > 0) {
