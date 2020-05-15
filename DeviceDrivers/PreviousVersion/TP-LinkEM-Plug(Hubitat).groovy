@@ -1,15 +1,6 @@
-/*
-Kasa Local Device Driver
-		Copyright Dave Gutheinz
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
-License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
-Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
-"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific 
-language governing permissions and limitations under the License.
-
-DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
-All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
-
+/*	Kasa Device Driver Series
+Copyright Dave Gutheinz
+License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 ===== 2020 History =====
 02.28	New version 5.0
 		a.	Changed version number to Ln.n.n format where the L refers to LOCAL installation.
@@ -22,11 +13,13 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 		b.	Sending multiple command for on/off eliminating need to send separate status command.
 		c.	Add 60 and 180 minute refresh rates.  Change default to 60 minutes.
 04.20	5.1.0	Update for Hubitat Program Manager
-05.03	5.1.0.1	Update to correct Power Polling Function.
+04.23	5.1.1	Update for Hub version 2.2.0, specifically the parseLanMessage = true option.
+05.03	5.1.1.1	Update to correct power quick polling function errors.
+06.01	5.2.0	Pre-encrypt on, off, and refresh commands to reduce per-commnand processing.
 =======================================================================================================*/
-def driverVer() { return "5.1.0.1" }
+def driverVer() { return "A5.2.0" }
 metadata {
-	definition (name: "XXXKasa EM Plug",
+	definition (name: "Kasa EM Plug",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Plug.groovy"
@@ -46,7 +39,7 @@ metadata {
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP", defaultValue: getDataValue("deviceIP"))
 		}
-		input ("emFunction", "bool", title: "Enable Energy Monitor Function", defaultValue: true)
+		input ("emFunction", "bool", title: "Enable Energy Monitor Function", defaultValue: false)
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
 			   options: ["1", "5", "10", "15", "30", "60", "180"], defaultValue: "60")
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
@@ -66,12 +59,6 @@ def updated() {
 	state.errorCount = 0
 	if (device.currentValue("driverVersion") != driverVer()) {
 		updateDataValue("driverVersion", driverVer())
-		if (shortPoll) {
-			state.pollFreq = shortPoll
-			removeSetting("shortPoll")
-		} else {
-			state.pollFreq = 0
-		}
 	}
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
@@ -101,31 +88,69 @@ def updated() {
 		runIn(1, updateStats)
 		logInfo("updated: Scheduled nightly energy statistics update.")
 	}
-	runIn(5, refresh)
+	runIn(3, refresh)
 }
 
-//	Device Cloud and Local Common Methods
+
+//	Common to Kasa single Plugs
 def on() {
 	logDebug("on")
-	sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
-			""""system" :{"get_sysinfo" :{}}}""", 
+	sendCmd(outputXOR("""{"system":{"set_relay_state":{"state":1}},""" +
+					  """"system" :{"get_sysinfo" :{}}}"""),
 			"commandResponse")
 }
 
 def off() {
 	logDebug("off")
-	sendCmd("""{"system":{"set_relay_state":{"state":0}},""" +
-			""""system" :{"get_sysinfo" :{}}}""", 
+	sendCmd(outputXOR("""{"system":{"set_relay_state":{"state":0}},""" +
+					  """"system" :{"get_sysinfo" :{}}}"""),
 			"commandResponse")
 }
 
 def refresh() {
 	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "commandResponse")
+	sendCmd("d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6",
+			"commandResponse")
 }
 
+def setPollFreq(interval = 0) {
+	interval = interval.toInteger()
+	if (interval !=0 && interval < 5) { interval = 5 }
+	if (interval != state.pollFreq) {
+		state.pollFreq = interval
+		refresh()
+		logInfo("setPollFreq: interval set to ${interval}")
+	} else {
+		logWarn("setPollFreq: No change in interval from command.")
+	}
+}
+
+def quickPoll() {
+	sendCmd("d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6",
+			"quickPollResponse")
+}
+
+def quickPollResponse(response) {
+	def resp = parseInput(response)
+	if (resp == "commsError") {return }
+	def status = resp.system.get_sysinfo
+	def onOff = "on"
+	if (status.relay_state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff, type: "physical")
+		logInfo("quickPollResponse: switch: ${onOff}")
+	}
+	if (state.pollFreq > 0) {
+		runIn(state.pollFreq, quickPoll)
+	}
+}
+	
+
+//	Unique to Kasa EM Plug
 def commandResponse(response) {
-	def status = parseInput(response).system.get_sysinfo
+	def resp = parseInput(response)
+	if (resp == "commsError") {return }
+	def status = resp.system.get_sysinfo
 	logDebug("commandResponse: status = ${status}")
 	def onOff = "on"
 	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
@@ -133,7 +158,10 @@ def commandResponse(response) {
 		sendEvent(name: "switch", value: onOff, type: "digital")
 	}
 	logInfo("commandResponse: switch: ${onOff}")
-	sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerResponse")
+	if (emFunction) {
+		sendCmd("d0f297fa9feb8efcdee49fbddabfcb94e683e28efa93fe9bb983f885f885",
+				"powerResponse")
+	}
 	if (!emFunction && state.pollFreq > 0) {
 		runIn(state.pollFreq, quickPoll)
 	} else if (emFunction && state.pollFreq>0) {
@@ -141,8 +169,31 @@ def commandResponse(response) {
 	}
 }
 
+def powerPoll() {
+	sendCmd("d0f297fa9feb8efcdee49fbddabfcb94e683e28efa93fe9bb983f885f885",
+			"powerPollResponse")
+}
+
+def powerPollResponse(response) {
+	def resp = parseInput(response)
+	if (resp == "commsError") {return }
+	def status = resp.emeter.get_realtime
+	def power = status.power
+	if (power == null) { power = status.power_mw / 1000 }
+	power = (0.5 + Math.round(100*power)/100).toInteger()
+	def curPwr = device.currentValue("power").toInteger()
+	if (power > curPwr + 3 || power < curPwr - 3) { 
+		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+		logInfo("powerPollResponse: power = ${power}")
+	}
+	if (emFunction && state.pollFreq > 0) {
+		runIn(state.pollFreq, powerPoll)
+	}
+}
+
 def powerResponse(response) {
 	def cmdResponse = parseInput(response)
+	if (cmdResponse == "commsError") {return }
 	logDebug("powerResponse: cmdResponse = ${cmdResponse}")
 	def realtime = cmdResponse.emeter.get_realtime
 	def power = realtime.power
@@ -152,11 +203,12 @@ def powerResponse(response) {
 		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
 	}
 	logInfo("powerResponse: [power: ${power}]")
-	sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""","setEngrToday")
+	sendCmd(outputXOR("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}"""),"setEngrToday")
 }
 
 def setEngrToday(response) {
 	def cmdResponse = parseInput(response)
+	if (cmdResponse == "commsError") {return }
 	logDebug("setEngrToday: ${cmdResponse}")
 	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == thisMonth() }
 	def energyData = data.energy
@@ -171,11 +223,12 @@ def setEngrToday(response) {
 
 def updateStats() {
 	logDebug("updateStats")
-	sendCmd("""{"time":{"get_time":null}}""", "checkDateResponse")
+	sendCmd(outputXOR("""{"time":{"get_time":null}}"""), "checkDateResponse")
 }
 
 def checkDateResponse(response) {
 	def cmdResponse = parseInput(response)
+	if (cmdResponse == "commsError") {return }
 	logDebug("checkDateResponse: ${cmdResponse}")
 	def data = cmdResponse.time.get_time
 	def newDate = new Date()
@@ -186,7 +239,7 @@ def checkDateResponse(response) {
 		state.currDate = [data.year, data.month, data.mday]
 		pauseExecution(1000)
 		logInfo("checkDateResponse: currDate = ${state.currDate}")
-		sendCmd("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}""", "setThisMonth")
+		sendCmd(outputXOR("""{"emeter":{"get_monthstat":{"year": ${thisYear()}}}}"""), "setThisMonth")
 	} else {
 		logInfo("checkDateResponse: date is not current.")
 		def hour = newDate.format("H").toInteger()
@@ -198,12 +251,13 @@ def checkDateResponse(response) {
 
 def changeDate(year, month, mday, hour, min, sec) {
 	logInfo("changeDate: Updating date to ${year} /${month} /${mday} /${hour} /${min} /${sec}")
-	sendCmd("""{"time":{"set_timezone":{"year":${year},"month":${month},"mday":${mday},"hour":${hour},"min":${min},"sec":${sec},"index":55}}}""", 
+	sendCmd(outputXOR("""{"time":{"set_timezone":{"year":${year},"month":${month},"mday":${mday},"hour":${hour},"min":${min},"sec":${sec},"index":55}}}"""), 
 			"changeDateResponse")
 }
 
 def changeDateResponse(response) { 
 	def cmdResponse = parseInput(response)
+	if (cmdResponse == "commsError") {return }
 	logInfo("changeDateResponse: cmdResponse = cmdResponse}")
 	updateStats()
 }
@@ -222,6 +276,7 @@ def today() {
 
 def setThisMonth(response) {
 	def cmdResponse = parseInput(response)
+	if (cmdResponse == "commsError") {return }
 	logDebug("setThisMonth: cmdResponse = ${cmdResponse}")
 	def data = cmdResponse.emeter.get_monthstat.month_list.find { it.month == thisMonth() }
 	def scale = "energy"
@@ -245,11 +300,12 @@ def setThisMonth(response) {
 	logInfo("This month's energy stats set to ${energyData} // ${avgEnergy}")
 	def year = thisYear()
 	if (thisMonth() == 1) { year = year -1 }
-	sendCmd("""{"emeter":{"get_monthstat":{"year": ${year}}}}""", "setLastMonth")
+	sendCmd(outputXOR("""{"emeter":{"get_monthstat":{"year": ${year}}}}"""), "setLastMonth")
 }
 
 def setLastMonth(response) {
 	def cmdResponse = parseInput(response)
+	if (cmdResponse == "commsError") {return }
 	logDebug("setLastMonth: cmdResponse = ${cmdResponse}")
 	def lastMonth = thisMonth() -1
 	if (lastMonth == 0) { lastMonth = 12 }
@@ -289,87 +345,8 @@ def setLastMonth(response) {
 	logInfo("Last month's energy stats set to ${energyData} // ${avgEnergy}")
 }
 
-//	Device Local Only Methods
-def setPollFreq(interval = 0) {
-	logDebug("setPollFreq: interval = ${interval}")
-	interval = interval.toInteger()
-	if (interval !=0 && interval < 5) { interval = 5 }
-	if (interval != state.pollFreq) {
-		state.pollFreq = interval
-		refresh()
-		logInfo("setPollFreq: interval set to ${interval}")
-	} else {
-		logWarn("setPollFreq: No change in interval from command.")
-	}
-}
 
-def quickPoll() {
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "quickPollResponse")
-}
-
-def quickPollResponse(response) {
-	def status = parseInput(response).system.get_sysinfo
-	def onOff = "on"
-	if (status.relay_state == 0) { onOff = "off" }
-	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff, type: "physical")
-		logInfo("quickPollResponse: switch: ${onOff}")
-	}
-	if (state.pollFreq > 0) {
-		runIn(state.pollFreq, quickPoll)
-	}
-}
-	
-def powerPoll() {
-	sendCmd("""{"emeter":{"get_realtime":{}}}""", "powerPollResponse")
-}
-
-def powerPollResponse(response) {
-	logDebug("powerPollResponse")
-	def status = parseInput(response).emeter.get_realtime
-	def power = status.power
-	if (power == null) { power = status.power_mw / 1000 }
-	power = (0.5 + Math.round(100*power)/100).toInteger()
-	def curPwr = device.currentValue("power").toInteger()
-	if (power > curPwr + 3 || power < curPwr - 3) { 
-		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-		logInfo("powerPollResponse: power = ${power}")
-	}
-	if (emFunction && state.pollFreq > 0) {
-		runIn(state.pollFreq, powerPoll)
-	}
-}
-
-//	Cloud and Local Common Methods
-def setCommsError() {
-	logWarn("setCommsError")
-	state.errorCount += 1
-	if (state.errorCount > 4) {
-		return
-	} else if (state.errorCount < 3) {
-		repeatCommand()
-		logInfo("Executing attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 3) {
-		if (getDataValue("applicationVersion")) {
-			logWarn("setCommsError: Attempting to update Kasa Device IPs.")
-			parent.requestDataUpdate()
-			runIn(30, repeatCommand)
-		} else {
-			runIn(3, repeatCommand)
-			logInfo("Executing attempt ${state.errorCount} to recover communications")
-		}
-	} else if (state.errorCount == 4) {	
-		def warnText = "<b>setCommsError</b>: Your device is not reachable.\r" +
-						"Complete corrective action then execute any command to continue"
-		logWarn(warnText)
-	}
-}
-
-def repeatCommand() { 
-	logDebug("repeatCommand: ${state.lastCommand}")
-	sendCmd(state.lastCommand.command, state.lastCommand.action)
-}
-
+//	Common to all Kasa Drivers
 def logInfo(msg) {
 	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
 }
@@ -385,30 +362,63 @@ def logDebug(msg){
 
 def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
 
-//	Local Communications Methods
 private sendCmd(command, action) {
-	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
+	logDebug("sendCmd: action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
-	runIn(3, setCommsError)
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
+	sendHubCommand(new hubitat.device.HubAction(
+		command,
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
+		 parseWarning: true,
 		 timeout: 2,
-		 callback: action])
-	sendHubCommand(myHubAction)
+		 callback: action]
+	))
 }
 
 def parseInput(response) {
-	unschedule(setCommsError)
-	state.errorCount = 0
-	try {
-		return parseJson(inputXOR(parseLanMessage(response).payload))
-	} catch (e) {
-		logWarn("parseInput: JsonParse failed. Response = ${inputXOR(parseLanMessage(response).payload)}.")
+	def resp = parseLanMessage(response)
+	if(resp.type != "LAN_TYPE_UDPCLIENT") {
+		def errorString = new String(resp.payload.decodeBase64())
+		logWarn("parseInput: Response error: ${errorString}. Check device physical status and IP Address.")
+		setCommsError()
+		return "commsError"
+	} else {
+		state.errorCount = 0
+		try {
+			return parseJson(inputXOR(resp.payload))
+		} catch (e) {
+			logWarn("parseInput: JsonParse failed. Likely fragmented return from device. error = ${e}.")
+		}
 	}
+}
+
+def setCommsError() {
+	logWarn("setCommsError")
+	state.errorCount += 1
+	if (state.errorCount > 4) {
+		return
+	} else if (state.errorCount < 3) {
+		repeatCommand()
+	} else if (state.errorCount == 3) {
+		if (getDataValue("applicationVersion")) {
+			logWarn("setCommsError: Attempting to update Kasa Device IPs.")
+			parent.requestDataUpdate()
+			runIn(30, repeatCommand)
+		} else {
+			runIn(3, repeatCommand)
+		}
+	} else if (state.errorCount == 4) {	
+		def warnText = "<b>setCommsError</b>: Your device is not reachable.\r" +
+						"Complete corrective action then execute any command to continue"
+		logWarn(warnText)
+	}
+}
+
+def repeatCommand() { 
+	logDebug("repeatCommand: ${state.lastCommand}")
+	sendCmd(state.lastCommand.command, state.lastCommand.action)
 }
 
 private outputXOR(command) {
@@ -437,5 +447,3 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
-
-//	end-of-file

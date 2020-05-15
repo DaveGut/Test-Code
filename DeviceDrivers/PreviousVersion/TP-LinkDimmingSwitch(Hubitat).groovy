@@ -1,15 +1,6 @@
-/*
-Kasa Local Device Driver
-		Copyright Dave Gutheinz
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file except in compliance with the
-License. You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0.
-Unless required by applicable law or agreed to in writing,software distributed under the License is distributed on an 
-"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific 
-language governing permissions and limitations under the License.
-
-DISCLAIMER:  This Applicaion and the associated Device Drivers are in no way sanctioned or supported by TP-Link.  
-All  development is based upon open-source data on the TP-Link devices; primarily various users on GitHub.com.
-
+/*	Kasa Device Driver Series
+Copyright Dave Gutheinz
+License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 ===== 2020 History =====
 02.28	New version 5.0
 		a.	Changed version number to Ln.n.n format where the L refers to LOCAL installation.
@@ -25,19 +16,22 @@ All  development is based upon open-source data on the TP-Link devices; primaril
 		b.	Sending multiple command for on/off eliminating need to send separate status command.
 		c.	Add 60 and 180 minute refresh rates.  Change default to 60 minutes.
 04.20	5.1.0	Update for Hubitat Program Manager
+04.23	5.1.1	Update for Hub version 2.2.0, specifically the parseLanMessage = true option.
+06.01	5.2.0	Pre-encrypt on, off, and refresh commands to reduce per-commnand processing.
 =======================================================================================================*/
-def driverVer() { return "5.1.0" }
+def driverVer() { return "A5.2.0" }
 metadata {
 	definition (name: "Kasa Dimming Switch",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/DimingSwitch.groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/DimmingSwitch.groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
 		capability "Refresh"
 		capability "Switch Level"
 		command "setPollFreq", ["NUMBER"]
+		command "presetLevel",  ["NUMBER"]
 	}
     preferences {
 		if (!getDataValue("applicationVersion")) {
@@ -62,12 +56,6 @@ def updated() {
 	state.errorCount = 0
 	if (device.currentValue("driverVersion") != driverVer()) {
 		updateDataValue("driverVersion", driverVer())
-		if (shortPoll) {
-			state.pollFreq = shortPoll
-			removeSetting("shortPoll")
-		} else {
-			state.pollFreq = 0
-		}
 	}
 	if (!getDataValue("applicationVersion")) {
 		if (!device_IP) {
@@ -95,41 +83,74 @@ def updated() {
 	refresh()
 }
 
-//	Device Cloud and Local Common Methods
+
+//	Common to all Kasa single Plugs
 def on() {
 	logDebug("on")
-	sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
-			""""system" :{"get_sysinfo" :{}}}""", 
+	sendCmd(outputXOR("""{"system":{"set_relay_state":{"state":1}},""" +
+					  """"system" :{"get_sysinfo" :{}}}"""),
 			"commandResponse")
 }
 
 def off() {
 	logDebug("off")
-	logDebug("off")
-	sendCmd("""{"system":{"set_relay_state":{"state":0}},""" +
-			""""system" :{"get_sysinfo" :{}}}""", 
+	sendCmd(outputXOR("""{"system":{"set_relay_state":{"state":0}},""" +
+					  """"system" :{"get_sysinfo" :{}}}"""),
 			"commandResponse")
 }
 
+def refresh() {
+	logDebug("refresh")
+	sendCmd("d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6",
+			"commandResponse")
+}
+
+def setPollFreq(interval = 0) {
+	interval = interval.toInteger()
+	if (interval !=0 && interval < 5) { interval = 5 }
+	if (interval != state.pollFreq) {
+		state.pollFreq = interval
+		refresh()
+		logInfo("setPollFreq: interval set to ${interval}")
+	} else {
+		logWarn("setPollFreq: No change in interval from command.")
+	}
+}
+
+def quickPoll() {
+	sendCmd("d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6",
+			"quickPollResponse")
+}
+
+
+//	Unique to Kasa Dimming Switch
 def setLevel(percentage, transition = null) {
 	logDebug("setLevel: level = ${percentage}")
 	percentage = percentage.toInteger()
 	if (percentage < 0) { percentage = 0 }
 	if (percentage > 100) { percentage = 100 }
 	percentage = percentage.toInteger()
-	sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
+	sendCmd(outputXOR("""{"system":{"set_relay_state":{"state":1}},""" +
 			""""smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
-			""""system" :{"get_sysinfo" :{}}}""", 
+			""""system" :{"get_sysinfo" :{}}}"""),
 			"commandResponse")
 }
 
-def refresh() {
-	logDebug("refresh")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "statusResponse")
+def presetLevel(percentage) {
+	logDebug("presetLevel: level = ${percentage}")
+	percentage = percentage.toInteger()
+	if (percentage < 0) { percentage = 0 }
+	if (percentage > 100) { percentage = 100 }
+	percentage = percentage.toInteger()
+	sendCmd(outputXOR("""{"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
+			""""system" :{"get_sysinfo" :{}}}"""),
+			"commandResponse")
 }
 
 def commandResponse(response) {
-	def status = parseInput(response).system.get_sysinfo
+	def resp = parseInput(response)
+	if (resp == "commsError") {return }
+	def status = resp.system.get_sysinfo
 	logDebug("commandResponse: status = ${status}")
 	def onOff = "on"
 	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
@@ -145,27 +166,10 @@ def commandResponse(response) {
 	}
 }
 
-//	Device Local Only Methods
-def setPollFreq(interval = 0) {
-	logDebug("setPollFreq: interval = ${interval}")
-	interval = interval.toInteger()
-	if (interval !=0 && interval < 5) { interval = 5 }
-	if (interval != state.pollFreq) {
-		state.pollFreq = interval
-		refresh()
-		logInfo("setPollFreq: interval set to ${interval}")
-	} else {
-		logWarn("setPollFreq: No change in interval from command.")
-	}
-}
-
-def quickPoll() {
-	logDebug("quickPoll: executing a quickPoll")
-	sendCmd("""{"system" :{"get_sysinfo" :{}}}""", "quickPollResponse")
-}
-
 def quickPollResponse(response) {
-	def status = parseInput(response).system.get_sysinfo
+	def resp = parseInput(response)
+	if (resp == "commsError") {return }
+	def status = resp.system.get_sysinfo
 	def onOff = "on"
 	if (status.relay_state == 0) { onOff = "off" }
 	if (onOff != device.currentValue("switch")) {
@@ -180,36 +184,8 @@ def quickPollResponse(response) {
 	}
 }
 	
-//	Cloud and Local Common Methods
-def setCommsError() {
-	logWarn("setCommsError")
-	state.errorCount += 1
-	if (state.errorCount > 4) {
-		return
-	} else if (state.errorCount < 3) {
-		repeatCommand()
-		logInfo("Executing attempt ${state.errorCount} to recover communications")
-	} else if (state.errorCount == 3) {
-		if (getDataValue("applicationVersion")) {
-			logWarn("setCommsError: Attempting to update Kasa Device IPs.")
-			parent.requestDataUpdate()
-			runIn(30, repeatCommand)
-		} else {
-			runIn(3, repeatCommand)
-			logInfo("Executing attempt ${state.errorCount} to recover communications")
-		}
-	} else if (state.errorCount == 4) {	
-		def warnText = "<b>setCommsError</b>: Your device is not reachable.\r" +
-						"Complete corrective action then execute any command to continue"
-		logWarn(warnText)
-	}
-}
 
-def repeatCommand() { 
-	logDebug("repeatCommand: ${state.lastCommand}")
-	sendCmd(state.lastCommand.command, state.lastCommand.action)
-}
-
+//	Common to all Kasa Drivers
 def logInfo(msg) {
 	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
 }
@@ -225,30 +201,63 @@ def logDebug(msg){
 
 def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
 
-//	Local Communications Methods
 private sendCmd(command, action) {
-	logDebug("sendCmd: command = ${command} // device IP = ${getDataValue("deviceIP")}, action = ${action}")
+	logDebug("sendCmd: command = ${command} // action = ${action}")
 	state.lastCommand = [command: "${command}", action: "${action}"]
-	runIn(3, setCommsError)
-	def myHubAction = new hubitat.device.HubAction(
-		outputXOR(command),
+	sendHubCommand(new hubitat.device.HubAction(
+		command,
 		hubitat.device.Protocol.LAN,
 		[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
 		 destinationAddress: "${getDataValue("deviceIP")}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
+		 parseWarning: true,
 		 timeout: 2,
-		 callback: action])
-	sendHubCommand(myHubAction)
+		 callback: action]
+	))
 }
 
 def parseInput(response) {
-	unschedule(setCommsError)
-	state.errorCount = 0
-	try {
-		return parseJson(inputXOR(parseLanMessage(response).payload))
-	} catch (e) {
-		logWarn("parseInput: JsonParse failed. Response = ${inputXOR(parseLanMessage(response).payload)}.")
+	def resp = parseLanMessage(response)
+	if(resp.type != "LAN_TYPE_UDPCLIENT") {
+		setCommsError()
+		return "commsError"
+	} else {
+		state.errorCount = 0
+		try {
+			return parseJson(inputXOR(resp.payload))
+		} catch (e) {
+			logWarn("parseInput: JsonParse failed. Likely fragmented return from device. error = ${e}.")
+		}
 	}
+}
+
+def setCommsError() {
+	logWarn("setCommsError")
+	state.errorCount += 1
+	if (state.errorCount > 4) {
+		return
+	} else if (state.errorCount < 3) {
+		repeatCommand()
+	} else if (state.errorCount == 3) {
+		if (getDataValue("applicationVersion")) {
+			logWarn("setCommsError: Commanding parent to check for IP changes.")
+			parent.requestDataUpdate()
+			runIn(30, repeatCommand)
+		} else {
+			runIn(3, repeatCommand)
+		}
+	} else if (state.errorCount == 4) {	
+		def warnText = "setCommsError: \n<b>Your device is not reachable. Potential corrective Actions:\r" +
+			"a.\tDisable the device if it is no longer powered on.\n" +
+			"b.\tRun the Kasa Integration Application and see if the device is on the list.\n" +
+			"c.\tIf not on the list of devices, troubleshoot the device using the Kasa App."
+		logWarn(warnText)
+	}
+}
+
+def repeatCommand() { 
+	logWarn("repeatCommand: ${state.lastCommand}")
+	sendCmd(state.lastCommand.command, state.lastCommand.action)
 }
 
 private outputXOR(command) {
@@ -277,5 +286,3 @@ private inputXOR(encrResponse) {
 	}
 	return cmdResponse
 }
-
-//	end-of-file
