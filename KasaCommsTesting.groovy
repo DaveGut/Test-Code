@@ -105,7 +105,6 @@ private sendTcpCmd(test) {
 	))
 }
 def tcpParse(message) {
-	log.trace parseLanMessage(message)
 	message = parseLanMessage(message).payload.substring(0,40)
 	log.trace "tcpParse: $message"
 }
