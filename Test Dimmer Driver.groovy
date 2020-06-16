@@ -10,14 +10,16 @@ License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaD
 				b.	Integrated method parseInput into responses and deleted
 05.21	5.2.1	Administrative version change to support HPM
 05.27	5.2.1.1	Fixed type on quick poll switch implementation.
-06.20	5.3.0	a.	Updated comms to use us rawSocket when quick polling is enabled.
+06.20	5.3.0	a.	Updated comms to use us rawSocket for all communications.
 				b.	Limited quickPoll interval to 5 to 40 seconds (based on persistance
-					of the HS220 rawSocket interface
-				c.	If quickPolling is enabled, the refresh is bypassed.
+					of the Kasa rawSocket interface
+NOTES:  This version uses only rawSocket.  I want to expand to other devices to see if there
+is some issue with UDP that can be solved.  Particularly looking at the Multi-Plugs and processing
+that data
 ====================================================================================================*/
-def driverVer() { return "A 5.2.1" }
+def driverVer() { return "B 5.2.1" }
 metadata {
-	definition (name: "A Kasa Dimming Switch",
+	definition (name: "B Kasa Dimming Switch",
     			namespace: "davegut",
 				author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/DimmingSwitch.groovy"
@@ -29,6 +31,7 @@ metadata {
 		command "setPollFreq", ["NUMBER"]
 		command "presetLevel",  ["NUMBER"]
 	}
+	//	Preferences are set up to request the Device IP if a person chooses to do a manual install.
     preferences {
 		if (!getDataValue("applicationVersion")) {
 			input ("device_IP", "text", title: "Device IP", defaultValue: getDataValue("deviceIP"))
@@ -50,6 +53,9 @@ def updated() {
 	log.info "Updating .."
 	unschedule()
 	state.errorCount = 0
+	//	On manual installation, the IP is not present until
+	//	entered by user.  notifies user.  The next clause
+	//	sets the entered deviceIP
 	if (device.currentValue("driverVersion") != driverVer()) {
 		updateDataValue("driverVersion", driverVer())
 	}
@@ -63,6 +69,13 @@ def updated() {
 			logInfo("updated: Device IP set to ${device_IP.trim()}")
 		}
 	}
+	//	set state.errorsSinceReset
+	resetErrorsSinceReset()
+	//	log then set to zero state.errorsSinceReset to track times
+	//	the app goes to error processing.  This will remain in
+	//	place in the first production version (for troubleshooting
+	//	information.
+	schedule("0 01 0 * * ?", resetErrorsSinceReset)
 	switch(refresh_Rate) {
 		case "1" : runEvery1Minute(refresh); break
 		case "5" : runEvery5Minutes(refresh); break
@@ -79,54 +92,74 @@ def updated() {
 	refresh()
 }
 
+def resetErrorsSinceReset() {
+	log.info "resetErrorsSinceReset: total errors = state.errorsSinceReset"
+	state.errorsSinceReset = 0
+}
 
-//	Common to all Kasa single Plugs
 def on() {
-	logDebug("on")
-	sendCmd("""{"system":{"set_relay_state":{"state":1}},"system":{"get_sysinfo":{}}}""",
-			"commandResponse")
+	unschedule(quickPoll)
+	//	Where feasible, commands are pre-encrypted to reduce processing.
+	sendCmd("00000046d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8" +
+			"b7c4b0d1a5c0e2d8a381f286e793f6d4eedfa2dff3d1a2dba8" +
+			"dcb9d4f6ccb795f297e3bccfb6c5acc2a4cbe9d3a8d5a8d5",
+		"on")
 }
 
 def off() {
-	logDebug("off")
-	sendCmd("""{"system":{"set_relay_state":{"state":0}},"system":{"get_sysinfo":{}}}""",
-			"commandResponse")
+	unschedule(quickPoll)
+	sendCmd("00000046d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8" +
+			"b7c4b0d1a5c0e2d8a381f286e793f6d4eedea3def2d0a3daa9" +
+			"ddb8d5f7cdb694f396e2bdceb7c4adc3a5cae8d2a9d4a9d4",
+		"off")
 }
 
 def refresh() {
-	logDebug("refresh")
-//	if (state.pollFreq == 0) {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""", "commandResponse")
-//	} else {
-//		sendRawSocketCmd("0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6")
-//	}
+	//	Unschedule quickPoll before sending refresh.  The next will be scheduled in
+	//	parse.
+	//	STRATEGY:	Use the refresh rate to kick-start the quickPolling every minute.
+	//				This will allow for automatic error recovery if your wifi has
+	//				intermittantissues.
+	unschedule(quickPoll)
+	sendCmd("0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6",
+		"refresh")
+}
+
+def quickPoll() {
+	//	Assumes socket is already established and still open.  If not, then we will
+	//	end up in the timeout (error processing).
+	def command = "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6"
+	state.lastCommand = [command: "${command}", method: "quickPoll"]
+	runIn(2, rawSocketTimeout)
+	interfaces.rawSocket.sendMessage(command)
 }
 
 def setPollFreq(interval = 0) {
+	//	Will run refresh after setting.  Refresh will kick-start the polling if it is
+	//	enabled.  Otherwise, it will refresh the device for continued operations.
 	interval = interval.toInteger()
 	if (interval !=0 && interval < 5) { interval = 5 }
 	else if (interval > 40) { interval = 40 }
 	if (interval != state.pollFreq) {
 		state.pollFreq = interval
-		sendRawSocketCmd("0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6")
-		logInfo("setPollFreq: interval set to ${interval}")
-	} else {
-		logWarn("setPollFreq: No change in interval from command.")
 	}
+	logInfo("setPollFreq: Polling interval set to ${interval} seconds")
+	refresh()
 }
 
-
-//	Unique to Kasa Dimming Switch
 def setLevel(percentage, transition = null) {
 	logDebug("setLevel: level = ${percentage}")
 	percentage = percentage.toInteger()
 	if (percentage < 0) { percentage = 0 }
 	if (percentage > 100) { percentage = 100 }
 	percentage = percentage.toInteger()
-	sendCmd("""{"system":{"set_relay_state":{"state":1}},""" +
-			""""smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
-			""""system" :{"get_sysinfo" :{}}}""",
-			"commandResponse")
+	unschedule(quickPoll)
+	def command = """{"system":{"set_relay_state":{"state":1}},""" +
+			      """"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
+			      """"system" :{"get_sysinfo" :{}}}"""
+	def encrCmd = "000000" + Integer.toHexString(command.length()) + outputXOR(command)
+	sendCmd(encrCmd, "setLevel")
+	
 }
 
 def presetLevel(percentage) {
@@ -135,34 +168,94 @@ def presetLevel(percentage) {
 	if (percentage < 0) { percentage = 0 }
 	if (percentage > 100) { percentage = 100 }
 	percentage = percentage.toInteger()
-	sendCmd("""{"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
-			""""system" :{"get_sysinfo" :{}}}""",
-			"commandResponse")
+	unschedule(quickPoll)
+	def command = """{"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
+				  """"system" :{"get_sysinfo" :{}}}"""
+	def encrCmd = "000000" + Integer.toHexString(command.length()) + outputXOR(command)
+	sendCmd(encrCmd, "presetLevel")
 }
 
-def commandResponse(response) {
-	def resp = parseLanMessage(response)
-	if(resp.type == "LAN_TYPE_UDPCLIENT") {
-		state.errorCount = 0
-		def status = parseJson(inputXOR(resp.payload)).system.get_sysinfo
-		logDebug("commandResponse: status = ${status}")
-		def onOff = "on"
-		if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
-		if (onOff != device.currentValue("switch")) {
-			sendEvent(name: "switch", value: onOff, type: "digital")
-			logInfo("commandResponse: switch: ${onOff}")
-		}
-		if(status.brightness != device.currentValue("level")) {
-			sendEvent(name: "level", value: status.brightness)
-			logInfo("commandResponse: level: ${status.brightness}")
-		}
+private sendCmd(command, method) {
+	//	Used only for all user commands and reset.
+	//	Connects the interface and sends the command.  If already connected,
+	//	will have no impact (aside from HE processing)
+	//	The state.lastCommand is for message repeating on timeout.
+	logDebug("sendCmd: source method = ${method}")
+	state.lastCommand = [command: "${command}", method: "${method}"]
+	runIn(2, rawSocketTimeout)
+	interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
+	interfaces.rawSocket.sendMessage(command)
+}
+
+def parse(resp) {
+	//	If a return is received, error count is set to 0 and rawSocketTimeout will not run.
+	unschedule(rawSocketTimeout)
+	state.errorCount = 0
+	def status
+	try { status = parseJson(inputXOR(resp.substring(8))).system.get_sysinfo }
+	catch (e) { runIn(2, refresh) }
+	logDebug("parse: status = ${status}")
+	def onOff = "on"
+	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff, type: "physical")
+		logInfo("parse: switch: ${onOff}")
+	}
+	if(status.brightness != device.currentValue("level")) {
+		sendEvent(name: "level", value: status.brightness)
+		logInfo("parse: level: ${status.brightness}")
+	}
+	//	The HS220 has a persistent rawSocket interface.  An if statement
+	//	is required for plugs and switches since some of them
+	//	(HS200) do not have a persistent interface.  For those, a
+	//	connect command will be required for each poll.  I may change
+	//	this function back to UDP messaging for the HS200 (less Hubitat
+	//	processing.
+	if (state.pollFreq > 0) {
+		if (device.name == "HS200") { runIn(state.pollFreq, refresh) }
+		else { runIn(state.pollFreq, quickPoll) }
+	} else { interfaces.rawSocket.close()}
+}
+
+def socketStatus(message) {
+	//	The Kasa devices do not properly follow the rawSocket reporting
+	//	paradigm.  On the first message, they always send back a socket
+	//	closed message (this is legacy code from the early devices like
+	//	the HS220).  Therefore, I can not rely on a socket close message
+	//	to trigger a reconnect.  I use the timeout instead.
+	if (message == "receive error: Stream closed.") {
+		logDebug("socketStatus: Socket Established")
+//	} else if (message == "send error: Broken pipe (Write failed)") {
+//
+//		logInfo("socketStats: Write Error.  Attempting recovery.")
+//		unschedule(rawSocketTimeout)
+//		sendCmd(state.lastCommand.command, state.lastCommand.method)
 	} else {
-		setCommsError()
+		//	Log any other error.  Handle any comms failure in timeout.
+		logWarn("socketStatus = ${message}")
 	}
 }
 
+def rawSocketTimeout() {
+	//	Increments error count on each visit.  If error count >= 3, logs a warning
+	//	message.  Three failures indicate a device or wifi problem, not a problem
+	//	with this logic.
+	state.errorCount += 1
+	//	Provide a running total of visits to this method.  Used to determine
+	//	severity of comms error processing.  Will probably go away in final version.
+	state.errorsSinceReset += 1
+	logDebug("rawSocketTimeout:  If persistant, notify developer")
+	if (state.errorCount < 3) {
+		//	Will make three retries on any communication.
+		runIn(2, rawSocketTimeout)
+		interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
+		interfaces.rawSocket.sendMessage(state.lastCommand.command)
+	} else if (state.errorCount >=3 ) {
+		//	Tells user on all subsequent failures.
+		logWarn("rawSocketTimeout:  Repeat limit of 3 reached.  Command not sent.  Check your IP Address")
+	}
+}
 
-//	Common to all Kasa Drivers
 def logInfo(msg) {
 	if (descriptionText == true) { log.info "${device.label} ${driverVer()} ${msg}" }
 }
@@ -177,95 +270,6 @@ def logDebug(msg){
 }
 
 def logWarn(msg){ log.warn "${device.label} ${driverVer()} ${msg}" }
-
-private sendCmd(command, action) {
-	logDebug("sendCmd: action = ${action}")
-	state.lastCommand = [command: "${command}", action: "${action}"]
-	if (state.pollFreq > 0) {
-		sendRawSocketCmd("000000" + Integer.toHexString(command.length()) + outputXOR(command))
-	} else {
-		sendHubCommand(new hubitat.device.HubAction(
-			outputXOR(command),
-			hubitat.device.Protocol.LAN,
-			[type: hubitat.device.HubAction.Type.LAN_TYPE_UDPCLIENT,
-			 destinationAddress: "${getDataValue("deviceIP")}:9999",
-			 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
-			 parseWarning: true,
-			 timeout: 5,
-			 callback: action]
-		))
-	}
-}
-
-def setCommsError() {
-	logWarn("setCommsError")
-	state.errorCount += 1
-	if (state.errorCount > 4) {
-		return
-	} else if (state.errorCount < 3) {
-		repeatCommand()
-	} else if (state.errorCount == 3) {
-		if (getDataValue("applicationVersion")) {
-			logWarn("setCommsError: Commanding parent to check for IP changes.")
-			parent.requestDataUpdate()
-			runIn(30, repeatCommand)
-		} else {
-			runIn(3, repeatCommand)
-		}
-	} else if (state.errorCount == 4) {	
-		def warnText = "setCommsError: \n<b>Your device is not reachable. Potential corrective Actions:\r" +
-			"a.\tDisable the device if it is no longer powered on.\n" +
-			"b.\tRun the Kasa Integration Application and see if the device is on the list.\n" +
-			"c.\tIf not on the list of devices, troubleshoot the device using the Kasa App."
-		logWarn(warnText)
-	}
-}
-
-def repeatCommand() { 
-	logWarn("repeatCommand: ${state.lastCommand}")
-	sendCmd(state.lastCommand.command, state.lastCommand.action)
-}
-
-private sendRawSocketCmd(encrCmd) {
-	runIn(2, rawSocketTimeout)
-	interfaces.rawSocket.sendMessage(encrCmd)
-}
-
-def parse(resp) {
-log.trace "parsing rawSocket"
-	unschedule(rawSocketTimeout)
-	state.errorCount = 0
-	def status = parseJson(inputXOR(resp.substring(8))).system.get_sysinfo
-	logDebug("commandResponse: status = ${status}")
-	def onOff = "on"
-	if (status.relay_state == 0 || status.state == 0) { onOff = "off" }
-	if (onOff != device.currentValue("switch")) {
-		sendEvent(name: "switch", value: onOff, type: "physical")
-		logInfo("quickPollResponse: switch: ${onOff}")
-	}
-	if(status.brightness != device.currentValue("level")) {
-		sendEvent(name: "level", value: status.brightness)
-		logInfo("quickPollResponse: level: ${status.brightness}")
-	}
-	if (state.pollFreq > 0) {
-		runIn(state.pollFreq, refresh)
-	} else { interfaces.rawSocket.close()}
-}
-
-def socketStatus(message) {
-	logWarn("socketStatus: $message")
-}
-
-def rawSocketTimeout() {
-	state.errorCount += 1
-	logWarn("rawSocketTimeout:  If persistant, notify developer")
-	if (state.errorCount < 3) {
-		interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
-		repeatCommand()
-	} else {
-		state.errorCount = 0
-	}
-}
 
 private outputXOR(command) {
 	def str = ""
