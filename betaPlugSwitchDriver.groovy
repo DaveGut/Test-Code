@@ -19,8 +19,8 @@ def driverVer() { return "Beta-5.3.0" }
 metadata {
 	definition (name: "Kasa Plug Switch",
     			namespace: "davegut",
-				author: "Dave Gutheinz"	//,
-//				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Multi-Plug.groovy"
+				author: "Dave Gutheinz",
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Multi-Plug.groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
