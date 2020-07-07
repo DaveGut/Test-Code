@@ -133,8 +133,17 @@ def setPollInterval(interval) {
 		interval = interval.toInteger()
 		state.pollInterval = interval
 		logInfo("setPollInterval: polling interval set to ${interval} seconds")
-		refresh()
+		quickPoll()
 	}
+}
+
+def quickPoll() {
+	def command
+//	interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
+	state.cmdName == "refresh"
+	command = "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6"
+	runIn(2, rawSocketTimeout, [data: command])
+	interfaces.rawSocket.sendMessage(command)
 }
 
 def commandResponse(status) {
