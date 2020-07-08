@@ -235,6 +235,7 @@ def powerResponse(resp) {
 		runIn(state.pollFreq, quickPoll)
 	}
 	def year = new Date().format("yyyy").toInteger()
+	def month = new Date().format("M").toInteger()
 	sendCmd("setEnergyToday", outputXOR("""{"emeter":{"get_daystat":{"month": ${month}, "year": ${year}}}}"""))
 }
 
