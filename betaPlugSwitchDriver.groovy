@@ -44,7 +44,7 @@ metadata {
 			input ("device_IP", "text", title: "Device IP", defaultValue: getDataValue("deviceIP"))
 		}
 		input ("refresh_Rate", "enum", title: "Device Refresh Interval (minutes)", 
-			   options: ["1", "5", "10", "15", "30", "60", "180"], defaultValue: "60")
+			   options: ["1", "5", "10", "15", "30", "60", "180"], defaultValue: "15")
 		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
 		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
 	}
@@ -84,7 +84,7 @@ def updated() {
 		case "15" : runEvery15Minutes(refresh); break
 		case "30" : runEvery30Minutes(refresh); break
 		case "180": runEvery3Hours(refresh); break
-		default: runEvery1Hour(refresh)
+		default: runEvery15Minutes(refresh)
 	}
 	
 	logInfo("updated: Refresh set for every ${refresh_Rate} minute(s).")
@@ -122,7 +122,6 @@ def on() {
 
 def off() {
 	logDebug("off")
-	unschedule(quickPoll)
 	unschedule(quickPoll)
 	if (device.name == "HS110") {
 		sendCmd("off","00000063d0f281f88bff9af7d5ef94b6c5a0d48bf99cf09" +
@@ -206,7 +205,9 @@ def pollResponse(resp) {
 		logInfo("parse: switch: ${onOff}")
 	}
 	if (device.name == "HS110") {
-		def power = resp.emeter.get_realtime.power
+		status = resp.emeter.get_realtime
+		logDebug("powerResponse: status = ${status}")
+		def power = status.power
 		if (power == null) { power = realtime.power_mw / 1000 }
 		power = (0.5 + Math.round(100*power)/100).toInteger()
 		def curPwr = device.currentValue("power").toInteger()
@@ -219,8 +220,9 @@ def pollResponse(resp) {
 
 //	===== Energy Monitor Methods =====
 def powerResponse(resp) {
-	def power = resp.emeter.get_realtime.power
-	logDebug("powerResponse: power = ${power}")
+	def status = resp.emeter.get_realtime
+	logDebug("powerResponse: status = ${status}")
+	def power = status.power
 	if (power == null) { power = status.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	def curPwr = device.currentValue("power").toInteger()
