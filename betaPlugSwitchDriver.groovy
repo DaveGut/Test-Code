@@ -331,7 +331,6 @@ def setLastMonth(status) {
 
 //	===== rawSocket Parse =====
 def parse(response) {
-	unschedule(rawSocketTimeout)
 	state.errorCount = 0
 	if (response.length() == 2048) {
 		state.concat = 1
@@ -347,6 +346,7 @@ def parse(response) {
 	try { status = parseJson(inputXOR(response)) }
 	catch (e) { logWarn("parse: Invalid or incomplete return.  response: length = ${response.length()}\n" +
 						"error = ${e}") }
+	unschedule(rawSocketTimeout)
 	if (state.pollInterval > 0) {
 		runIn(state.pollInterval, quickPoll)
 	}
