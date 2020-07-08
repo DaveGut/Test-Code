@@ -17,10 +17,10 @@ License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaD
 def driverVer() { return "Beta-5.3.0" }
 
 metadata {
-	definition (name: "Kasa Plug Switch",
+	definition (name: "Dev Kasa Plug Switch",
     			namespace: "davegut",
-				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Multi-Plug.groovy"
+				author: "Dave Gutheinz"	//,
+//				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Multi-Plug.groovy"
 			   ) {
 		capability "Switch"
 		capability "Actuator"
@@ -28,7 +28,8 @@ metadata {
 		command "setPollInterval", [[
 			name: "Poll Interval (seconds)", 
 			type: "ENUM",
-			constraints: ["off", "5", "10", "15", "20", "25", "30"],
+			constraints: ["off", "2", "5", "10", "15", "20", "25", "30"],
+//			constraints: ["off", "5", "10", "15", "20", "25", "30"],
 		]]
 		capability "Power Meter"
 		capability "Energy Meter"
@@ -107,26 +108,49 @@ def updated() {
 def on() {
 	logDebug("on")
 	unschedule(quickPoll)
-	sendCmd("on", "00000046d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8" +
-			"b7c4b0d1a5c0e2d8a381f286e793f6d4eedfa2dff3d1a2dba8" +
-			"dcb9d4f6ccb795f297e3bccfb6c5acc2a4cbe9d3a8d5a8d5")
+	if (device.name == "HS110") {
+		sendCmd("on","00000063d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8b" +
+				"7c4b0d1a5c0e2d8a381f286e793f6d4eedfa2dff3d1a2dba8dcb9d4f" +
+				"6ccb795f297e3bccfb6c5acc2a4cbe9d3a8d5a884a6c3aecbbfdaa88a" +
+				"b0cbe98eeb9fc0b2d7b6daaec7aacfedd7acd1acd1")	
+	} else {
+		sendCmd("on", "00000046d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8" +
+				"b7c4b0d1a5c0e2d8a381f286e793f6d4eedfa2dff3d1a2dba8" +
+				"dcb9d4f6ccb795f297e3bccfb6c5acc2a4cbe9d3a8d5a8d5")
+	}
 }
 
 def off() {
 	logDebug("off")
 	unschedule(quickPoll)
-	sendCmd("off", "00000046d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8" +
-			"b7c4b0d1a5c0e2d8a381f286e793f6d4eedea3def2d0a3daa9" +
-			"ddb8d5f7cdb694f396e2bdceb7c4adc3a5cae8d2a9d4a9d4")
+	unschedule(quickPoll)
+	if (device.name == "HS110") {
+		sendCmd("off","00000063d0f281f88bff9af7d5ef94b6c5a0d48bf99cf09" +
+			"1e8b7c4b0d1a5c0e2d8a381f286e793f6d4eedea3def2d0a3daa9ddb8" +
+			"d5f7cdb694f396e2bdceb7c4adc3a5cae8d2a9d4a985a7c2afcabedba" +
+			"98bb1cae88fea9ec1b3d6b7dbafc6abceecd6add0add0")
+	} else {
+		sendCmd("off", "00000046d0f281f88bff9af7d5ef94b6c5a0d48bf99cf091e8" +
+				"b7c4b0d1a5c0e2d8a381f286e793f6d4eedea3def2d0a3daa9" +
+				"ddb8d5f7cdb694f396e2bdceb7c4adc3a5cae8d2a9d4a9d4")
+	}
 }
 
 def refresh() {
 	logDebug("refresh")
 	unschedule(quickPoll)
-	sendCmd("refresh", "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6")
+	if (device.name == "HS110") {
+		sendCmd("refresh","0000003bd0f281f88bff9af7d5ef94b6d1b4c09fec95e68f" +
+				"e187e8caf08bf68ba787a5c0adc8bcd9ab89b3c8ea8de89cc3b1d4b5d9" +
+				"adc4a9cceed4afd2afd2")
+	} else {
+		sendCmd("refresh", "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68" +
+				"fe187e8caf08bf68bf6")
+	}
 }
 
-def commandResponse(status) {
+def commandResponse(resp) {
+	def status = resp.system.get_sysinfo
 	logDebug("commandResponse: status = ${status}")
 	def onOff = "on"
 	if (status.relay_state == 0) { onOff = "off" }
@@ -135,18 +159,68 @@ def commandResponse(status) {
 		logInfo("parse: switch: ${onOff}")
 	}
 
-	if (state.pollInterval > 0) {
-		runIn(state.pollInterval, quickPoll)
+	if (device.name == "HS110") {
+		powerResponse(resp)
+	}
+}
+
+//	===== quickPoll =====
+def setPollInterval(interval) {
+	if (interval == "off") {
+		logInfo("setPollInterval: polling is off")
+		unschedule(quickPoll)
+		state.pollInterval = 0
+	} else {
+		interval = interval.toInteger()
+		state.pollInterval = interval
+		logWarn("setPollInterval: polling interval set to ${interval} seconds.\n" +
+				"Quick Polling can have negative impact on the Hubitat Hub performance. " +
+			    "If you encounter performance problems, try turning off quick polling.")
+		refresh()
+	}
+}
+
+def quickPoll() {
+	state.cmdName = "quickPoll"
+	def command
+	if (device.name == "HS110") {
+		command = "0000003bd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf0" +
+				"8bf68ba787a5c0adc8bcd9ab89b3c8ea8de89cc3b1d4b5d9adc4a9cceed4afd2afd2"
+	} else {
+		if (device.name == "HS100" || device.name == "HS200") {
+			interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
+		}
+		command = "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6"
+	}
+//	runIn(2, rawSocketTimeout, [data: command])
+	runIn(1, rawSocketTimeout, [data: command])
+	interfaces.rawSocket.sendMessage(command)
+}
+
+def pollResponse(resp) {
+	def status = resp.system.get_sysinfo
+	def onOff = "on"
+	if (status.relay_state == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		sendEvent(name: "switch", value: onOff, type: "physical")
+		logInfo("parse: switch: ${onOff}")
 	}
 	if (device.name == "HS110") {
-		sendCmd("getPower", "0000001ed0f297fa9feb8efcdee49fbddabfcb94e683e28efa93fe9bb983f885f885")
+		def power = resp.emeter.get_realtime.power
+		if (power == null) { power = realtime.power_mw / 1000 }
+		power = (0.5 + Math.round(100*power)/100).toInteger()
+		def curPwr = device.currentValue("power").toInteger()
+		if (power > curPwr + 3 || power < curPwr - 3) { 
+			sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
+			logInfo("pollResponse: power = ${power}")
+		}
 	}
 }
 
 //	===== Energy Monitor Methods =====
-def powerResponse(status) {
-	logDebug("powerResponse: status = ${status}")
-	def power = status.power
+def powerResponse(resp) {
+	def power = resp.emeter.get_realtime.power
+	logDebug("powerResponse: power = ${power}")
 	if (power == null) { power = status.power_mw / 1000 }
 	power = (0.5 + Math.round(100*power)/100).toInteger()
 	def curPwr = device.currentValue("power").toInteger()
@@ -160,21 +234,6 @@ def powerResponse(status) {
 	}
 	def year = new Date().format("yyyy").toInteger()
 	sendCmd("setEnergyToday", outputXOR("""{"emeter":{"get_daystat":{"month": ${month}, "year": ${year}}}}"""))
-}
-
-def powerPollResponse(status) {
-	def power = status.power
-	if (power == null) { power = realtime.power_mw / 1000 }
-	power = (0.5 + Math.round(100*power)/100).toInteger()
-	def curPwr = device.currentValue("power").toInteger()
-	if (power > curPwr + 3 || power < curPwr - 3) { 
-		sendEvent(name: "power", value: power, descriptionText: "Watts", unit: "W")
-		logInfo("powerPollResponse: power = ${power}")
-	}
-
-	if (state.pollInterval > 0) {
-		runIn(state.pollInterval, quickPoll)
-	}
 }
 
 def setEnergyToday(status) {
@@ -286,18 +345,19 @@ def parse(response) {
 	def status
 	logDebug("parse")
 	try { status = parseJson(inputXOR(response)) }
-	catch (e) { logWarn("parse: Invalid return from device") }
+	catch (e) { logWarn("parse: Invalid or incomplete return.  response: length = ${response.length()}\n" +
+						"error = ${e}") }
+	if (state.pollInterval > 0) {
+		runIn(state.pollInterval, quickPoll)
+	}
 	switch(cmdName) {
-		case "powerPoll" :
-			powerPollResponse(status.emeter.get_realtime)
+		case "quickPoll" :
+			pollResponse(status)
 			break
 		case "on" :
 		case "off" :
 		case "refresh" :
-			commandResponse(status.system.get_sysinfo)
-			break
-		case "getPower" :
-			powerResponse(status.emeter.get_realtime)
+			commandResponse(status)
 			break
 		case "getEnergy" :
 			setEnergyToday(status.emeter.get_daystat)
@@ -325,41 +385,12 @@ def concat(response) {
 	}
 }
 
-//	===== quickPoll =====
-def setPollInterval(interval) {
-	if (interval == "off") {
-		logInfo("setPollInterval: polling is off")
-		unschedule(quickPoll)
-		state.pollInterval = 0
-	} else {
-		interval = interval.toInteger()
-		state.pollInterval = interval
-		logInfo("setPollInterval: polling interval set to ${interval} seconds")
-		refresh()
-	}
-}
-
-def quickPoll() {
-	def command
-	if (device.name == "HS110") {
-		state.cmdName == "powerPoll"
-		command = "0000001ed0f297fa9feb8efcdee49fbddabfcb94e683e28efa93fe9bb983f885f885"
-	} else {
-		if (device.name == "HS200") {
-			interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
-		}
-		state.cmdName == "refresh"
-		command = "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf08bf68bf6"
-	}
-	runIn(2, rawSocketTimeout, [data: command])
-	interfaces.rawSocket.sendMessage(command)
-}
-
 //	===== Common Kasa Driver code =====
 private sendCmd(cmdName, command) {
 	logDebug("sendCmd")
 	state.cmdName = cmdName
-	runIn(2, rawSocketTimeout, [data: command])
+//	runIn(2, rawSocketTimeout, [data: command])
+	runIn(1, rawSocketTimeout, [data: command])
 	try {
 		interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 9999, byteInterface: true)
 		interfaces.rawSocket.sendMessage(command)
@@ -377,14 +408,14 @@ def socketStatus(message) {
 }
 
 def rawSocketTimeout(command) {
+log.trace "at rawSocketTimeout"
 	state.errorCount += 1
-logWarn("rawSocketTimeout: ${state.errorCount}")
 	if (state.errorCount <= 3) {
 		logDebug("rawSocketTimeout: reattempting command, attempt: ${state.errorCount}")
-		sendCmd(command)
+		sendCmd(state.cmdName,command)
 	} else if (state.errorCount == 4) {
 		logDebug("rawSocketTimeout: attempting a refresh to restart comms")
-		runIn(60, refresh)		
+		runIn(5, refresh)		
 	} else {
 		logWarn("rawSocketTimeout: Retry on error limit exceeded.  Error count = ${state.errorCount}")
 	}
