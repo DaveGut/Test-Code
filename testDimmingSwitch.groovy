@@ -212,11 +212,8 @@ def setLevel(percentage, transition = null) {
 	if (percentage < 0) { percentage = 0 }
 	if (percentage > 100) { percentage = 100 }
 	percentage = percentage.toInteger()
-//	def command = outputXOR("""{"system":{"set_relay_state":{"state":1}},""" +
-//			      """"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
-//			      """"system":{"get_sysinfo":{}}}""")
-	def command = outputXOR("""{"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
-			      """"system":{"set_relay_state":{"state":1}},"get_sysinfo":{}}}""")
+	def command = """{"smartlife.iot.dimmer":{"set_brightness":{"brightness":${percentage}}},""" +
+			      """"system":{"set_relay_state":{"state":1}},"get_sysinfo":{}}}"""
 	sendCmd(outputXOR(command))
 }
 
@@ -267,9 +264,6 @@ def setPollFreq(interval) {
 
 def setSysInfo(resp) {
 	def status = resp.system.get_sysinfo
-	if (getDataValue("devType") == "multiPlug") {
-		status = status.children.find { it.id == getDataValue("plugId") }
-	}
 	logDebug("setSysInfo: status = ${status}")
 	def onOff = "on"
 	if (status.state == 0 || status.relay_state == 0) { onOff = "off" }
@@ -312,6 +306,7 @@ private sendCmd(command) {
 	logDebug("sendCmd")
 	if (collectCommsStats) { state.totalSendCmds += 1 }
 	runIn(2, rawSocketTimeout, [data: command])
+	runIn(40, socketClose)
 	if (now() - state.lastConnect > 35000) {
 		logDebug("sendCmd: Connecting.....")
 		try {
@@ -339,6 +334,10 @@ def socketStatus(message) {
 	} else {
 		logWarn("socketStatus = ${message}")
 	}
+}
+
+def socketClose() {
+	interfaces.rawSocket.close()
 }
 
 def parse(response) {
