@@ -42,50 +42,50 @@ def menu() { sendKey("MENU") }
 private sendKey(key) {
 	log.info "tvAction ${key}"
 //	Data about the Hubitat Device
-	def app = "Hubitat.SamsungRemote"
+	def app = "iphone..iapp.samsung"
 	def appLength = app.getBytes().size()
-	def remote = "Hubitat".encodeAsBase64().toString()
+    def tvApp = "iphone.UN60ES8000.iapp.samsung"
+	def tvAppLength = tvApp.getBytes().size()
+	def remote = "SmartThings".encodeAsBase64().toString()
 	def remoteLength = remote.getBytes().size()
 //	Data about the TV
 	def ipAddress = deviceIp.encodeAsBase64().toString()
 	def ipAddressLength = ipAddress.getBytes().size()
-	def macAddress64 = state.macAddress64
-	def macAddressLength = macAddress64.getBytes().size()
-// The Authentication Messages
-	def authMsg = "${(char)0x64}${(char)0x00}${(char)ipAddressLength}${(char)0x00}${ipAddress}${(char)macAddressLength}${(char)0x00}${macAddress64}${(char)remoteLength}${(char)0x00}${remote}"
+	def macAddressLength = state.macAddress64.getBytes().size()
+	
+	// The Authentication Messages
+	def authMsg = "${(char)0x64}${(char)0x00}${(char)ipAddressLength}${(char)0x00}${ipAddress}${(char)macAddressLength}${(char)0x00}${state.macAddress64}${(char)remoteLength}${(char)0x00}${remote}"
+log.trace "authMsg = ${authMsg}"
 	def authMsgLength = authMsg.getBytes().size()
+log.trace "authMsgLength = ${authMsgLength}"
 	def authPacket = "${(char)0x00}${(char)appLength}${(char)0x00}${app}${(char)authMsgLength}${(char)0x00}${authMsg}"
-
+log.trace "authPacket = ${authPacket}"
+	
 	if (key == "AUTHENTICATE") {
-		log.trace "authPacket = $authPacket"
-//		sendHubCommand(new hubitat.device.HubAction(
-//			authPacket,
-//			hubitat.device.Protocol.LAN,[
-//				destinationAddress: "${deviceIp}:55000",
-//				timeout: 5]
-//		))
-		httpPost([uri: "http://${deviceIp}:55000/", body: authPacket, timeout: 5]) { resp ->
-			log.trace "Authenticate: resp data = ${resp.data}"
-		}
+//	Send Authenticate Message
+		sendHubCommand(new hubitat.device.HubAction(
+			authPacket,
+			hubitat.device.Protocol.LAN,
+			[destinationAddress: "${deviceIp}:55000",
+			 timeout: 10]
+		))
 	} else {
-		def tvApp = "Hubitat.SamsungRemote"
-		def tvAppLength = tvApp.getBytes().size()
+//	Send Key Message
+		key = key.toUpperCase()
 		def command = "KEY_${key}".encodeAsBase64().toString()
 		def commandLength = command.getBytes().size()
 		def actionMsg = "${(char)0x00}${(char)0x00}${(char)0x00}${(char)commandLength}${(char)0x00}${command}"
+log.trace "actionMsg = ${actionMsg}"
 		def actionMsgLength = actionMsg.getBytes().size()
+log.trace "actionMsgLength = ${actionMsgLength}"
 		def actionPacket = "${(char)0x00}${(char)tvAppLength}${(char)0x00}${tvApp}${(char)actionMsgLength}${(char)0x00}${actionMsg}"
-		log.trace "authPacket = $authPacket"
-		log.trace "actionPacket = $actionPacket"
-//		sendHubCommand(new hubitat.device.HubAction(
-//			authPacket + actionPacket,
-//			hubitat.device.Protocol.LAN,[
-//				destinationAddress: "${deviceIp}:55000",
-//				timeout: 5]
-//		))
-		httpPost([uri: "http://${deviceIp}:55000/", body: "${authPacket} + ${actionPacket}", timeout: 5]) { resp ->
-			log.trace "sendKey: resp data = ${resp.data}"
-		}
+log.trace "actionPacket = ${actionPacket}"
+		sendHubCommand(new hubitat.device.HubAction(
+			authPacket + actionPacket,
+			hubitat.device.Protocol.LAN,
+			[destinationAddress: "${deviceIp}:55000",
+			 timeout: 10]
+		))
 	}
 }
 
