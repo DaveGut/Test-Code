@@ -123,9 +123,7 @@ def levelDown() {
 }
 def refresh(){
 	logDebug("refresh")
-	def command = "0000001dd0f281f88bff9af7d5ef94b6d1b4c09fec95e68" +
-		"fe187e8caf08bf68bf6"
-	sendCmd(command)
+	sendCmd("""{"system":{"get_sysinfo":{}}}""")
 }
 
 def setColorTemperature(kelvin) {
@@ -320,8 +318,7 @@ def distResp(response) {
 private sendCmd(command) {
 	logDebug("sendCmd:  ${command}")
 	command = outputXOR(command)
-	if (now() - state.lastConnect > 35000 ||
-	   device.name == "HS100" || device.name == "HS200") {
+	if (now() - state.lastConnect > 35000) {
 		logDebug("sendCmd: Attempting to connect.....")
 		try {
 			interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 
