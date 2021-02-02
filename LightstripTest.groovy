@@ -1,12 +1,12 @@
 /*	Kasa Device Driver Series
-Color Light Strip Test Code
+Copyright Dave Gutheinz
 ===================================================================================================*/
-def driverVer() { return "Test1.0.0" }
+def driverVer() { return "1.1.0" }
 metadata {
 	definition (name: "Kasa Light Strip",
 				namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/ColorBulb.groovy"
+				importUrl: ""
 			   ) {
         capability "Light"
 		capability "Switch"
@@ -14,24 +14,23 @@ metadata {
 		capability "Change Level"
  		capability "Refresh"
 		capability "Actuator"
-		capability "Color Temperature"
-		command "setCircadian"
-		attribute "circadianState", "string"
-		capability "Color Mode"
-		capability "Color Control"
+			capability "Color Temperature"
+			command "setCircadian"
+			attribute "circadianState", "string"
+			capability "Color Mode"
+			capability "Color Control"
 	}
 	preferences {
-		if (!getDataValue("applicationVersion")) {
-			input ("device_IP", "text", 
-				   title: "Device IP", 
-				   defaultValue: getDataValue("deviceIP"))
-		}
+		input ("device_IP", "text", 
+			   title: "Device IP", 
+			   defaultValue: getDataValue("deviceIP"))
+		def refreshIntervals = ["60": "1 minute", "300": "5 minutes"]
 		input ("transition_Time", "num", 
 			   title: "Default Transition time (seconds)", 
 			   defaultValue: 0)
-		input ("highRes", "bool", 
-			   title: "(Color Bulb) High Resolution Hue Scale", 
-			   defaultValue: false)
+			input ("highRes", "bool", 
+				   title: "(Color Bulb) High Resolution Hue Scale", 
+				   defaultValue: false)
 	}
 }
 def installed() {
@@ -47,38 +46,38 @@ def updated() {
 	state.response = ""
 	state.lastConnect = 0
 	state.errorCount = 0
-	
-	//	Manual installation support.  Get IP and Plug Number
-	if (!getDataValue("applicationVersion")) {
-		if (!device_IP) {
-			logWarn("updated: Device IP is not set.")
-			return
-		}
-		if (getDataValue("deviceIP") != device_IP.trim()) {
-			updateDataValue("deviceIP", device_IP.trim())
-			logInfo("updated: Device IP set to ${device_IP.trim()}")
-		}
+
+	if (!device_IP) {
+		logWarn("updated: Device IP is not set.")
+		return
+	}else if (getDataValue("deviceIP") != device_IP.trim()) {
+		updateDataValue("deviceIP", device_IP.trim())
+//		logInfo("updated: Device IP set to ${device_IP.trim()}")
 	}
-
-	//	Update various preferences.
 	state.transTime = 1000*transition_Time.toInteger()
-	logInfo("updated: Light transition time set to ${transition_Time} seconds.")
-
-	runIn(5, refresh)
+//	logInfo("updated: transition time set to ${transition_Time} seconds.")
+	refresh()
 }
 
 //	===== Command Methods =====
+def service() {
+	def service = "smartlife.iot.lightStrip"
+	return service
+}
+def cmdType() {
+	def cmdType = "set_light_state"
+	return cmdType
+}
+
 def on() {
 	logDebug("on: transition time = ${state.transTime}")
-	def command = """{"smartlife.iot.lightStrip":""" +
-		"""{"set_light_state":{"on_off":1,"transition_period":${state.transTime}}}}"""
-	sendCmd(command)
+	sendCmd("""{"${service()}":""" +
+			"""{"${cmdType()}":{"on_off":1,"transition_period":${state.transTime}}}}""")
 }
 def off() {
 	logDebug("off: transition time = ${state.transTime}")
-	def command = """{"smartlife.iot.lightStrip":""" +
-		"""{"set_light_state":{"on_off":0,"transition_period":${state.transTime}}}}"""
-	sendCmd(command)
+	sendCmd("""{"${service()}":""" +
+			"""{"${cmdType()}":{"on_off":0,"transition_period":${state.transTime}}}}""")
 }
 def setLevel(percentage, rate = null) {
 	logDebug("setLevel(x,x): rate = ${rate} // percentage = ${percentage}")
@@ -89,10 +88,9 @@ def setLevel(percentage, rate = null) {
 	} else {
 		rate = 1000*rate.toInteger()
 	}
-	def command = """{"smartlife.iot.lightStrip":""" +
-		"""{"set_light_state":{"ignore_default":1,"on_off":1,""" +
-		""""brightness":${percentage},"transition_period":${rate}}}}"""
-	sendCmd(command)
+	sendCmd("""{"${service()}":""" +
+			"""{"${cmdType()}":{"ignore_default":1,"on_off":1,""" +
+			""""brightness":${percentage},"transition_period":${rate}}}}""")
 }
 def startLevelChange(direction) {
 	logDebug("startLevelChange: direction = ${direction}")
@@ -121,26 +119,22 @@ def levelDown() {
 	if (newLevel == 0) { off() }
 	runIn(1, levelDown)
 }
-def refresh(){
+def refresh() {
 	logDebug("refresh")
 	sendCmd("""{"system":{"get_sysinfo":{}}}""")
 }
-
 def setColorTemperature(kelvin) {
 	logDebug("setColorTemperature: colorTemp = ${kelvin}")
 	if (kelvin < 2500) { kelvin = 2500 }
 	if (kelvin > 9000) { kelvin = 9000 }
-	def command = """{"smartlife.iot.lightStrip":{"set_light_state":""" +
-		"""{"ignore_default":1,"on_off":1,"color_temp": ${kelvin},"hue":0,"saturation":0}}}"""
-	sendCmd(command)
+	sendCmd("""{"${service()}":{"${cmdType()}":""" +
+			"""{"ignore_default":1,"on_off":1,"color_temp": ${kelvin},"hue":0,"saturation":0}}}""")
 }
 def setCircadian() {
 	logDebug("setCircadian")
-	def command = """{"smartlife.iot.lightStrip":""" +
-		"""{"set_light_state":{"mode":"circadian"}}}"""
-	sendCmd(command)
+	sendCmd("""{"${service()}":""" +
+			"""{"${cmdType()}":{"mode":"circadian"}}}""")
 }
-
 def setHue(hue) {
 	logDebug("setHue:  hue = ${hue}")
 	setColor([hue: hue])
@@ -168,31 +162,25 @@ def setColor(Map color) {
 		logWarn("setColor: Entered hue, saturation, or level out of range! (H:${hue}, S:${saturation}, L:${level}")
         return
     }
-	def command = """{"smartlife.iot.lightStrip":{"set_light_state":""" +
-		"""{"ignore_default":1,"on_off":1,"brightness":${level},"color_temp":0,""" +
-		""""hue":${hue},"saturation":${saturation}}}}"""
-	sendCmd(command)
+	sendCmd("""{"${service()}":{"${cmdType()}":""" +
+			"""{"ignore_default":1,"on_off":1,"brightness":${level},"color_temp":0,""" +
+			""""hue":${hue},"saturation":${saturation}}}}""")
 }
-
 def updateBulbData(status) {
-	logDebug("updateBulbData: ${status}")
+	logInfo("updateBulbData: ${status}")
 	def deviceStatus = [:]
-	def type = getDataValue("devType")
 	if (status.on_off == 0) { 
 		sendEvent(name: "switch", value: "off", type: "digital")
-		sendEvent(name: "circadianState", value: "normal")
 		deviceStatus << ["power" : "off"]
 	} else {
 		sendEvent(name: "switch", value: "on", type: "digital")
 		deviceStatus << ["power" : "on"]
 		sendEvent(name: "level", value: status.brightness, unit: "%")
 		deviceStatus << ["level" : status.brightness]
-		
 		sendEvent(name: "circadianState", value: status.mode)
 		deviceStatus << ["mode" : status.mode]
 		sendEvent(name: "colorTemperature", value: status.color_temp, unit: " K")
 		deviceStatus << ["colorTemp" : status.color_temp]
-		
 		def hue = status.hue.toInteger()
 		if (highRes != true) { hue = (hue / 3.6).toInteger() }
 		sendEvent(name: "hue", value: hue)
@@ -289,43 +277,44 @@ def setRgbData(hue, saturation){
 
 //	===== distribute responses =====
 def distResp(response) {
-	logDebug("distResp: response length = ${response.length()}")
-	if (response.length() == null) {
-		logDebug("distResp: null return rejected.")
-		return 
-	}
-	
-	def resp
-	try {
-		resp = parseJson(inputXOR(response))
-	} catch (e) {
-		logWarn("distResp: Invalid or incomplete return.\nerror = ${e}")
-		return
-	}
-	unschedule(rawSocketTimeout)
-	state.errorCount = 0
-	
-	if (resp["smartlife.iot.lightStrip"]) {
-		logDebug("distResp: Returning smartlife.iot.lightStrip")
-		updateBulbData(resp["smartlife.iot.lightStrip"].light_state)
+	logTrace("distResp: response")
+	if (response["${service()}"]) {
+		updateBulbData(response["${service()}"]."${cmdType()}")
+	} else if (response.system) {
+		updateBulbData(response.system.get_sysinfo.light_state)
+	} else if (response["smartlife.iot.common.cloud"]) {
+		setBindUnbind(response)
+	} else if (response["smartlife.iot.common.system"]) {
+		logInfo("distResp: Rebooting device")
+	} else if (response.error) {
+		logWarn("distResp: Error = ${response.error}")
 	} else {
-		logDebug("distResp: Returning system.get_sysinfo")
-		updateBulbData(resp.system.get_sysinfo.light_state)
+		logWarn("distResp: Unhandled response = ${response}")
 	}
 }
 
-//	===== Common Kasa Driver code =====
+//	===== LAN Communications Code =====
 private sendCmd(command) {
-	logDebug("sendCmd:  ${command}")
+	logInfo("sendLanCmd: ${command}")
+	runIn(4, rawSocketTimeout, [data: command])
 	command = outputXOR(command)
 	if (now() - state.lastConnect > 35000) {
-		logDebug("sendCmd: Attempting to connect.....")
+		logDebug("sendLanCmd: Attempting to connect.....")
 		try {
 			interfaces.rawSocket.connect("${getDataValue("deviceIP")}", 
 										 9999, byteInterface: true)
 		} catch (error) {
 			logDebug("SendCmd: Unable to connect to device at ${getDataValue("deviceIP")}. " +
 					 "Error = ${error}")
+			def pollEnabled = parent.pollForIps()
+			if (pollEnabled == true) {
+				logDebug("SendCmd: Attempting to update IP address.")
+				runIn(10, rawSocketTimeout, [data: command])
+			} else {
+				logWarn("SendCmd: IP address updat attempted within last hour./n" + 
+					    "Check your device. Disable if not longer in use.")
+			}
+			return
 		}
 	}
 	interfaces.rawSocket.sendMessage(command)
@@ -335,6 +324,7 @@ def socketStatus(message) {
 		logDebug("socketStatus: Socket Established")
 	} else {
 		logWarn("socketStatus = ${message}")
+		logWarn("Check: Device Name must be first 5 characters of Model (i.e., HS200).")
 	}
 }
 def parse(message) {
@@ -343,7 +333,7 @@ def parse(message) {
 		def hexBytes = message.substring(0,8)
 		respLength = 8 + 2 * hubitat.helper.HexUtils.hexStringToInt(hexBytes)
 		if (message.length() == respLength) {
-			distResp(message)
+			prepResponse(message)
 			state.lastConnect = now()
 		} else {
 			state.response = message
@@ -356,9 +346,41 @@ def parse(message) {
 			state.response = ""
 			state.respLength = 0
 			state.lastConnect = now()
-			distResp(resp)
+			prepResponse(resp)
 		} else {
 			state.response = resp
+		}
+	}
+}
+def prepResponse(response) {
+	logDebug("prepResponse: response length = ${response.length()}")
+	if (response.length() == null) {
+		logDebug("distResp: null return rejected.")
+		return 
+	}
+	def resp
+	try {
+		resp = parseJson(inputXOR(response))
+	} catch (e) {
+		resp = ["error": "Invalid or incomplete return. Error = ${e}"]
+	}
+	state.errorCount = 0
+	unschedule(rawSocketTimeout)
+	distResp(resp)
+}
+def rawSocketTimeout(command) {
+	state.errorCount += 1
+	if (state.errorCount <= 2) {
+		logDebug("rawSocketTimeout: attempt = ${state.errorCount}")
+		state.lastConnect = 0
+		sendLanCmd(command)
+	} else {
+		logWarn("rawSocketTimeout: Retry on error limit exceeded. Error " +
+				"count = ${state.errorCount}.  If persistant try SavePreferences.")
+		if (state.errorCount > 10) {
+			unschedule(quickPoll)
+			unschedule(refresh)
+			logWarn("rawSocketTimeout: Quick Poll and Refresh Disabled.")
 		}
 	}
 }
@@ -392,7 +414,7 @@ private inputXOR(resp) {
 //	 ===== Logging =====
 def logTrace(msg){ log.trace "${driverVer()} ${device.label} ${msg}" }
 def logInfo(msg) { log.info "${driverVer()} ${device.label} ${msg}" }
-def logDebug(msg){ log.debug "${driverVer()} ${device.label} ${msg}" }
+def logDebug(msg){ return }
 def logWarn(msg){ log.warn "${driverVer()} ${device.label} ${msg}" }
 
-//	end of file
+//	End of File
