@@ -14,10 +14,10 @@ command to capture all devices.
 Growth:
 a.	Add driver name to metadata for each device.  If no driver, All caps NO DRIVER.
 =============================================================================================*/
-def appVersion() { return "TEST2.0.0" }
+def appVersion() { return "2.0.0" }
 import groovy.json.JsonSlurper
 definition(
-	name: "Test bleBox Integration",
+	name: "bleBox Integration",
 	namespace: "davegut",
 	author: "Dave Gutheinz",
 	description: "Application to install bleBox devices.",
@@ -90,7 +90,7 @@ def addDevicesPage() {
 	devices.each {
 		def isChild = getChildDevice(it.value.dni)
 		if (!isChild) {
-			newDevices["${it.value.dni}"] = "${it.value.type} ${it.value.label} // ${it.value.driver}"
+			newDevices["${it.value.dni}"] = "${it.value.type} ${it.value.label}"
 		}
 	}
 	logDebug("addDevicesPage: newDevices = ${newDevices}")
@@ -114,31 +114,35 @@ def parseDeviceData(response) {
 	if (cmdResponse == "error") { return }
 	if (cmdResponse.device) { cmdResponse = cmdResponse.device }
 	else { logWarn("parseDeviceData: invalid return data") }
-	def label = cmdResponse.deviceName
 	def dni = cmdResponse.id.toUpperCase()
-	def type = cmdResponse.type
 	def ip = cmdResponse.ip
-	def typeData
 	def apiLevel = 20000000
 	if (cmdResponse.apiLevel) { apiLevel = cmdResponse.apiLevel.toInteger() }
 	def devData = [:]
 	devData["dni"] = dni
 	devData["ip"] = ip
-	devData["label"] = label
+	devData["label"] = cmdResponse.deviceName
 	devData["apiLevel"] = apiLevel
-	devData["type"] = type
-	devData["driver"] = getDriverName(type)
+	devData["type"] = cmdResponse.type
 	state.devices << ["${dni}" : devData]
 	def isChild = getChildDevice(dni)
 	if (isChild) {
 		isChild.updateDataValue("deviceIP", ip)
+		isChild.updateDataValue("apiLevel", apiLevel)
 	}
-	if (type == "switchBoxD") {
-		switchBoxDCmd(ip, "parseswitchBoxDData", apiLevel)
+	if (cmdResponse.type == "switchBoxD") {
+		if (apiLevel > 20000000) {
+			sendGetCmd("/state", "parseswitchBoxDData", ip)
+		} else {
+			sendGetCmd("/api/relay/state", "parseswitchBoxDData", ip)
+		}
 	}
 }
 
+////////////////////
 def parseswitchBoxDData(response) {
+//	Version 2.0.0 Changes
+//	Need check of switchBox D discovery.  May have to convert to parent-child.
 	def cmdResponse = parseResponse(response)
 	logDebug("parseRelayData: <b>${cmdResponse}")
 	if (cmdResponse == "error") { return }
@@ -146,7 +150,7 @@ def parseswitchBoxDData(response) {
 	def relay1Name
 	if (apiLevel > 20000000) {
 		relay0Name = cmdResponse.settings.relays[0].name
-		relay1Name = cmdResponse.settings.relays[0].name
+		relay1Name = cmdResponse.settings.relays[1].name
 	} else {
 		relay0Name = cmdResponse.relays[0].name
 		relay1Name = cmdResponse.relays[1].name
@@ -158,49 +162,15 @@ def parseswitchBoxDData(response) {
 	def relay1Data = ["dni": "${dni}-1",
 					  "ip": device.value.ip,
 					  "type": device.value.type,
-					  "driver": device.value.driver,
 					  "label": relay1Name,
 					  "relayNumber": "1"]
 	state.devices << ["${dni}-1" : relay1Data]
-}
-
-def getDriverName(type) {
-	switch(type) {
-		case "airSensor":
-			return "bleBox airSensor"
-			break
-		case "dimmerBox":
-			return "bleBox dimmerBox"
-			break
-		case "gateBox":
-			return "bleBox gateBox"
-			break
-		case "shutterBox":
-			return "bleBox shutterBox"
-			break
-		case "switchBox":
-			return "bleBox switchBox"
-			break
-		case "switchBoxD":
-			return "bleBox switchBoxD"
-			break
-		case "tempSensor":
-			return "bleBox tempSensor"
-			break
-		case "tempSensorPro":
-			return "bleBox tempSensorPro"
-			break
-		case "wLightBox":
-			return "bleBox wLightBox"
-			break
-		case "wLightBoxS":
-			return "bleBox wLightBoxS"
-			break
-		default:
-			logWarn("getDriverName: Device not integrated with Hubitat")
-			return "NOT INTEGRATED"
+	def isChild = getChildDevice("${dni}-1")
+	if (isChild) {
+		isChild.updateDataValue("deviceIP", ip)
+		isChild.updateDataValue("apiLevel", apiLevel)
 	}
-}		
+}
 
 //	===== Add Devices =====
 def addDevices() {
@@ -264,61 +234,6 @@ def listDevicesPage() {
 	}
 }
 
-//	===== Recurring IP Check =====
-def updateDeviceIps() {
-	logDebug("updateDeviceIps: Updating Device IPs after hub reboot.")
-	runIn(5, updateDevices)
-}
-
-def updateDevices() {
-	if (pollEnabled == true) {
-		app?.updateSetting("pollEnabled", [type:"bool", value: false])
-		runIn(900, pollEnable)
-	} else {
-		logWarn("updateDevices: a poll was run within the last 15 minutes.  Exited.")
-		return
-	}
-	def children = getChildDevices()
-	logDebug("UpdateDevices: ${children} / ${pollEnabled}")
-	app?.updateSetting("missingDevice", [type:"bool", value: false])
-	children.each {
-		if (it.isDisabled()) {
-			logDebug("updateDevices: ${it} is disabled and not checked.")
-			return
-		}
-		def ip = it.getDataValue("deviceIP")
-		runIn(2, setMissing)
-		sendGetCmd(ip, "/api/device/state", "checkValid")
-		pauseExecution(3000)
-	}
-	runIn(2, pollIfMissing)
-}
-
-def pollIfMissing() {
-	logDebug("pollIfMissing: ${missingDevice}.")
-	if (missingDevice == true) {
-		state.devices= [:]
-		findDevices(25, parseDeviceData)
-		app?.updateSetting("missingDevice", [type:"bool", value: false])
-	}
-}
-
-def checkValid(response) {
-	unschedule("setMissing")
-	def resp = parseLanMessage(response.description)
-	logDebug("checkValid: response received from ${convertHexToIP(resp.ip)}")
-}
-
-def setMissing() {
-	logWarn("setMissing: Setting missingDevice to true")
-	app?.updateSetting("missingDevice", [type:"bool", value: true])
-}
-
-def pollEnable() {
-	logDebug("pollEnable")
-	app?.updateSetting("pollEnabled", [type:"bool", value: true])
-}
-
 //	=====	bleBox Specific Communications	=====
 def findDevices(pollInterval, action) {
 	logDebug("findDevices: ${pollInterval} / ${action}")
@@ -333,54 +248,22 @@ def findDevices(pollInterval, action) {
 	logInfo("findDevices: IP Segment = ${networkPrefix}")
 	for(int i = 2; i < 254; i++) {
 		def deviceIP = "${networkPrefix}.${i.toString()}"
-		sendPollCmd(deviceIP, action)
-		sendPollCmd("192.168.50.95", action)
+		sendGetCmd("/info", action, deviceIP)
 		pauseExecution(pollInterval)
 	}
 	pauseExecution(5000)
 	
 	for(int i = 2; i < 254; i++) {
 		def deviceIP = "${networkPrefix}.${i.toString()}"
-		sendPollCmd(deviceIP, action)
-		sendOldPollCmd("192.168.50.95", action)
+		sendGetCmd("/api/device/state", action, deviceIP)
 		pauseExecution(pollInterval)
 	}
 }
 
-private sendPollCmd(ip, action){
-	logDebug("sendPollCmd: ${ip} / ${action}")
-	try {
-		sendHubCommand(new hubitat.device.HubAction("GET /info HTTP/1.1\r\nHost: ${ip}\r\n\r\n",
-													hubitat.device.Protocol.LAN, null, [callback: action]))
-	} catch (e) {
-		logWarn("sendPollCommand: ${e}")
-	}
-}
-
-private sendOldPollCmd(ip, action){
-	logDebug("sendOldPollCmd: ${ip} / ${action}")
-	def devices = state.devices
-	devices.each {
-		if (it.value.ip != ip) {
-			try {
-				sendHubCommand(new hubitat.device.HubAction("GET /api/device/state HTTP/1.1\r\nHost: ${ip}\r\n\r\n",
-															hubitat.device.Protocol.LAN, null, [callback: action]))
-			} catch (e) {
-				logWarn("sendPollCommand: ${e}")
-			}
-		}
-	}
-}
-
-private switchBoxDCmd(ip, action, apiLevel){
-	logDebug("switchBoxDCmd: ${ip} / / ${action} / ${apiLevel}")
-	if (apiLevel > 20000000) {
-		sendHubCommand(new hubitat.device.HubAction("GET /state HTTP/1.1\r\nHost: ${ip}\r\n\r\n",
-												hubitat.device.Protocol.LAN, null, [callback: action]))
-	} else {
-		sendHubCommand(new hubitat.device.HubAction("GET /api/relay/state HTTP/1.1\r\nHost: ${ip}\r\n\r\n",
-												hubitat.device.Protocol.LAN, null, [callback: action]))
-	}
+private sendGetCmd(command, action, ip){
+	logDebug("sendGetCmd: ${command} / ${action} / ${ip}")
+	sendHubCommand(new hubitat.device.HubAction("GET ${command} HTTP/1.1\r\nHost: ${ip}\r\n\r\n",
+				   hubitat.device.Protocol.LAN, null,[callback: action]))
 }
 
 def parseResponse(response) {
