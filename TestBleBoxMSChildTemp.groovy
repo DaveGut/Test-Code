@@ -21,7 +21,7 @@ open API documentation for development and is intended for integration into the 
 This is the child driver for the blebox tempSensorPro.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "TEST2.0.0" }
+def driverVer() { return "TEST2.0.A" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -73,9 +73,9 @@ def updated() {
 	if (nameSync == "device" || nameSync == "hub") {
 		if (nameSync == "hub") {
 		parent.sendPostCmd("/api/settings/set",
-						   """{"settings":{"multiSensor":{"id":${getDataValue("sensorId")}, """ +
-						   """"settings":{"name":${device.name}}}}}""",
-						   "updateDeviceSettings")
+					"""{"settings":{"multiSensor[${getDataValue("sensorId")}]": """ +
+					"""{"settings":{"name":${device.name}}}}}""",
+						"updateDeviceSettings")
 		} else if (nameSync == "device") {
 			parent.sendGetCmd("/api/settings/state", "updateDeviceSettings")
 		}
@@ -85,10 +85,10 @@ def updated() {
 	//	Temperature Offset
 	def tempOffset = getDataValue("tempOffset").toInteger()
 	if (tempOffset != tOffset) {
-		parent.sendPostCmd("/api/settings/set",
-						   """{"settings":{"multiSensor":{"id":${getDataValue("sensorId")}, """ +
-						   """"settings":{"userTempOffset":${tOffset}}}}}""",
-						   "updateDeviceSettings")
+		sendPostCmd("/api/settings/set",
+					"""{"settings":{"multiSensor[${getDataValue("sensorId")}]": """ +
+					"""{"settings":{"userTempOffset":${tOffset}}}}}""",
+						"updateDeviceSettings")
 	}
 }
 
