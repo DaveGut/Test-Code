@@ -36,34 +36,38 @@ metadata {
 		attribute "commsError", "bool"
 	}
 	preferences {
-		input ("refreshInterval", "enum", title: "Device Refresh Interval (minutes)",
-			   options: ["1", "5", "15", "30"], defaultValue: "30")
-		input ("statusLed", "enum", title: "Enable the Status LED", 
-			   options: ["on", "off"])
-		input ("addChild", "bool", title: "Add New Child sensors", defaultValue: false)
-		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
-		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
+		input ("statusLed", "enum", 
+			   title: "Enable the Status LED", 
+			   options: ["on", "off"], 
+			   defaultValue: "on")
+		input ("addChild", "bool", 
+			   title: "Add New Child sensors", 
+			   defaultValue: false)
+		input ("refreshInterval", "enum", 
+			   title: "Device Refresh Interval (minutes)",
+			   options: ["1", "5", "15", "30"], 
+			   defaultValue: "30")
+		input ("debug", "bool", 
+			   title: "Enable debug logging",
+			   defaultValue: true)
+		input ("descriptionText", "bool", 
+			   title: "Enable description text logging", 
+			   defaultValue: true)
 	}
 }
 
 def installed() {
 	logInfo("Installing...")
-	getChildData()
+	sendGetCmd("/api/settings/state", "createChildren")
 	runIn(5, updated)
 }
 
 def updated() {
 	logInfo("Updating...")
 	unschedule()
-
-	switch(refreshInterval) {
-		case "1" : runEvery1Minute(refresh); break
-		case "5" : runEvery5Minutes(refresh); break
-		case "15" : runEvery15Minutes(refresh); break
-		default: runEvery30Minutes(refresh)
-	}
 	state.errorCount = 0
 	updateDataValue("driverVersion", driverVer())
+	//	Check apiLevel and provide state warning when old.
 	if (apiLevel() > getDataValue("apiLevel").toInteger()) {
 		state.apiNote = "<b>Device api software is not the latest available. Consider updating."
 	} else {
@@ -71,40 +75,39 @@ def updated() {
 	}
 
 	//	update data based on preferences
-	if (ledStatus != getDataValue("ledState")) {
-		def ledEnabled = "1"
-		if (ledStatus == "off") { ledEnabled = "0" }
-		sendPostCmd("/api/settings/set",
-					"""{"settings":{"statusLed":{"enabled":ledEnabled}}}""",
-					"updateDeviceSettings")
+	switch(refreshInterval) {
+		case "1" : runEvery1Minute(refresh); break
+		case "5" : runEvery5Minutes(refresh); break
+		case "15" : runEvery15Minutes(refresh); break
+		default: runEvery30Minutes(refresh)
 	}
-
+	logInfo("Refresh interval set for every ${refreshInterval} minute(s).")
 	if (debug) { runIn(1800, debugOff) }
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
-	logInfo("Refresh interval set for every ${refreshInterval} minute(s).")
-	
+	//	Add Children (toggle) plus Refresh
 	if (addChild) {
-		getChildData()
-		pauseExecution(5000)
+		sendGetCmd("/api/settings/state", "createChildren")
 		device.updateSetting("addChild",[type:"bool", value:false])
+		pauseExecution(3000)
+	}
+	//	Status LED
+	if (statusLed != getDataValue("ledState")) {
+		def ledEnabled = 1
+		if (statusLed == "off") { ledEnabled = 0 }
+		sendPostCmd("/api/settings/set",
+					"""{"settings":{"statusLed":{"enabled":${ledEnabled}}}}""",
+					"updateDeviceSettings")
+		pauseExecution(2000)
 	}
 
 	refresh()
 }
 
-def getChildData() {
-	logInfo("getChildData: Getting data for child devices")
-	sendGetCmd("/api/settings/state", "createChildren")
-}
-
 def createChildren(response) {
-	def settingsArrays
-	def ledEnabled
 	def cmdResponse = parseInput(response)
 	logDebug("createChildren: ${cmdResponse}")
-	setLedStatus(cmdResponse.settings.statusLed.enabled)
-	settingsArrays = cmdResponse.settings.multiSensor
+	def settingsArrays = cmdResponse.settings.multiSensor
 
 	settingsArrays.each {
 		def type = it.type
@@ -125,31 +128,33 @@ def createChildren(response) {
 			}
 		}
 	}
+	def ledStatus = setLedStatus(cmdResponse.settings.statusLed.enabled)
+	logInfo("createChildren: statusLed = ${ledStatus}")
 }
 
 def updateDeviceSettings(response) {
-	def settingsArrays
-	def ledEnabled
 	def cmdResponse = parseInput(response)
 	logDebug("createChildren: ${cmdResponse}")
-	setLedStatus(cmdResponse.settings.statusLed.enabled)
-	settingsArrays = cmdResponse.settings.multiSensor
-
+	def settingsArrays = cmdResponse.settings.multiSensor
+	
 	def children = getChildDevices()
 	children.each { it.updateDeviceSettings(settingsArrays) }
+	
+	def ledStatus = setLedStatus(cmdResponse.settings.statusLed.enabled)
+	logInfo("updateDeviceSettings: statusLed = ${ledStatus}")
 }
 
 def setLedStatus(ledEnabled) {
 	def ledStatus = "on"
 	def ledState = "on"
-	if (ledEnabled == "0") {
+	if (ledEnabled == 0) {
 		ledStatus = "off"
 		ledState = "off"
 	}
 	device.updateSetting("statusLed",[type:"enum", value: ledStatus])
 	updateDataValue("ledState", ledState)
-	logDebug("setLedStatus: ledEnabled set to ${ledState}")
-}	
+	return ledStatus
+}
 
 //	===== Commands and Parse Returns =====
 def refresh() {

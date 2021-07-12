@@ -35,35 +35,42 @@ metadata {
 		attribute "sensorHealth", "string"
 	}
 	preferences {
-		input ("tOffset", "number",
+		input ("tOffset", "integer",
 			   title: "temperature offset in 10 times degrees C [-120 -> +120]",
-			   defaultValue: 0)
-		input ("tempScale", "enum", title: "Temperature Scale", options: ["C", "F"], defaultValue: "C")
-		input ("nameSync", "enum", title: "Synchronize Names", defaultValue: "none",
+			   defaultValue: getDataValue("tempOffset"))
+		input ("tempScale", "enum", 
+			   title: "Temperature Scale",
+			   options: ["C", "F"], 
+			   defaultValue: "C")
+		input ("nameSync", "enum", 
+			   title: "Synchronize Names", 
+			   defaultValue: "none",
 			   options: ["none": "Don't synchronize",
 						 "device" : "bleBox device name master", 
 						 "hub" : "Hubitat label master"])
-		input ("debug", "bool", title: "Enable debug logging", defaultValue: false)
-		input ("descriptionText", "bool", title: "Enable description text logging", defaultValue: true)
+		input ("debug", "bool", 
+			   title: "Enable debug logging", 
+			   defaultValue: true)
+		input ("descriptionText", "bool", 
+			   title: "Enable description text logging", 
+			   defaultValue: true)
 	}
 }
 
 def installed() {
-	def tempOffset = getDataValue("tempOffset").toInteger()
-	device.updateSetting("tOffset",[type:"number", value:tempOffset])
-	runIn(5, updated)
+	runIn(1, updated)
 }
 
 def updated() {
 	logInfo("Updating...")
 	updateDataValue("driverVersion", driverVer())
 
+	//	update data based on preferences
+	if (debug) { runIn(1800, debugOff) }
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
-
-	//	Update device settings based on user prefences
+	//	Name Sync
 	if (nameSync == "device" || nameSync == "hub") {
-		logDebug("updated: setting blebox device to Hubitat name.")
 		if (nameSync == "hub") {
 		parent.sendPostCmd("/api/settings/set",
 						   """{"settings":{"multiSensor":{"id":${getDataValue("sensorId")}, """ +
@@ -73,29 +80,27 @@ def updated() {
 			parent.sendGetCmd("/api/settings/state", "updateDeviceSettings")
 		}
 		device.updateSetting("nameSync",[type:"enum", value:"none"])
-		pauseExecution(1000)
+		pauseExecution(2000)
 	}
+	//	Temperature Offset
 	def tempOffset = getDataValue("tempOffset").toInteger()
 	if (tempOffset != tOffset) {
-		logDebug("updated: updating tempOffset to ${tOffset}.")
 		parent.sendPostCmd("/api/settings/set",
 						   """{"settings":{"multiSensor":{"id":${getDataValue("sensorId")}, """ +
 						   """"settings":{"userTempOffset":${tOffset}}}}}""",
 						   "updateDeviceSettings")
-		pauseExecution(1000)
 	}
 }
 
 def updateDeviceSettings(settingsArrays) {
-	logDebug("updateDeviceSettings: ${settingsArrays}")
 	def settings = settingsArrays.find { it.id == getDataValue("sensorId").toInteger() }
 	settings = settings.settings
 	logDebug("updateDeviceSettings: ${settings}")
 	device.setLabel(settings.name)
-	logInfo("Device Hubitat name: ${settings.name}.")
 	updateDataValue("tempOffset", settings.userTempOffset)
-	logInfo("Temperature Offset: ${settings.userTempOffset}.")
 	device.updateSetting("tOffset",[type:"number", value: settings.userTempOffset])
+	def settingsUpdate = ["tempOffset": settings.userTempOffset, "HubitatName": settings.name]
+	logInfo("updateDeviceSettings: ${settingsUpdate}")
 }
 
 def commandParse(stateArrays) {
@@ -117,10 +122,20 @@ def commandParse(stateArrays) {
 		sensorHealth = "sensor error"
 		logWarn("Sensor Error")
 	}
-	sendEvent(name: "sensorHealth", value: sensorHealth)
-	sendEvent(name: "temperature", value: temperature, unit: tempScale)
-	sendEvent(name: "trend", value: trend)
-	logInfo("commandParse: Temperature value set to ${temperature}")
+	def statusUpdate = [:]
+	if (temperature != device.currentValue("temperature")) {
+		sendEvent(name: "temperature", value: temperature, unit: tempScale)
+		statusUpdate << ["temperature": temperature]
+	}
+	if (trend != device.currentValue("trend")) {
+		sendEvent(name: "trend", value: trend)
+		statusUpdate << ["trend": trend]
+	}
+	if (sensorHealth != device.currentValue("sensorHealth")) {
+		sendEvent(name: "sensorHealth", value: sensorHealth)
+		statusUpdate << ["sensorHealth": sensorHealth]
+	}
+	logInfo("commandParse: ${statusUpdate}")
 }
 
 //	===== Utility Methods =====
@@ -132,6 +147,11 @@ def logInfo(msg) {
 
 def logDebug(msg){
 	if(debug == true) { log.debug "<b>${device.label} ${driverVer()}</b> ${msg}" }
+}
+
+def debugOff() {
+	device.updateSetting("debug", [type:"bool", value: false])
+	logInfo("debugLogOff: Debug logging is off.")
 }
 
 def logWarn(msg){ log.warn "<b>${device.label} ${driverVer()}</b> ${msg}" }
