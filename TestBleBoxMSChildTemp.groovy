@@ -21,7 +21,7 @@ open API documentation for development and is intended for integration into the 
 This is the child driver for the blebox tempSensorPro.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "TEST2.0.A" }
+def driverVer() { return "TEST.A" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -85,10 +85,10 @@ def updated() {
 	//	Temperature Offset
 	def tempOffset = getDataValue("tempOffset").toInteger()
 	if (tempOffset != tOffset) {
-		sendPostCmd("/api/settings/set",
-					"""{"settings":{"multiSensor[${getDataValue("sensorId")}]": """ +
-					"""{"settings":{"userTempOffset":${tOffset}}}}}""",
-						"updateDeviceSettings")
+		parent.sendPostCmd("/api/settings/set",
+						   """{"settings":{"multiSensor[${getDataValue("sensorId")}]": """ +
+						   """{"settings":{"userTempOffset":${tOffset}}}}}""",
+						   "updateDeviceSettings")
 	}
 }
 

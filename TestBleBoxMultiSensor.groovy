@@ -23,7 +23,7 @@ open API documentation for development and is intended for integration into the 
 		5.	Communications error detection overall health reporting.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "TEST2.0.0" }
+def driverVer() { return "TEST.A" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -181,7 +181,7 @@ private sendGetCmd(command, action){
 }
 
 private sendPostCmd(command, body, action){
-	logDebug("sendGetCmd: ${command} / ${body} / ${action} / ${getDataValue("deviceIP")}")
+	logDebug("sendPostCmd: ${command} / ${body} / ${action} / ${getDataValue("deviceIP")}")
 	runIn(3, setCommsError)
 	def parameters = [ method: "POST",
 					  path: command,
