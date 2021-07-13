@@ -64,6 +64,16 @@ def refresh() {
 				"commandParse")
 	pauseExecution(2000)
 			
+	logInfo("[settings:{id: 1, offset, EXPANDED, not in order")
+	sendPostCmd("/api/settings/set",
+				"""{"settings":{"multiSensor": """ +
+				"""{"id":1,{"settings":{"userTempOffset":50}}},""" +
+				"""[{"id":0},""" +
+				"""{"id":2},""" +
+				"""{"id":3}]}}""", 
+				"commandParse")
+	pauseExecution(2000)
+			
 /*
 	logInfo("INFO")
 	sendGetCmd("/info", "commandParse")
