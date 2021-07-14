@@ -30,70 +30,34 @@ def updated() {
 
 def refresh() {
 	logInfo("STARTING SEQUENCE")
-	logInfo("multiSensor[0]")
+	logInfo("CurrentStatus")
+	sendGetCmd("/api/settings/state", "commandParse")
+	pauseExecution(2000)
+	
+	logInfo("New Baseline")
 	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor[0]": """ +
-				"""{"settings":{"userTempOffset":10}}}}""", 
+				"""{"settings":{"multiSensor": """ +
+				"""[{}, {"settings": {userTempOffset":40}}, {}, {}]}}""",
 				"commandParse")
 	pauseExecution(2000)
 
-	logInfo("[settings:{id: 0, offset")
+	logInfo("Default as string")
 	sendPostCmd("/api/settings/set",
 				"""{"settings":{"multiSensor": """ +
-				"""[{"id":1,{"settings":{"userTempOffset":20}}}]}}""", 
+				"""[{}, {"settings": {userTempOffset":"50"}}, {}, {}]}}""",
 				"commandParse")
 	pauseExecution(2000)
-			
-	logInfo("[settings:{id: 0, offset, EXPANDED")
-	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor": """ +
-				"""[{"id":0},""" +
-				"""{"id":1,{"settings":{"userTempOffset":30}}},""" +
-				"""{"id":2},""" +
-				"""{"id":3}]}}""", 
-				"commandParse")
-	pauseExecution(2000)
-			
-	logInfo("[settings:{[{},{}], offset, EXPANDED")
-	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor": """ +
-				"""[{},""" +
-				"""{"id":1,{"settings":{"userTempOffset":40}}}""" +
-				"""{},""" +
-				"""{}]}}""", 
-				"commandParse")
-	pauseExecution(2000)
-			
-	logInfo("[settings:{id: 1, offset, EXPANDED, not in order")
-	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor": """ +
-				"""{"id":1,{"settings":{"userTempOffset":50}}},""" +
-				"""[{"id":0},""" +
-				"""{"id":2},""" +
-				"""{"id":3}]}}""", 
-				"commandParse")
-	pauseExecution(2000)
-			
-	logInfo("[settings:{id: 1, offset, Simplest")
-	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor": """ +
-				"""{"id":1,{"settings":{"userTempOffset":60}}},""" +
-				"""[{},""" +
-				"""{},""" +
-				"""{}]}}""", 
-				"commandParse")
-	pauseExecution(2000)
-			
-/*
-	logInfo("INFO")
+
+	
+/*	logInfo("INFO")
 	sendGetCmd("/info", "commandParse")
 	pauseExecution(2000)
 	logInfo("STATE")
 	sendGetCmd("/state", "commandParse")
 	pauseExecution(2000)
 	logInfo("SETTINGS")
-	sendGetCmd("/api/settings/state", "commandParse")
-*/
+	sendGetCmd("/api/settings/state", "commandParse")*/
+
 }
 
 def commandParse(response) {
