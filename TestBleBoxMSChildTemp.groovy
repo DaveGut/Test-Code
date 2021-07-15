@@ -21,7 +21,7 @@ open API documentation for development and is intended for integration into the 
 This is the child driver for the blebox tempSensorPro.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "TEST.A" }
+def driverVer() { return "Dev2.0.0" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -35,19 +35,23 @@ metadata {
 		attribute "sensorHealth", "string"
 	}
 	preferences {
+/*
 		input ("tOffset", "integer",
 			   title: "temperature offset in 10 times degrees C [-120 -> +120]",
 			   defaultValue: getDataValue("tempOffset"))
+*/
 		input ("tempScale", "enum", 
 			   title: "Temperature Scale",
 			   options: ["C", "F"], 
 			   defaultValue: "C")
+/*
 		input ("nameSync", "enum", 
 			   title: "Synchronize Names", 
 			   defaultValue: "none",
 			   options: ["none": "Don't synchronize",
 						 "device" : "bleBox device name master", 
 						 "hub" : "Hubitat label master"])
+*/
 		input ("debug", "bool", 
 			   title: "Enable debug logging", 
 			   defaultValue: true)
@@ -56,6 +60,9 @@ metadata {
 			   defaultValue: true)
 	}
 }
+
+def deviceApi() { return getDataValue("apiLevel").toInteger() }
+def sensorId() { return getDataValue("sensorId").toInteger() }
 
 def installed() {
 	runIn(1, updated)
@@ -69,27 +76,60 @@ def updated() {
 	if (debug) { runIn(1800, debugOff) }
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
-	//	Name Sync
-	if (nameSync == "device" || nameSync == "hub") {
-		if (nameSync == "hub") {
-		parent.sendPostCmd("/api/settings/set",
-					"""{"settings":{"multiSensor[${getDataValue("sensorId")}]": """ +
-					"""{"settings":{"name":${device.name}}}}}""",
-						"updateDeviceSettings")
-		} else if (nameSync == "device") {
-			parent.sendGetCmd("/api/settings/state", "updateDeviceSettings")
+
+	//	tempOffset and deviceName
+//	if (tOffset != getDataValue("tempOffset").toInteger()) { setTempOffset() }
+//	if (nameSync != "none") { setName() }
+	
+}
+
+def setTempOffset() {
+	logDebug("setTempOffset: tOffset: ${tOffset}.")
+	def sensor0 = "{}"
+	def sensor1 = "{}"
+	def sensor2 = "{}"
+	def sensor3 = "{}"
+	def sensorNo = sensorId()
+	if (sensorNo == 0) {
+		sensor0 = """{"settings":{"userTempOffset":${tOffset}}}"""
+	} else if (sensorNo == 1) {
+		sensor1 = """{"settings":{"userTempOffset":${tOffset}}}"""
+	} else if (sensorNo == 2) {
+		sensor2 = """{"settings":{"userTempOffset":${tOffset}}}"""
+	} else if (sensorNo == 3) {
+		sensor3 = """{"settings":{"userTempOffset":${tOffset}}}"""
+	}
+	parent.sendPostCmd("/api/settings/set",
+					   """{"settings":{"multiSensor": """ +
+					   """[${sensor0}, ${sensor1}, ${sensor2}, ${sensor3}]}}""",
+					   "updateDeviceSettings")
+}
+
+def setName() {
+	logDebug("setName: nameSync: ${nameSync}.")
+	if (set == "hub") {
+		def sensor0 = "{}"
+		def sensor1 = "{}"
+		def sensor2 = "{}"
+		def sensor3 = "{}"
+		def sensorNo = sensorId()
+		if (sensorNo == 0) {
+			sensor0 = """{"settings":{"name":${device.name}}}"""
+		} else if (sensorNo == 1) {
+			sensor0 = """{"settings":{"name":${device.name}}}"""
+		} else if (sensorNo == 2) {
+			sensor0 = """{"settings":{"name":${device.name}}}"""
+		} else if (sensorNo == 3) {
+			sensor0 = """{"settings":{"name":${device.name}}}"""
 		}
-		device.updateSetting("nameSync",[type:"enum", value:"none"])
-		pauseExecution(2000)
-	}
-	//	Temperature Offset
-	def tempOffset = getDataValue("tempOffset").toInteger()
-	if (tempOffset != tOffset) {
 		parent.sendPostCmd("/api/settings/set",
-						   """{"settings":{"multiSensor[${getDataValue("sensorId")}]": """ +
-						   """{"settings":{"userTempOffset":${tOffset}}}}}""",
+						   """{"settings":{"multiSensor": """ +
+						   """[${sensor0}, ${sensor1}, ${sensor2}, ${sensor3}]}}""",
 						   "updateDeviceSettings")
+	} else if (nameSync == "device") {
+		sendGetCmd("/api/settings/state", "updateDeviceSettings")
 	}
+	device.updateSetting("nameSync",[type:"enum", value:"none"])
 }
 
 def updateDeviceSettings(settingsArrays) {

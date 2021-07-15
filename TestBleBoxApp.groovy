@@ -85,6 +85,7 @@ def mainPage() {
 def addDevicesPage() {
 	state.devices = [:]
 	findDevices(25, "parseDeviceData")
+	runIn(10, updateChildren)
 	def devices = state.devices
 	def newDevices = [:]
 	devices.each {
@@ -118,57 +119,48 @@ def parseDeviceData(response) {
 	def ip = cmdResponse.ip
 	def apiLevel = 20000000
 	if (cmdResponse.apiLevel) { apiLevel = cmdResponse.apiLevel.toInteger() }
-	def devData = [:]
-	devData["dni"] = dni
-	devData["ip"] = ip
-	devData["label"] = cmdResponse.deviceName
-	devData["apiLevel"] = apiLevel
-	devData["type"] = cmdResponse.type
-	state.devices << ["${dni}" : devData]
-	def isChild = getChildDevice(dni)
-	if (isChild) {
-		isChild.updateDataValue("deviceIP", ip)
-		isChild.updateDataValue("apiLevel", apiLevel)
-	}
-	if (cmdResponse.type == "switchBoxD") {
-		if (apiLevel > 20000000) {
-			sendGetCmd("/state", "parseswitchBoxDData", ip)
-		} else {
-			sendGetCmd("/api/relay/state", "parseswitchBoxDData", ip)
-		}
+	if (cmdResponse.type != "switchBoxD") {
+		def devData = [:]
+		devData["ip"] = ip
+		devData["apiLevel"] = apiLevel
+		devData["type"] = cmdResponse.type
+		devData["dni"] = dni
+		devData["label"] = cmdResponse.deviceName
+		state.devices << ["${dni}" : devData]
+	} else {
+		//	relay0
+		def relayDni = dni + "-0"
+		def devData = [:]
+		devData["ip"] = ip
+		devData["apiLevel"] = apiLevel
+		devData["type"] = cmdResponse.type
+		devData["dni"] = relayDni
+		devData["label"] = cmdResponse.deviceName + "-0"
+		devData["relayNumber"] = "0"
+		state.devices << ["${relayDni}" : devData]
+		//	relay1
+		relayDni = dni + "-1"
+		devData = [:]
+		devData["ip"] = ip
+		devData["apiLevel"] = apiLevel
+		devData["type"] = cmdResponse.type
+		devData["dni"] = relayDni
+		devData["label"] = cmdResponse.deviceName+ "-1"
+		devData["relayNumber"] = "1"
+		state.devices << ["${relayDni}" : devData]
 	}
 }
 
-////////////////////
-def parseswitchBoxDData(response) {
-//	Version 2.0.0 Changes
-//	Need check of switchBox D discovery.  May have to convert to parent-child.
-	def cmdResponse = parseResponse(response)
-	logDebug("parseRelayData: <b>${cmdResponse}")
-	if (cmdResponse == "error") { return }
-	def relay0Name
-	def relay1Name
-	if (apiLevel > 20000000) {
-		relay0Name = cmdResponse.settings.relays[0].name
-		relay1Name = cmdResponse.settings.relays[1].name
-	} else {
-		relay0Name = cmdResponse.relays[0].name
-		relay1Name = cmdResponse.relays[1].name
-	}
-	def devIp = convertHexToIP(response.ip)
-	def device = state.devices.find { it.value.ip == devIp }
-	def dni = device.value.dni
-	device.value << [dni:"${dni}-0", label:"${relay0Name}", relayNumber:"0"]
-	def relay1Data = ["dni": "${dni}-1",
-					  "ip": device.value.ip,
-					  "type": device.value.type,
-					  "label": relay1Name,
-					  "relayNumber": "1"]
-	state.devices << ["${dni}-1" : relay1Data]
-	def isChild = getChildDevice("${dni}-1")
-	if (isChild) {
-		isChild.updateDataValue("deviceIP", ip)
-		isChild.updateDataValue("apiLevel", apiLevel)
+def updateChildren() {
+	def devices = state.devices
+	devices.each{
+		def isChild = getChildDevice(it.value.dni)
+		if (isChild) {
+			isChild.updateDataValue("deviceIP", it.value.ip)
+			isChild.updateDataValue("apiLevel", it.value.apiLevel.toString())
+			logInfo("updateChildren: updated [${it.value.label}, ${it.value.ip}, ${it.value.apiLevel}]")
+			isChild.updated()
+		}
 	}
 }
 

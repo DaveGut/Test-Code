@@ -23,7 +23,7 @@ open API documentation for development and is intended for integration into the 
 		5.	Communications error detection overall health reporting.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "TEST.A" }
+def driverVer() { return "Beta2.0.0" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -56,6 +56,8 @@ metadata {
 	}
 }
 
+def deviceApi() { return getDataValue("apiLevel").toInteger() }
+
 def installed() {
 	logInfo("Installing...")
 	sendGetCmd("/api/settings/state", "createChildren")
@@ -68,7 +70,7 @@ def updated() {
 	state.errorCount = 0
 	updateDataValue("driverVersion", driverVer())
 	//	Check apiLevel and provide state warning when old.
-	if (apiLevel() > getDataValue("apiLevel").toInteger()) {
+	if (apiLevel() > deviceApi()) {
 		state.apiNote = "<b>Device api software is not the latest available. Consider updating."
 	} else {
 		state.remove("apiNote")
@@ -118,7 +120,7 @@ def createChildren(response) {
 				addChildDevice("davegut", "bleBox MSChild ${type}", sensorDni, [
 					"label":it.settings.name, 
 					"name":"tempSensorChild",
-					"apiLevel":getDataValue("apiLevel"), 
+					"apiLevel":deviceApi(), 
 					"tempOffset":it.settings.userTempOffset, 
 					"sensorId":it.id.toString()])
 				logInfo("Installed ${it.settings.name}.")
