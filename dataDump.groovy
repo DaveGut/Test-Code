@@ -74,14 +74,12 @@ def commandParse(response) {
 //	===== Communications =====
 private sendGetCmd(command, action){
 	logDebug("sendGetCmd: ${command} / ${action} / ${device_IP}")
-return
 	sendHubCommand(new hubitat.device.HubAction("GET ${command} HTTP/1.1\r\nHost: ${device_IP}\r\n\r\n",
 				   hubitat.device.Protocol.LAN, null,[callback: action]))
 }
 
 private sendPostCmd(command, body, action){
 	logDebug("sendPostCmd: ${command} / ${body} / ${action})}")
-return
 	def parameters = [ method: "POST",
 					  path: command,
 					  protocol: "hubitat.device.Protocol.LAN",
