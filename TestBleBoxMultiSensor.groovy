@@ -110,7 +110,6 @@ def createChildren(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("createChildren: ${cmdResponse}")
 	def settingsArrays = cmdResponse.settings.multiSensor
-
 	settingsArrays.each {
 		def type = it.type
 		def sensorDni = "${device.getDeviceNetworkId()}-${it.id}"
@@ -120,7 +119,7 @@ def createChildren(response) {
 				addChildDevice("davegut", "bleBox MSChild ${type}", sensorDni, [
 					"label":it.settings.name, 
 					"name":"tempSensorChild",
-					"apiLevel":deviceApi(), 
+					"apiLevel":getDataValue("apiLevel"), 
 					"tempOffset":it.settings.userTempOffset, 
 					"sensorId":it.id.toString()])
 				logInfo("Installed ${it.settings.name}.")
