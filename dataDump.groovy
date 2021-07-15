@@ -36,19 +36,19 @@ def refresh() {
 	
 	logInfo("Default as string")
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[1]": {"settings":{"id":1, "userTempOffset":"50"}}}}""",
+				""" {"settings":{"multiSensor": [{"id":"0"}, {"settings":{"id":"1", "userTempOffset":"50"},{"id":"2"},{"id":"3"}}]}}""",
 				"commandParse")
 	pauseExecution(2000)
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[1]": {"settings":{"id":1, "userTempOffset":30}}}}""",
+				""" {"settings":{"multiSensor": [{"id":"0"}, {"settings":{"id":"1", "userTempOffset":40},{"id":"2"},{"id":"3"}}]}}""",
 				"commandParse")
 	pauseExecution(2000)
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[1]": {"settings":{"id":"1", "userTempOffset":"20"}}}}""",
+				""" {"settings":{"multiSensor": [{"id":0}, {"settings":{"id":1, "userTempOffset":30},{"id":2},{"id":3}}]}}""",
 				"commandParse")
 	pauseExecution(2000)
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[1]": {"settings":{"id":"1", "userTempOffset":10}}}}""",
+				""" {"settings":{"multiSensor": [{"id":0}, {"settings":{"id":1, "userTempOffset":"20"},{"id":2},{"id":3}}]}}""",
 				"commandParse")
 
 	
@@ -74,12 +74,14 @@ def commandParse(response) {
 //	===== Communications =====
 private sendGetCmd(command, action){
 	logDebug("sendGetCmd: ${command} / ${action} / ${device_IP}")
+return
 	sendHubCommand(new hubitat.device.HubAction("GET ${command} HTTP/1.1\r\nHost: ${device_IP}\r\n\r\n",
 				   hubitat.device.Protocol.LAN, null,[callback: action]))
 }
 
 private sendPostCmd(command, body, action){
 	logDebug("sendPostCmd: ${command} / ${body} / ${action})}")
+return
 	def parameters = [ method: "POST",
 					  path: command,
 					  protocol: "hubitat.device.Protocol.LAN",
@@ -109,7 +111,5 @@ def logDebug(msg){ log.debug "${msg}" }
 def logWarn(msg){ log.warn "${msg}" }
 
 //	end-of-file
-
-
 
 
