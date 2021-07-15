@@ -36,19 +36,19 @@ def refresh() {
 	
 	logInfo("Default as string")
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[1]": {"settings":{"userTempOffset":"50"}}}}""",
+				""" {"settings":{"multiSensor[1]": {"settings":{"id":1, "userTempOffset":"50"}}}}""",
 				"commandParse")
 	pauseExecution(2000)
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[":[{}, {"settings":{"userTempOffset":"40"}}, {}, {}}}""",
+				""" {"settings":{"multiSensor[1]": {"settings":{"id":1, "userTempOffset":30}}}}""",
 				"commandParse")
 	pauseExecution(2000)
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[1]": {"settings":{"userTempOffset":30}}}}""",
+				""" {"settings":{"multiSensor[1]": {"settings":{"id":"1", "userTempOffset":"20"}}}}""",
 				"commandParse")
 	pauseExecution(2000)
 	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor[":[{}, {"settings":{"userTempOffset":40}}, {}, {}}}""",
+				""" {"settings":{"multiSensor[1]": {"settings":{"id":"1", "userTempOffset":10}}}}""",
 				"commandParse")
 
 	
@@ -109,5 +109,7 @@ def logDebug(msg){ log.debug "${msg}" }
 def logWarn(msg){ log.warn "${msg}" }
 
 //	end-of-file
+
+
 
 
