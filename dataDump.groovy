@@ -34,19 +34,24 @@ def refresh() {
 	sendGetCmd("/api/settings/state", "commandParse")
 	pauseExecution(2000)
 	
-	logInfo("New Baseline")
-	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor": """ +
-				"""[{}, {"settings": {userTempOffset":40}}, {}, {}]}}""",
-				"commandParse")
-	pauseExecution(2000)
-
 	logInfo("Default as string")
 	sendPostCmd("/api/settings/set",
-				"""{"settings":{"multiSensor": """ +
-				"""[{}, {"settings": {userTempOffset":"50"}}, {}, {}]}}""",
+				""" {"settings":{"multiSensor[1]": {"settings":{"userTempOffset":"50"}}}}""",
 				"commandParse")
 	pauseExecution(2000)
+	sendPostCmd("/api/settings/set",
+				""" {"settings":{"multiSensor[":[{}, {"settings":{"userTempOffset":"40"}}, {}, {}}}""",
+				"commandParse")
+	pauseExecution(2000)
+	sendPostCmd("/api/settings/set",
+				""" {"settings":{"multiSensor[1]": {"settings":{"userTempOffset":30}}}}""",
+				"commandParse")
+	pauseExecution(2000)
+	sendPostCmd("/api/settings/set",
+				""" {"settings":{"multiSensor[":[{}, {"settings":{"userTempOffset":40}}, {}, {}}}""",
+				"commandParse")
+
+	
 
 	
 /*	logInfo("INFO")
