@@ -34,35 +34,49 @@ def refresh() {
 	sendGetCmd("/api/settings/state", "commandParse")
 	pauseExecution(2000)
 	
-	logInfo("Default as string")
-	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor": [{"id":"0"}, {"settings":{"id":"1", "userTempOffset":"50"},{"id":"2"},{"id":"3"}}]}}""",
-				"commandParse")
+	logInfo("SET ALL 10, 20, 30, 40")
+	def cmdText = """{"settings":{"multiSensor":[""" +
+		"""{"id":0, "settings":{"userTempOffset":10}},""" +
+		"""{"id":1, "settings":{"userTempOffset":20}},""" +
+		"""{"id":2, "settings":{"userTempOffset":30}},""" +
+		"""{"id":3, "settings":{"userTempOffset":40}}]}}"""
+	sendPostCmd("/api/settings/set", cmdText,"commandParse")
 	pauseExecution(2000)
-	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor": [{"id":"0"}, {"settings":{"id":"1", "userTempOffset":40},{"id":"2"},{"id":"3"}}]}}""",
-				"commandParse")
-	pauseExecution(2000)
-	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor": [{"id":0}, {"settings":{"id":1, "userTempOffset":30},{"id":2},{"id":3}}]}}""",
-				"commandParse")
-	pauseExecution(2000)
-	sendPostCmd("/api/settings/set",
-				""" {"settings":{"multiSensor": [{"id":0}, {"settings":{"id":1, "userTempOffset":"20"},{"id":2},{"id":3}}]}}""",
-				"commandParse")
 
+	logInfo("SET sensor 2 to 50, name to first test")
+	cmdText = """{"settings":{"multiSensor":[""" +
+		"""{"id":2, "settings":{"userTempOffset":50, "name": "first test"}}]}}"""
+	sendPostCmd("/api/settings/set", cmdText,"commandParse")
+	pauseExecution(2000)
+
+	logInfo("SET ALL 10, 20, 30, 40 using tempSensor format")
+	cmdTxt = """{"settings": {"tempSensor": {""" +
+		"""userTempOffset": {"0": 10, "1": 20, "2": 30, "3": 40}}}}"""
+	sendPostCmd("/api/settings/set", cmdText,"commandParse")
+	pauseExecution(2000)
+
+	logInfo("SET #2 to 60 using tempSensor format")
+	cmdTxt = """{"settings": {"tempSensor": {""" +
+		"""userTempOffset": {"2": 50}}}}"""
+	sendPostCmd("/api/settings/set", cmdText,"commandParse")
+	pauseExecution(2000)
+
+	logInfo("SET sensor 2 name using  tempSensor method (not documented")
+	cmdTxt = """{"settings": {"tempSensor": {""" +
+		"""name": {"2": "Test Name}}}}"""
+	sendPostCmd("/api/settings/set", cmdText,"commandParse")
 	
 
-	
-/*	logInfo("INFO")
-	sendGetCmd("/info", "commandParse")
+/*	
+	logInfo("INFO")
+	sendGetCmd("/api/device/state", "commandParse")
 	pauseExecution(2000)
 	logInfo("STATE")
-	sendGetCmd("/state", "commandParse")
+	sendGetCmd("/api/shutter/state", "commandParse")
 	pauseExecution(2000)
 	logInfo("SETTINGS")
-	sendGetCmd("/api/settings/state", "commandParse")*/
-
+	sendGetCmd("/api/settings/state", "commandParse")
+*/
 }
 
 def commandParse(response) {
