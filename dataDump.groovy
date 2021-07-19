@@ -82,7 +82,14 @@ def refresh() {
 def commandParse(response) {
 	def cmdResponse = parseInput(response)
 	logDebug("commandParse: ${cmdResponse}")
-	logWarn("")
+	if (cmdResponse == null) {
+		if (state.nullResp == true) { return }
+		state.nullResp = true
+		pauseExecution(1000)
+		sendGetCmd("/api/settings/state", "commandParse")
+		return
+	}
+	state.nullResp = false
 }
 
 //	===== Communications =====
