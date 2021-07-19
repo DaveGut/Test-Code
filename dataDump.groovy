@@ -106,7 +106,7 @@ private sendPostCmd(command, body, action){
 					  protocol: "hubitat.device.Protocol.LAN",
 					  body: body,
 					  headers: [
-						  Host: getDataValue("deviceIP")
+						  Host: device_IP)
 					  ]]
 	sendHubCommand(new hubitat.device.HubAction(parameters, null, [callback: action]))
 }
