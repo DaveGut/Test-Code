@@ -23,7 +23,7 @@ open API documentation for development and is intended for integration into the 
 		5.	Communications error detection overall health reporting.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "Beta2.0.0" }
+def driverVer() { return "D2.0.0" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -36,10 +36,15 @@ metadata {
 		attribute "commsError", "bool"
 	}
 	preferences {
-		input ("statusLed", "enum", 
+		input ("statusLed", "bool", 
 			   title: "Enable the Status LED", 
-			   options: ["on", "off"], 
-			   defaultValue: "on")
+			   defaultValue: true)
+		input ("nameSync", "enum", 
+			   title: "Synchronize Names", 
+			   defaultValue: "none",
+			   options: ["none": "Don't synchronize",
+						 "device" : "bleBox device name master", 
+						 "hub" : "Hubitat label master"])
 		input ("addChild", "bool", 
 			   title: "Add New Child sensors", 
 			   defaultValue: false)
@@ -56,8 +61,6 @@ metadata {
 	}
 }
 
-def deviceApi() { return getDataValue("apiLevel").toInteger() }
-
 def installed() {
 	logInfo("Installing...")
 	sendGetCmd("/api/settings/state", "createChildren")
@@ -70,7 +73,7 @@ def updated() {
 	state.errorCount = 0
 	updateDataValue("driverVersion", driverVer())
 	//	Check apiLevel and provide state warning when old.
-	if (apiLevel() > deviceApi()) {
+	if (apiLevel() > getDataValue("apiLevel").toInteger()) {
 		state.apiNote = "<b>Device api software is not the latest available. Consider updating."
 	} else {
 		state.remove("apiNote")
@@ -93,17 +96,9 @@ def updated() {
 		device.updateSetting("addChild",[type:"bool", value:false])
 		pauseExecution(3000)
 	}
-	//	Status LED
-	if (statusLed != getDataValue("ledState")) {
-		def ledEnabled = 1
-		if (statusLed == "off") { ledEnabled = 0 }
-		sendPostCmd("/api/settings/set",
-					"""{"settings":{"statusLed":{"enabled":${ledEnabled}}}}""",
-					"updateDeviceSettings")
-		pauseExecution(2000)
-	}
 
-	refresh()
+	setDevice()
+	runIn(2, refresh)
 }
 
 def createChildren(response) {
@@ -129,32 +124,68 @@ def createChildren(response) {
 			}
 		}
 	}
-	def ledStatus = setLedStatus(cmdResponse.settings.statusLed.enabled)
+	updateDeviceSettings(response)
 	logInfo("createChildren: statusLed = ${ledStatus}")
+}
+
+def setDevice() {
+	logDebug("setDevice: statusLed: ${statusLed}, nameSync = ${nameSync}")
+	//	Led
+	def command = "/api/settings/set"
+	def cmdText = """{"settings":{"""
+	def ledEnabled = 1
+	if (statusLed == false) { ledEnabled = 0 }
+		cmdText = cmdText + """"statusLed":{"enabled":${ledEnabled}}"""
+	//	Name
+	if (nameSync == "hub") {
+		cmdText = cmdText + ""","deviceName":"${device.label}"}}"""
+	}
+	cmdText = cmdText + """}}"""
+	sendPostCmd(command, cmdText, "updateDeviceSettings")
 }
 
 def updateDeviceSettings(response) {
 	def cmdResponse = parseInput(response)
-	logDebug("createChildren: ${cmdResponse}")
+	logDebug("updateDeviceSettings: ${cmdResponse}")
+	//	Work around for null response due to shutter box returning null.
+	if (cmdResponse == null) {
+		if (state.nullResp == true) { return }
+		state.nullResp = true
+		pauseExecution(1000)
+		sendGetCmd("/api/settings/state", "updateDeviceSettings")
+		return
+	}
+	state.nullResp = false
+	//	Transfer data to children
 	def settingsArrays = cmdResponse.settings.multiSensor
-	
 	def children = getChildDevices()
 	children.each { it.updateDeviceSettings(settingsArrays) }
-	
-	def ledStatus = setLedStatus(cmdResponse.settings.statusLed.enabled)
-	logInfo("updateDeviceSettings: statusLed = ${ledStatus}")
-}
-
-def setLedStatus(ledEnabled) {
-	def ledStatus = "on"
-	def ledState = "on"
-	if (ledEnabled == 0) {
-		ledStatus = "off"
-		ledState = "off"
+	//	Capture Data
+	def ledEnabled
+	def deviceName
+	if (cmdResponse.settings) {
+		ledEnabled = cmdResponse.settings.statusLed.enabled
+		deviceName = cmdResponse.settings.deviceName
+	} else {
+		logWarn("updateSettings: Setting data not read properly. Check apiLevel.")
+		return
 	}
-	device.updateSetting("statusLed",[type:"enum", value: ledStatus])
-	updateDataValue("ledState", ledState)
-	return ledStatus
+	def settingsUpdate = [:]
+	//	Led Status
+	def statusLed = true
+	if (ledEnabled == 0) {
+		statusLed = false
+	}
+	device.updateSetting("statusLed",[type:"bool", value: statusLed])
+	settingsUpdate << ["statusLed": statusLed]
+	//	Name - only update if syncing name
+	if (nameSync != "none") {
+		device.setLabel(deviceName)
+		settingsUpdate << ["HubitatName": deviceName]
+		device.updateSetting("nameSync",[type:"enum", value:"none"])
+	}
+
+	logInfo("updateDeviceSettings: ${settingsUpdate}")
 }
 
 //	===== Commands and Parse Returns =====
@@ -197,10 +228,11 @@ private sendPostCmd(command, body, action){
 def parseInput(response) {
 	unschedule(setCommsError)
 	state.errorCount = 0
-	if (device.getDataValue("commsError") == true) {
+	if (device.currentValue("commsError") == "true") {
 		sendEvent(name: "commsError", value: false)
 	}
 	try {
+		if(response.body == null) { return }
 		def jsonSlurper = new groovy.json.JsonSlurper()
 		return jsonSlurper.parseText(response.body)
 	} catch (error) {

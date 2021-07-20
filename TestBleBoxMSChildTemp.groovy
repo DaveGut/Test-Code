@@ -21,7 +21,7 @@ open API documentation for development and is intended for integration into the 
 This is the child driver for the blebox tempSensorPro.
 */
 //	===== Definitions, Installation and Updates =====
-def driverVer() { return "Dev2.0.0" }
+def driverVer() { return "D2.0.0" }
 def apiLevel() { return 20210413 }	//	bleBox latest API Level, 7.6.2021
 
 metadata {
@@ -35,23 +35,19 @@ metadata {
 		attribute "sensorHealth", "string"
 	}
 	preferences {
-/*
+
 		input ("tOffset", "integer",
-			   title: "temperature offset in 10 times degrees C [-120 -> +120]",
-			   defaultValue: getDataValue("tempOffset"))
-*/
+			   title: "temperature offset in 10 times degrees C [-120 -> +120]")
 		input ("tempScale", "enum", 
 			   title: "Temperature Scale",
 			   options: ["C", "F"], 
 			   defaultValue: "C")
-/*
 		input ("nameSync", "enum", 
 			   title: "Synchronize Names", 
 			   defaultValue: "none",
 			   options: ["none": "Don't synchronize",
 						 "device" : "bleBox device name master", 
 						 "hub" : "Hubitat label master"])
-*/
 		input ("debug", "bool", 
 			   title: "Enable debug logging", 
 			   defaultValue: true)
@@ -77,10 +73,25 @@ def updated() {
 	logInfo("Debug logging is: ${debug}.")
 	logInfo("Description text logging is ${descriptionText}.")
 
-	//	tempOffset and deviceName
-//	if (tOffset != getDataValue("tempOffset").toInteger()) { setTempOffset() }
-//	if (nameSync != "none") { setName() }
-	
+	setDevice()
+}
+
+def setDevice() {
+	logDebug("setDevice: statusLed: ${statusLed}, nameSync = ${nameSync}")
+	if (state.tempBaseline != tOffset.toInteger() || nameSync == "hub") {
+		def command = "/api/settings/set"
+		def cmdText = """{"settings":{"multiSensor":[{"id":${getDataValue("sensorId")},"type":"temperature","settings":{"""
+		//	tempOffset
+		cmdText = cmdText + """"userTempOffset":${tOffset}"""
+		//	Name
+		if (nameSync == "hub") {
+			cmdText = cmdText + ""","name":"${device.label}" """
+		}
+		cmdText = cmdText + """}}]}}"""
+		parent.sendPostCmd(command, cmdText, "updateDeviceSettings")
+	} else {
+		parent.sendGetCmd("/api/settings/state", "updateDeviceSettings")
+	}
 }
 
 def setTempOffset() {
@@ -116,11 +127,11 @@ def setName() {
 		if (sensorNo == 0) {
 			sensor0 = """{"settings":{"name":${device.name}}}"""
 		} else if (sensorNo == 1) {
-			sensor0 = """{"settings":{"name":${device.name}}}"""
+			sensor1 = """{"settings":{"name":${device.name}}}"""
 		} else if (sensorNo == 2) {
-			sensor0 = """{"settings":{"name":${device.name}}}"""
+			sensor2 = """{"settings":{"name":${device.name}}}"""
 		} else if (sensorNo == 3) {
-			sensor0 = """{"settings":{"name":${device.name}}}"""
+			sensor3 = """{"settings":{"name":${device.name}}}"""
 		}
 		parent.sendPostCmd("/api/settings/set",
 						   """{"settings":{"multiSensor": """ +
@@ -137,8 +148,9 @@ def updateDeviceSettings(settingsArrays) {
 	settings = settings.settings
 	logDebug("updateDeviceSettings: ${settings}")
 	device.setLabel(settings.name)
-	updateDataValue("tempOffset", settings.userTempOffset)
-	device.updateSetting("tOffset",[type:"number", value: settings.userTempOffset])
+//	updateDataValue("tempOffset", "${settings.userTempOffset}")
+	device.updateSetting("tOffset",[type:"number", value: settings.userTempOffset.toInteger()])
+	state.tempBaseline = settings.userTempOffset.toInteger()
 	def settingsUpdate = ["tempOffset": settings.userTempOffset, "HubitatName": settings.name]
 	logInfo("updateDeviceSettings: ${settingsUpdate}")
 }
