@@ -119,11 +119,15 @@ def parseDeviceData(response) {
 	def ip = cmdResponse.ip
 	def apiLevel = 20000000
 	if (cmdResponse.apiLevel) { apiLevel = cmdResponse.apiLevel.toInteger() }
-	if (cmdResponse.type != "switchBoxD") {
+	def type = cmdResponse.type
+	if (type == "multiSensor" && cmdResponse.product == "windRainSensor") {
+		type = "windRainSensor"
+	}
+	if (type != "switchBoxD") {
 		def devData = [:]
 		devData["ip"] = ip
 		devData["apiLevel"] = apiLevel
-		devData["type"] = cmdResponse.type
+		devData["type"] = type
 		devData["dni"] = dni
 		devData["label"] = cmdResponse.deviceName
 		state.devices << ["${dni}" : devData]
@@ -133,7 +137,7 @@ def parseDeviceData(response) {
 		def devData = [:]
 		devData["ip"] = ip
 		devData["apiLevel"] = apiLevel
-		devData["type"] = cmdResponse.type
+		devData["type"] = type
 		devData["dni"] = relayDni
 		devData["label"] = cmdResponse.deviceName + "-0"
 		devData["relayNumber"] = "0"
