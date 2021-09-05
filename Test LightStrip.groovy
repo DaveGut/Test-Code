@@ -16,13 +16,7 @@ Changes since version 6:  https://github.com/DaveGut/HubitatActive/blob/master/K
 ===================================================================================================*/
 def driverVer() { return "6.3.3" }
 def type() { return "Light Strip" }
-//def type() { return "Color Bulb" }
-//def type() { return "CT Bulb" }
-//def type() { return "Mono Bulb" }
-//	User Selection of Energy Monitor Functions.
 def engMon() { return true }
-//def engMon() { return false }
-//	Bulb
 def file() { return type().replaceAll(" ", "") }
 import groovy.json.JsonSlurper
 
@@ -38,15 +32,9 @@ metadata {
 		capability "Change Level"
  		capability "Refresh"
 		capability "Actuator"
-		if (type() == "Color Bulb" || type() == "CT Bulb") {
-			capability "Color Temperature"
-			command "setCircadian"
-			attribute "circadianState", "string"
-		}
-		if (type() == "Color Bulb" || type() == "Light Strip") {
-			capability "Color Mode"
-			capability "Color Control"
-		}
+		capability "Color Mode"
+		capability "Color Control"
+		//	Poll Interval Function
 		command "setPollInterval", [[
 			name: "Poll Interval in seconds",
 			constraints: ["default", "5 seconds", "10 seconds", "15 seconds",
@@ -54,74 +42,73 @@ metadata {
 						  "30 minutes"],
 			type: "ENUM"]]
 		//	Energy Monitor
-		if (engMon() == true) {
-			capability "Power Meter"
-			capability "Energy Meter"
-			//	Psuedo Capability Energy Statistics
-			attribute "currMonthTotal", "number"
-			attribute "currMonthAvg", "number"
-			attribute "lastMonthTotal", "number"
-			attribute "lastMonthAvg", "number"
-		}
-		//	Communications Attributes
+		capability "Power Meter"
+		capability "Energy Meter"
+		//	Psuedo Capability Energy Statistics
+		attribute "currMonthTotal", "number"
+		attribute "currMonthAvg", "number"
+		attribute "lastMonthTotal", "number"
+		attribute "lastMonthAvg", "number"
+		//	SCommunications Attributes
 		attribute "connection", "string"
 		attribute "commsError", "string"
 		//	Psuedo capability Light Presets
-		command "lightPresetCreate", [[
+		command "bulbPresetCreate", [[
 			name: "Name for preset.", 
 			type: "STRING"]]
-		command "lightPresetDelete", [[
+		command "bulbPresetDelete", [[
 			name: "Name for preset.", 
 			type: "STRING"]]
-		command "lightPresetSet", [[
+		command "bulbPresetSet", [[
 			name: "Name for preset.", 
 			type: "STRING"],[
 			name: "Transition Time (seconds).", 
 			type: "STRING"]]
-		if (type() == "Light Strip") {
-			//	Psuedo Capability Light Effect
-			command "effectSet", [[
-				name: "Name for effect.", 
-				type: "STRING"]]
-			command "effectCreate"
-			command "effectDelete", [[
-				name: "Name for effect to delete.", 
-				type: "STRING"]]
-			attribute "effectName", "string"
-			attribute "effectEnabled", "string"
-		}
+		attribute "bulbPreset", "string"
+		//	Psuedo Capability Light Effect
+		command "effectSet", [[
+			name: "Name for effect.", 
+			type: "STRING"]]
+		command "effectCreate"
+		command "effectDelete", [[
+			name: "Name for effect to delete.", 
+			type: "STRING"]]
+		attribute "effectName", "string"
+		attribute "effectEnabled", "string"
 	}
 
 	preferences {
-		if (engMon()) {
-			input ("emFunction", "bool", 
+		input ("emFunction", "bool", 
 				   title: "Enable Energy Monitor", 
 				   defaultValue: false)
-		}
 		input ("transition_Time", "num",
-			   title: "Default Transition time (seconds)",
+			   title: "Default Transition time in sec.",
 			   defaultValue: 0)
-		if (type() == "Color Bulb" || type() == "Light Strip") {
-			input ("highRes", "bool", 
-				   title: "(Color Bulb) High Resolution Hue Scale", 
-				   defaultValue: false)
-		}
+		input ("syncEffects", "bool",
+			   title: "Sync Effect Preset Data",
+			   defaultValue: false)
+		input ("syncBulbs", "bool",
+			   title: "Sync Bulb Preset Data",
+			   defaultValue: false)
 		input ("debug", "bool",
-			   title: "30 minutes of debug logging", 
+			   title: "Debug logging, 30 min.", 
 			   defaultValue: false)
 		input ("descriptionText", "bool", 
-			   title: "Enable description text logging", 
+			   title: "Description Text Logging", 
 			   defaultValue: true)
 		input ("bind", "bool",
 			   title: "Kasa Cloud Binding",
-			   defalutValue: true)
+			   defaultValue: true)
 		if (bind && parent.useKasaCloud) {
 			input ("useCloud", "bool",
-				   title: "Use Kasa Cloud for device control",
+				   title: "Kasa Cloud Device Control",
 				   defaultValue: false)
 		}
 		input ("rebootDev", "bool",
-			   title: "Reboot device <b>[Caution]</b>",
+			   title: "Reboot Device",
+			   defaultValue: false)
+		input ("highRes", "bool",
+			   title: "High Resolution Hue",
 			   defaultValue: false)
 	}
 }
@@ -144,9 +131,10 @@ def installed() {
 	state.pollInterval = "30 minutes"
 	updateDataValue("driverVersion", driverVer())
 	state.effectPresets = []
-	state.lightPresets = [:]
+	state.bulbPresets = [:]
 	state.effectsList = []
-	runIn(5, updated)
+ 	sendEvent(name: "colorMode", value: "RGB")
+	runIn(3, updated)
 }
 
 def updated() {
@@ -154,279 +142,91 @@ def updated() {
 		//	First to run with  10 second wait to continue.
 		logWarn("updated: ${rebootDevice()}")
 	}
-
-	if (!state.effectPresets) ( state.effectPresets = [] )
-	if (!state.lightPresets) ( state.lightPresets= [:] )
-	if (!state.effectsList) ( state.effectsList = [] )
-	
-	if (state.socketStatus) { state.remove("socketStatus") }
-	if (state.response) { state.remove("response") }
-	if (state.respLength) {state.remove("respLength") }
-	if (state.createEffect) { state.remove("createEffect") }
-	logInfo("updated: Updating device preferences and settings.")
 	unschedule()
-	logDebug("updated: ${updateDriverData()}")
+	if (!state.effectPresets) ( state.effectPresets = [] )
+	if (!state.bulbPresets) ( state.bulbPresets= [:] )
+	if (!state.effectsList) ( state.effectsList = [] )
+	if (state.lastHue) { state.remove{"lastHue"} }
+	if (state.lastSaturation) { state.remove("lastSaturation") }
 	//	update data based on preferences
 	if (debug) { runIn(1800, debugOff) }
-	logDebug("updated: Debug logging is ${debug}")
-	logDebug("updated: Info logging is ${descriptionText}")
-	logDebug("updated: ${bindUnbind()}")
-	sendEvent(name: "commsError", value: "false")
-
-	if(type().contains("Bulb") || type() == "Light Strip") {
-		logDebug("updated: Default Transition Time = ${transition_Time} seconds.")
-		logDebug("updated: High Resolution Color is ${highRes}")
-	}
-		
-	//	Update scheduled methods
-	if (type().contains("EM") || type().contains("Bulb") || type() == "Light Strip") {
-		logDebug("updated: ${setupEmFunction()}")
-	}
-	logDebug("updated: ${setPolling()}")
-	runIn(1, refresh)
-}
-
-//	===== Test Code Area =====
-def service() {
-	def service = "smartlife.iot.smartbulb.lightingservice"
-	if (getDataValue("feature") == "lightStrip") { service = "smartlife.iot.lightStrip" }
-	return service
-}
-
-def method() {
-	def method = "transition_light_state"
-	if (getDataValue("feature") == "lightStrip") { method = "set_light_state" }
-	return method
-}
-
-//	===== Parse and Update Bulb Data =====
-def distResp(response) {
-	if (response["${service()}"]) {
-		if (response["${service()}"]."${method()}") {
-			updateBulbData(response["${service()}"]."${method()}")
-			if (type() == "Light Strip") {
-				sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
-				pauseExecution(1000)
-			}
-			if(emFunction) { getPower() }
-		} else {
-			def resp = response["${service()}"]
-			logWarn("distResp: Invalid Return = ${resp}")
-		}
-	} else if (response.system) {
-		updateBulbData(response.system.get_sysinfo.light_state)
-		if(emFunction) { getPower() }
-	} else if (response["smartlife.iot.lighting_effect"]) {
-		parseEffect(response["smartlife.iot.lighting_effect"])
-/*	} else if (emFunction && response["smartlife.iot.common.emeter"]) {
-		def month = new Date().format("M").toInteger()
-		def emeterResp = response["smartlife.iot.common.emeter"]
-		if (emeterResp.get_realtime) {
-			setPower(emeterResp.get_realtime)
-		} else if (emeterResp.get_monthstat.month_list.find { it.month == month }) {
-			setEnergyToday(emeterResp.get_monthstat)
-		} else if (emeterResp.get_monthstat.month_list.find { it.month == month - 1 }) {
-			setLastMonth(emeterResp.get_monthstat)
-		} else {
-			logWarn("distResp: Unhandled response = ${response}")
-		}*/
-	} else if (response["smartlife.iot.common.cloud"]) {
-		setBindUnbind(response["smartlife.iot.common.cloud"])
-	} else if (response["smartlife.iot.common.system"]) {
-		logWarn("distResp: Rebooting device")
-	} else {
-		logWarn("distResp: Unhandled response = ${response}")
-	}
-	resetCommsError()
-}
-
-def updateBulbData(status) {
-	logDebug("updateBulbData: ${status}")
-	if (status.err_code && status.err_code != 0) {
-		logWarn("updateBulbData: ${status.err_msg}")
+	if (syncEffects) {
+//		logDebug("updated: ${syncEffectPresets()}")
+logTrace("updated: ${syncEffectPresets()}")
 		return
 	}
-	def deviceStatus = [:]
-	def onOff = "on"
-	if (status.on_off == 0) { onOff = "off" }
-	deviceStatus << ["power" : onOff]
-	def isChange = false
-	if (device.currentValue("switch") != onOff) {
-		sendEvent(name: "switch", value: onOff, type: "digital")
-		isChange = true
-	}
-	if (onOff == "on") {
-		if (type() != "Mono Bulb") {
-			deviceStatus << ["mode" : status.mode]
-			if (device.currentValue("circadianState") != status.mode) {
-				sendEvent(name: "circadianState", value: status.mode)
-				isChange = true
-			}
-		}
-		def hue = status.hue
-		def saturation = status.saturation
-		def level = status.brightness
-		def ct = status.color_temp
-		if (status.groups) {
-			status = status.groups[0]
-			hue = status[2]
-			saturation = status[3]
-			level = status[4]
-			ct = status[5]
-		}
 
-		deviceStatus << ["level" : level]
-		if (level != device.currentValue("level")) {
-			sendEvent(name: "level", value: level, unit: "%")
-			isChange = true
-		}
-		if (type().contains("bulb") || type() == "Light Strip") {
-			deviceStatus << ["colorTemp" : ct]
-			if (device.currentValue("colorTemperature") != ct) {
-				isChange = true
-				sendEvent(name: "colorTemperature", value: ct)
-			}
-			if (type() == "CT Bulb") { 
-				setColorTempData(ct.toInteger())
-			} else {
-				hue = hue.toInteger()
-				if (highRes != true) { hue = (hue / 3.6).toInteger() }
-				deviceStatus << ["hue" : hue]
-				if (device.currentValue("hue") != hue) {
-					sendEvent(name: "hue", value: hue)
-					isChange = true
-				}
-				deviceStatus << ["sat" : saturation]
-				if (device.currentValue("saturation") != saturation) {
-					sendEvent(name: "saturation", value: saturation)
-					isChange = true
-				}
-				def color = [:]
-				color << ["hue" : hue]
-				color << ["saturation" : saturation]
-				if (ct.toInteger() > 2000) {
-					color << ["level" : 0]
-				} else {
-					color << ["level" : level]
-				}
-				sendEvent(name: "color", value: color)
-				if (ct.toInteger() == 0) { 
-					setRgbData(hue, saturation) }
-				else { 
-					setColorTempData(ct.toInteger()) 
-				}
-			}
-		}
+	if (syncBulbs) {
+//		logDebug("updated: ${syncBulbPresets()}")
+logTrace("updated: ${syncBulbPresets()}")
+		return
 	}
-	if (isChange) {
-		logInfo("updateBulbData: Status = ${deviceStatus}")
+	logDebug("updated: Debug logging is ${debug}. Info logging is ${descriptionText}.")
+	logDebug("updated: ${bindUnbind()}")
+	sendEvent(name: "commsError", value: "false")
+	//	Update scheduled methods
+	logDebug("updated: ${setupEmFunction()}")
+	logDebug("updated: ${setPolling()}")
+	if (syncEffects) {
+//		logDebug("updated: ${syncEffectPresets()}")
+logTrace("updated: ${syncEffectPresets()}")
 	}
+
+	if (syncBulbs) {
+//		logDebug("updated: ${syncBulbPresets()}")
+logTrace("updated: ${syncBulbPresets()}")
+	}
+	runIn(3, refresh)
 }
 
-//	===== Capability Light Effect =====
-def effectCreate() {
-	state.createEffect = true
-	sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
-}
-
-def effectDelete(effName) {
-	effName = effName.trim()
-	def index = state.effectPresets.findIndexOf { it.name == effName }
-	if (index == -1 || nameIndex == -1) {
-		logWarn("effectDelete: ${effName} not in effectPresets!")
-	} else {
-		state.effectPresets.remove(index)
+//	===== Preset Sync Functions =====
+def syncEffectPresets() {
+	device.updateSetting("syncEffects", [type:"bool", value: false])
+	parent.resetStates(device.deviceNetworkId)
+	state.effectPresets.each{
+		def effData = it
+		parent.syncEffectPreset(effData, device.deviceNetworkId)
+		pauseExecution(1000)
 	}
-	if (state.effectsList.toString().contains(effName)) {
-		state.effectsList.remove(effName)
-	} else {
-		logWarn("effectDelete: ${effName} not in effectsList!")
-	}
-		logDebug("effectDelete: deleted effect ${effName}")
-logTrace("effectDelete: deleted effect ${effName}")
+	return "Synching Event Presets with all Kasa Light Strips."
 }
 
-def effectSet(effName) {
-	effName = effName.trim()
-	logDebug("effectSet: ${effName}.")
-logTrace("effectSet: ${effName}.")
-	def effData = state.effectPresets.find { it.name == effName }
-	effData = new groovy.json.JsonBuilder(effData).toString()
-	log.trace effData
-	def cmd = """{"smartlife.iot.lighting_effect":{"set_lighting_effect":""" +
-		"""${effData}},"context":{"source":"<id>"}}"""
-	sendCmd(cmd)
+def resetStates() {
+logTrace("resetStates")
+	state.effectPresets = []
+	state.effectsList =  ["updating"]
 }
 
-def parseEffect(resp) {
-	if (resp.get_lighting_effect) {
-		def effData = resp.get_lighting_effect
-	logDebug("parseEffect: ${state.createEffect} || ${effData}")
-logTrace("parseEffect: ${state.createEffect} || ${effData}")
-		def effName = effData.name
-		sendEvent(name: "effectName", value: effName)
-		def enabled = false
-		if (effData.enable == 1) { enabled = true }
-		sendEvent(name: "effectEnabled", value: enabled)
-		if (state.createEffect == true) {
-			def existngEffect = state.effectPresets.find { it.name == effName }
-			if (existngEffect == null) {
-				state.effectPresets << effData
-				state.effectsList << effName
-				logDebug("parseEffece: ${effName} added to effectPresets")
-logTrace("parseEffece: ${effName} added to effectPresets")
-			} else {
-				logWarn("parseEffect: ${effName} already exists.")
-			}
-			state.remove("createEffect")
-		}
-	} else {
-		sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
-	}
+def updateEffectPreset(effData) {
+	logDebug("updateEffectPreset: ${effData.name}")
+logTrace("updateEffectPreset: ${effData.name}")
+	state.effectsList << effData.name
+	state.effectPresets << effData
+	runIn(5, updateCleanup)
 }
 
-//	===== Capability Light Presets =====
-def lightPresetCreate(psName) {
-	if (!state.lightPresets) { state.lightPresets = [:] }
-	psName = psName.trim()
-	logDebug("lightPresetCreate: ${psName}")
-	def psData = [:]
-	psData["hue"] = device.currentValue("hue")
-	psData["saturation"] = device.currentValue("saturation")
-	psData["level"] = device.currentValue("level")
-	psData["colTemp"] = device.currentValue("colorTemperature")
-	state.lightPresets << ["${psName}": psData]
+def updateCleanup() {
+	state.effectsList.remove(0)
+	logDebug("updateCleanup: ${state.effectsList}")
+logTrace("updateCleanup: ${state.effectsList}")
 }
 
-def lightPresetDelete(psName) {
-	psName = psName.trim()
-	logDebug("lightPresetDelete: ${psName}")
-	def presets = state.lightPresets
-	if (presets.toString().contains(psName)) {
-		presets.remove(psName)
-	} else {
-		logWarn("lightPresetDelete: ${psName} is not a valid name.")
-	}
+
+
+
+def syncBulbPresets() {
+	device.updateSetting("syncBulbs", [type:"bool", value: false])
+	parent.syncBulbPresets(state.bulbPresets)
+	return "Synching Bulb Presets with all Kasa Bulbs."
 }
 
-def lightPresetSet(psName, transTime = transition_Time) {
-	psName = psName.trim()
-	transTime = 1000 * transTime.toInteger()
-	if (state.lightPresets."${psName}") {
-		def psData = state.lightPresets."${psName}"
-		logDebug("lightPresetSet: ${psData}, transTime = ${transTime}")
-		def hue = psData.hue
-		if (highRes != true) {
-			hue = Math.round(0.49 + hue * 3.6).toInteger()
-		}
-		def data = [1, psData.level, hue, psData.saturation, psData.colTemp, transTime]
-		setLightState(data)
-	} else {
-		logWarn("lightPresetSet: ${psName} is not a valid name.")
-	}
+def updatePresets(bulbPresets) {
+	logDebug("updatePresets: Preset Bulb Data: ${bulbPresets}.")
+logTrace("updatePresets: Preset Bulb Data: ${bulbPresets}.")
+	state.bulbPresets = bulbPresets
 }
 
-//	===== Energy Monitor Methods =====
+//	===== Energy Monitor Functions =====
 def getPower() {
 	if (type().contains("Multi")) {
 		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
@@ -577,7 +377,6 @@ def sendCmd(command) {
 	}
 }
 
-///////////////////////////////////////
 def sendLanCmd(command) {
 	logDebug("sendLanCmd: command = ${command}")
 	state.lastLanCmd = command
@@ -873,178 +672,6 @@ def ledOnOff() {
 }
 
 //	===== Utility Methods =====
-def updateDriverData() {
-//	Updates/adds/removes device data and states from devices using earlier version.
-	def drvVer = getDataValue("driverVersion")
-	if (drvVer == driverVer()) {
-		return "Driver Data already updated."
-	}
-//	Poll Interval, communications, and bind capture
-	def message = "<b>Updating data from driver version ${drvVer}."
-	def comType = "LAN"
-	def usingCloud = false
-	def binding = true
-	def interval = "30 minutes"
-	def oldDriver = getDataValue("driverVersion")
-	if (oldDriver.contains("5.3")) {
-		if (state.pollInterval && state.pollInterval != "off") {
-			interval = "${state.pollInterval} seconds"
-		}
-	} else if (oldDriver.contains("6.0")) {
-		if (refreshInterval) {
-			def inter = refreshInterval.toInteger()
-			if (inter < 60) {
-				interval = "${inter} seconds"
-			}
-		}
-		if (useCloud) { commType = "CLOUD" }
-		if (bind == "0") { binding = false }
-	} else if (oldDriver.contains("6.1")) {
-		if (state.pollInterval && state.pollInterval != "off") {
-			interval = "${state.pollInterval} seconds"
-		}
-		if (useCloud) { commType = "Cloud" }
-		if (bind == "0") { binding = false }
-	} else if (oldDriver.contains("6.2")) {
-		interval = state.pollInterval
-		if (useCloud) { commType = "Cloud" }
-		binding = bind
-	}
-	message += "\n\t\t\t Connection = ${comType}."
-	message += "\n\t\t\t bind = ${binding}."
-	message += "\n\t\t\t pollInterval = ${interval}."
-	setCommsData(comType)
-	pauseExecution(200)
-	device.updateSetting("bind", [type:"bool", value: binding])
-	pauseExecution(200)
-	state.pollInterval = interval
-
-//	Settings for all updates
-	if (device_IP) {
-		device.removeSetting("device_IP")
-		pauseExecution(200)
-	}
-	if (pollTest) {
- 		device.removeSetting("pollTest")
-		pauseExecution(200)
-	}
-	if (refresh_Rate) {
-		device.removeSetting("refresh_Rate")
-		pauseExecution(200)
-	}
-	if (refreshInterval) {
-		device.removeSetting("refreshInterval")
-		pauseExecution(200)
-	}
-	
-//	States for all version updates	
-	if (state.response) {
-		state.remove("response")
-		pauseExecution(200)
-	}
-	if (state.respLength) {
-		state.remove("respLength")
-		pauseExecution(200)
-	}
-	if (state.lastConnect) {
-		state.remove("lastConnect")
-		pauseExecution(200)
-	}
-	if (state.pollFreq) {
-		state.remove("pollFreq")
-		pauseExecution(200)
-	}
-	if (state.WARNING) {
-		state.remove("WARNING")
-		pauseExecution(200)
-	}
-	if (state.currentBind) {
-		state.remove("currentBind")
-		pauseExecution(200)
-	}
-	if (state.currentCloud) {
-		state.remove("currentCloud")
-		pauseExecution(200)
-	}
-	if (type() == "EM Plug Switch" || type().contains("Bulb") || type() == "Light Strip") {
-		if (state.powerPollInterval) {
-			state.remove("powerPollInterval")
-			pauseExecution(200)
-		}
-	}
-	if (state.lanErrorsToday) {
-		state.remove("lanErrorsToday")
-		pauseExecution(200)
-	}
-	if (state.lanErrorsPrev) {
-		state.remove("lanErrorsPrev")
-		pauseExecution(200)
-	}
-	if (state.lanErrosPrev) {
-		state.remove("lanErrosPrev")
-		pauseExecution(200)
-	}
-	if (state.communicationsError) {
-		state.remove("communicationsError")
-		pauseExecution(200)
-	}
-	if (state.socketTimeout) {
-		state.remove("socketTimeout")
-		pauseExecution(200)
-	}
-	if (state.lastColorTemp) {
-		state.remove("lastColorTemp")
-		pauseExecution(200)
-	}
-	
-	
-//	Data values for all updates
-	if (getDataValue("appServerUrl")) {
-		removeDataValue("appServerUrl")
-		pauseExecution(200)
-	}
-	if (getDataValue("deviceFWVersion")) {
-		removeDataValue("deviceFWVersion")
-		pauseExecution(200)
-	}
-	if (getDataValue("lastErrorratio")) {
-		removeDataValue("lastErrorRatio")
-		pauseExecution(200)
-	}
-	if (getDataValue("token")) {
-		removeDataValue("token")
-		pauseExecution(200)
-	}
-	if (type() == "EM Multi Plug") {
-		if (getDataValue("emSysInfo")) {
-			removeDataValue("emSysInfo")
-			pauseExecution(200)
-		}
-		if (getDataValue("getPwr")) {
-			removeDataValue("getPwr")
-			pauseExecution(200)
-		}
-	}
-	if (getDataValue("applicationVersion")) {
-		removeDataValue("applicationVersion")
-		pauseExecution(200)
-	}
-	if (!type().contains("Multi")) {
-		if (getDataValue("plugNo")) {
-			removeDataValue("plugNo")
-			pauseExecution(200)
-		}
-		if (getDataValue("plugId")) {
-			removeDataValue("plugId")
-			pauseExecution(200)
-		}
-	}
-
-	updateDataValue("driverVersion", driverVer())
-	message += "\n\t\t\tNew Version: ${driverVer()}.</b>"
-	return message
-}
-
 private outputXOR(command) {
 //	UDP Version
 	def str = ""
@@ -1104,24 +731,23 @@ def logWarn(msg){
 def on() {
 	logDebug("on: transition time = ${transition_Time}")
 	def transTime = 1000 * transition_Time.toInteger()
-	sendCmd("""{"${service()}":""" +
-			"""{"${method()}":{"on_off":1,"transition_period":${transTime}}}}""")
+	sendCmd("""{"smartlife.iot.lightStrip":""" +
+			"""{"set_light_state":{"on_off":1,"transition_period":${transTime}}}}""")
 }
 
 def off() {
 	logDebug("off: transition time = ${transition_Time}")
 	def transTime = 1000 * transition_Time.toInteger()
-	sendCmd("""{"${service()}":""" +
-			"""{"${method()}":{"on_off":0,"transition_period":${transTime}}}}""")
+	sendCmd("""{"smartlife.iot.lightStrip":""" +
+			"""{"set_light_state":{"on_off":0,"transition_period":${transTime}}}}""")
 }
 
 def setLevel(level, transTime = transition_Time.toInteger()) {
 	if (level < 0) { level = 0 }
 	else if (level > 100) { level = 100 }
-
 	logDebug("setLevel: ${level} // ${transTime}")
 	transTime = 1000*transTime
-	sendCmd("""{"${service()}":{"${method()}":{"ignore_default":1,"on_off":1,""" +
+	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,""" +
 			""""brightness":${level},"transition_period":${transTime}}}}""")
 }
 
@@ -1156,26 +782,6 @@ def levelDown() {
 	runIn(1, levelDown)
 }
 
-def setColorTemperature(colorTemp, level = device.currentValue("level"), transTime = transition_Time.toInteger()) {
-	logDebug("setColorTemperature: ${colorTemp} // ${level} // ${transTime}")
-	transTime = 1000 * transTime
-	def lowCt = 2500
-	def highCt = 9000
-	if (type() == "CT Bulb") {
-		lowCt = 2700
-		highCt = 6500
-	}
-	if (colorTemp < lowCt) { colorTemp = lowCt }
-	else if (colorTemp > highCt) { colorTemp = highCt }
-	def data = [1, level, 0, 0, colorTemp, transTime]
-	setLightState(data)
-}
-
-def setCircadian() {
-	logDebug("setCircadian")
-	sendCmd("""{"${service()}":{"${method()}":{"mode":"circadian"}}}""")
-}
-
 def setHue(hue) {
 	logDebug("setHue:  hue = ${hue}")
 	setColor([hue: hue])
@@ -1206,55 +812,209 @@ def setColor(Map color) {
 		logWarn("setColor: Entered hue, saturation, or level out of range! (H:${hue}, S:${saturation}, L:${level}")
         return
     }
-	def data = [1, level, hue, saturation, 0, transTime]
-	setLightState(data)
-}
-
-def setLightState(data) {
-		sendCmd("""{"${service()}":{"${method()}":""" +
-				"""{"ignore_default":1,"on_off":${data[0]},"brightness":${data[1]},""" +
-				""""hue":${data[2]},"saturation":${data[3]},"color_temp":${data[4]},""" +
-					""""transition_period":${data[4]}}}}""")
+	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,"brightness":${level},""" +
+			""""hue":${hue},"saturation":${saturation},"transition_period":${transTime}}}}""")
 }
 
 def refresh() {
 	logDebug("refresh")
-	poll()
+	sendCmd("""{"system":{"get_sysinfo":{}}}""")
 }
 
 def poll() {
 	sendCmd("""{"system":{"get_sysinfo":{}}}""")
 }
 
-def setColorTempData(temp){
-	logDebug("setColorTempData: color temperature = ${temp}")
-    def value = temp.toInteger()
-    def colorName
-	if (value <= 2800) { colorName = "Incandescent" }
-	else if (value <= 3300) { colorName = "Soft White" }
-	else if (value <= 3500) { colorName = "Warm White" }
-	else if (value <= 4150) { colorName = "Moonlight" }
-	else if (value <= 5000) { colorName = "Horizon" }
-	else if (value <= 5500) { colorName = "Daylight" }
-	else if (value <= 6000) { colorName = "Electronic" }
-	else if (value <= 6500) { colorName = "Skylight" }
-	else { colorName = "Polar" }
-	//	Color Bulb Only.
-	if (device.currentValue("colorMode") != "CT") {
- 		sendEvent(name: "colorMode", value: "CT")
-		logInfo("setColorTempData: Color Mode is CT")
+//	===== Capability Light Effect =====
+def effectCreate() {
+	state.createEffect = true
+	sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
+}
+
+def effectDelete(effName) {
+	effName = effName.trim()
+	def index = state.effectPresets.findIndexOf { it.name == effName }
+	if (index == -1 || nameIndex == -1) {
+		logWarn("effectDelete: ${effName} not in effectPresets!")
+	} else {
+		state.effectPresets.remove(index)
 	}
-	if (device.currentValue("colorName") != colorName) {
-	    sendEvent(name: "colorName", value: colorName)
-		logInfo("setColorTempData: Color name is ${colorName}.")
+	if (state.effectsList.toString().contains(effName)) {
+		state.effectsList.remove(effName)
+	} else {
+		logWarn("effectDelete: ${effName} not in effectsList!")
+	}
+		logDebug("effectDelete: deleted effect ${effName}")
+}
+
+def effectSet(effName) {
+	effName = effName.trim()
+	logDebug("effectSet: ${effName}.")
+	def effData = state.effectPresets.find { it.name == effName }
+	effData = new groovy.json.JsonBuilder(effData).toString()
+	log.trace effData
+	def cmd = """{"smartlife.iot.lighting_effect":{"set_lighting_effect":""" +
+		"""${effData}},"context":{"source":"<id>"}}"""
+	sendCmd(cmd)
+}
+
+def parseEffect(resp) {
+	if (resp.get_lighting_effect) {
+		def effData = resp.get_lighting_effect
+		logDebug("parseEffect: ${state.createEffect} || ${effData}")
+		def effName = effData.name
+		sendEvent(name: "effectName", value: effName)
+		def enabled = false
+		if (effData.enable == 1) { enabled = true }
+		sendEvent(name: "effectEnabled", value: enabled)
+		if (state.createEffect == true) {
+			def existngEffect = state.effectPresets.find { it.name == effName }
+			if (existngEffect == null) {
+				state.effectPresets << effData
+				state.effectsList << effName
+				logDebug("parseEffece: ${effName} added to effectPresets")
+			} else {
+				logWarn("parseEffect: ${effName} already exists.")
+			}
+			state.remove("createEffect")
+		}
+	} else {
+		if (resp.set_lighting_effect.err_code != 0) {
+			logWarn("parseEffect: Error setting effect.")
+		}
+		sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
 	}
 }
 
-def setRgbData(hue, saturation){
+//	===== Capability Bulb Presets =====
+def bulbPresetCreate(psName) {
+	if (!state.bulbPresets) { state.bulbPresets = [:] }
+	psName = psName.trim()
+	logDebug("bulbPresetCreate: ${psName}")
+	def psData = [:]
+	psData["hue"] = device.currentValue("hue")
+	psData["saturation"] = device.currentValue("saturation")
+	psData["level"] = device.currentValue("level")
+	def colorTemp = device.currentValue("colorTemperature")
+	if (colorTemp == null) { colorTemp = 0 }
+	psData["colTemp"] = colorTemp
+	state.bulbPresets << ["${psName}": psData]
+}
+
+def bulbPresetDelete(psName) {
+	psName = psName.trim()
+	logDebug("bulbPresetDelete: ${psName}")
+	def presets = state.bulbPresets
+	if (presets.toString().contains(psName)) {
+		presets.remove(psName)
+	} else {
+		logWarn("bulbPresetDelete: ${psName} is not a valid name.")
+	}
+}
+
+def bulbPresetSet(psName, transTime = transition_Time) {
+	psName = psName.trim()
+	transTime = 1000 * transTime.toInteger()
+	if (state.bulbPresets."${psName}") {
+		def psData = state.bulbPresets."${psName}"
+		logDebug("bulbPresetSet: ${psData}, transTime = ${transTime}")
+		def hue = psData.hue
+		if (highRes != true) {
+			hue = Math.round(0.49 + hue * 3.6).toInteger()
+		}
+		sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,"brightness":${psData.level},""" +
+				""""hue":${hue},"saturation":${psData.saturation},"transition_period":${transTime}}}}""")
+	} else {
+		logWarn("bulbPresetSet: ${psName} is not a valid name.")
+	}
+}
+
+//	===== Update Data =====
+def distResp(response) {
+	if (response["smartlife.iot.lightStrip"]) {
+		if (response["smartlife.iot.lightStrip"]."set_light_state") {
+			updateBulbData(response["smartlife.iot.lightStrip"]."set_light_state")
+			sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
+			pauseExecution(500)
+			if(emFunction) { getPower() }
+		} else {
+			def resp = response["smartlife.iot.lightStrip"]
+			logWarn("distResp: Invalid Return = ${resp}")
+		}
+	} else if (response.system) {
+		updateBulbData(response.system.get_sysinfo.light_state)
+		if(emFunction) { getPower() }
+	} else if (response["smartlife.iot.lighting_effect"]) {
+		parseEffect(response["smartlife.iot.lighting_effect"])
+	} else if (emFunction && response["smartlife.iot.common.emeter"]) {
+		def month = new Date().format("M").toInteger()
+		def emeterResp = response["smartlife.iot.common.emeter"]
+		if (emeterResp.get_realtime) {
+			setPower(emeterResp.get_realtime)
+		} else if (emeterResp.get_monthstat.month_list.find { it.month == month }) {
+			setEnergyToday(emeterResp.get_monthstat)
+		} else if (emeterResp.get_monthstat.month_list.find { it.month == month - 1 }) {
+			setLastMonth(emeterResp.get_monthstat)
+		} else {
+			logWarn("distResp: Unhandled response = ${response}")
+		}
+	} else if (response["smartlife.iot.common.cloud"]) {
+		setBindUnbind(response["smartlife.iot.common.cloud"])
+	} else if (response["smartlife.iot.common.system"]) {
+		logWarn("distResp: Rebooting device")
+	} else {
+		logWarn("distResp: Unhandled response = ${response}")
+	}
+	resetCommsError()
+}
+
+def updateBulbData(status) {
+	logDebug("updateBulbData: ${status}")
+	if (status.err_code && status.err_code != 0) {
+		logWarn("updateBulbData: ${status.err_msg}")
+		return
+	}
+	def deviceStatus = [:]
+	def onOff = "on"
+	if (status.on_off == 0) { onOff = "off" }
+	deviceStatus << ["power" : onOff]
+	def isChange = "false"
+	if (device.currentValue("switch") != onOff) {
+		sendEvent(name: "switch", value: onOff, type: "digital")
+		isChange = "true"
+	}
+	if (onOff == "on") {
+		def color = [:]
+		def hue = status.hue
+		def saturation = status.saturation
+		def level = status.brightness
+		if (status.groups) {
+			hue = status.groups[0][2]
+			saturation = status.groups[0][3]
+			level = status.groups[0][4]
+		}
+		if (highRes != true) { hue = (hue.toInteger() / 3.6).toInteger() }
+		color << ["hue" : hue]
+		color << ["saturation" : saturation]
+		color << ["level" : level]
+		def colorName = getColorName(hue)
+		if (device.currentValue("color") != color) {
+			isChange = "true"
+			sendEvent(name: "hue", value: hue)
+			sendEvent(name: "level", value: level, unit: "%")
+			sendEvent(name: "saturation", value: saturation)
+			sendEvent(name: "color", value: color)
+		    sendEvent(name: "colorName", value: colorName)
+		}
+	}
+	if (isChange == true) {
+		logInfo("updateBulbData: Status = ${deviceStatus}")
+	}
+}
+
+def getColorName(hue){
 	logDebug("setRgbData: hue = ${hue} // highRes = ${highRes}")
-	state.lastHue = hue
-	state.lastSaturation = saturation
-	if (highRes != true) { hue = (hue * 3.6).toInteger() }
+	hue = (hue * 3.6).toInteger()
     def colorName
 	switch (hue){
 		case 0..15: colorName = "Red"
@@ -1287,14 +1047,7 @@ def setRgbData(hue, saturation){
 			logWarn("setRgbData: Unknown.")
 			colorName = "Unknown"
     }
-	if (device.currentValue("colorMode") != "RGB") {
- 		sendEvent(name: "colorMode", value: "RGB")
-		logInfo("setRgbData: Color Mode is RGB")
-	}
-	if (device.currentValue("colorName") != colorName) {
-	    sendEvent(name: "colorName", value: colorName)
-		logInfo("setRgbData: Color name is ${colorName}.")
-	}
+	return colorName
 }
 
 //	End of File
