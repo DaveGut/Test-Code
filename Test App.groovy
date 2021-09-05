@@ -631,8 +631,7 @@ def resetStates(deviceNetworkId) {
 	devices.each {
 		def type = it.value.type
 		def dni = it.value.dni
-		if (type == "Kasa Light Strip" || type == "Kasa Color Bulb") {
-//		if (type == "Kasa Light Strip") {
+		if (type == "Kasa Light Strip") {
 			def child = getChildDevice(dni)
 			if (child && dni != deviceNetworkId) {
 log.trace "$type || $dni"
@@ -648,8 +647,7 @@ def syncEffectPreset(effData, deviceNetworkId) {
 	devices.each {
 		def type = it.value.type
 		def dni = it.value.dni
-		if (type == "Kasa Light Strip" || type == "Kasa Color Bulb") {
-//		if (type == "Kasa Light Strip") {
+		if (type == "Kasa Light Strip") {
 			def child = getChildDevice(dni)
 			if (child && dni != deviceNetworkId) {
 log.trace "$type || $dni"
