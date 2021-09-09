@@ -6,25 +6,29 @@ License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaD
 
 Changes since version 6:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/Version%206%20Change%20Log.md
 
-===== Version 6.3.2) =====
-	a.  Drivers (plugs and switches):
-		1.	Add LED On/Off commands. Add attribute led to reflect state
-		2.	Remove LED On/Off Preference.
-	b.	Drivers (all).  change attribute "commsError" to string with values "true" and "false".
-		Allows use with Rule Machine.
-07.28.21	6.3.3	Fixes to LED ON/Off Functions (Swiches/Plugs Only).
+===== Version 6.4.0) =====
+1.  New driver for Light Strips.  Includes new functions:
+	a.	Effect Presets - Save current strip effect.  Delete saved effect (by name).
+		Set a save effect to the strip's active effect.
+	b.	Bulb Presets.  Works on current color attributes.  Save, Delete, and Set
+	c.	Preference Sync Effect Presets.  Sets the effect presets for other strips
+		to match current strip.
+	d.	Preference Sync Bulb Preset Data. Sets the bulb presets for other strips 
+		to match current strip.
+	e.	Limitation: Light Strips and the driver do not support Color Temperature.
+2.	Updated Color Bulb driver.  Added Bulb Presets and preference Sync Bulb Data.
+3.	General update: Clean up installation and save preferences process.
 ===================================================================================================*/
-def driverVer() { return "6.3.3" }
+def driverVer() { return "6.4.0.1" }
 def type() { return "Light Strip" }
-def engMon() { return true }
 def file() { return type().replaceAll(" ", "") }
 import groovy.json.JsonSlurper
 
 metadata {
-	definition (name: "Kasa ${type()}",
+	definition (name: "Kasa Light Strip",
 				namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/${file()}.groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/LightStrip.groovy"
 			   ) {
         capability "Light"
 		capability "Switch"
@@ -117,7 +121,7 @@ metadata {
 //	===== Code common to all drivers =====
 //	======================================
 def installed() {
-	def message = "Installing new device."
+	logInfo("Installing Device...")
 	state.errorCount = 0
 	if (parent.useKasaCloud) {
 		logInfo("install: Installing as CLOUD device.")
@@ -177,53 +181,6 @@ logTrace("updated: ${syncEffectPresets()}")
 logTrace("updated: ${syncBulbPresets()}")
 	}
 	runIn(3, refresh)
-}
-
-//	===== Preset Sync Functions =====
-def syncEffectPresets() {
-	device.updateSetting("syncEffects", [type:"bool", value: false])
-	parent.resetStates(device.deviceNetworkId)
-	state.effectPresets.each{
-		def effData = it
-		parent.syncEffectPreset(effData, device.deviceNetworkId)
-		pauseExecution(1000)
-	}
-	return "Synching Event Presets with all Kasa Light Strips."
-}
-
-def resetStates() {
-logTrace("resetStates")
-	state.effectPresets = []
-	state.effectsList =  ["updating"]
-}
-
-def updateEffectPreset(effData) {
-	logDebug("updateEffectPreset: ${effData.name}")
-logTrace("updateEffectPreset: ${effData.name}")
-	state.effectsList << effData.name
-	state.effectPresets << effData
-	runIn(5, updateCleanup)
-}
-
-def updateCleanup() {
-	state.effectsList.remove(0)
-	logDebug("updateCleanup: ${state.effectsList}")
-logTrace("updateCleanup: ${state.effectsList}")
-}
-
-
-
-
-def syncBulbPresets() {
-	device.updateSetting("syncBulbs", [type:"bool", value: false])
-	parent.syncBulbPresets(state.bulbPresets)
-	return "Synching Bulb Presets with all Kasa Bulbs."
-}
-
-def updatePresets(bulbPresets) {
-	logDebug("updatePresets: Preset Bulb Data: ${bulbPresets}.")
-logTrace("updatePresets: Preset Bulb Data: ${bulbPresets}.")
-	state.bulbPresets = bulbPresets
 }
 
 //	===== Energy Monitor Functions =====
@@ -379,6 +336,7 @@ def sendCmd(command) {
 
 def sendLanCmd(command) {
 	logDebug("sendLanCmd: command = ${command}")
+logTrace("sendLanCmd: command = ${command}")
 	state.lastLanCmd = command
 	def myHubAction = new hubitat.device.HubAction(
 		outputXOR(command),
@@ -476,6 +434,44 @@ def resetCommsError() {
 		state.remove("commsErrorText")
 	}
 	state.errorCount = 0
+}
+
+def distResp(response) {
+	if (response["smartlife.iot.lightStrip"]) {
+		if (response["smartlife.iot.lightStrip"]."set_light_state") {
+			updateBulbData(response["smartlife.iot.lightStrip"]."set_light_state")
+			sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
+			pauseExecution(500)
+			if(emFunction) { getPower() }
+		} else {
+			def resp = response["smartlife.iot.lightStrip"]
+			logWarn("distResp: Invalid Return = ${resp}")
+		}
+	} else if (response.system) {
+		updateBulbData(response.system.get_sysinfo.light_state)
+		if(emFunction) { getPower() }
+	} else if (response["smartlife.iot.lighting_effect"]) {
+		parseEffect(response["smartlife.iot.lighting_effect"])
+	} else if (emFunction && response["smartlife.iot.common.emeter"]) {
+		def month = new Date().format("M").toInteger()
+		def emeterResp = response["smartlife.iot.common.emeter"]
+		if (emeterResp.get_realtime) {
+			setPower(emeterResp.get_realtime)
+		} else if (emeterResp.get_monthstat.month_list.find { it.month == month }) {
+			setEnergyToday(emeterResp.get_monthstat)
+		} else if (emeterResp.get_monthstat.month_list.find { it.month == month - 1 }) {
+			setLastMonth(emeterResp.get_monthstat)
+		} else {
+			logWarn("distResp: Unhandled response = ${response}")
+		}
+	} else if (response["smartlife.iot.common.cloud"]) {
+		setBindUnbind(response["smartlife.iot.common.cloud"])
+	} else if (response["smartlife.iot.common.system"]) {
+		logWarn("distResp: Rebooting device")
+	} else {
+		logWarn("distResp: Unhandled response = ${response}")
+	}
+	resetCommsError()
 }
 
 //	===== Preference Methods =====
@@ -665,10 +661,40 @@ def setCommsData(commsType) {
 	pauseExecution(1000)
 }
 
-def ledOnOff() {
-	sendCmd("""{"system":{"set_led_off":{"off":${ledStatus}}}}""")
-	pauseExecution(2000)
-	return "Setting Led off to ${ledStatus}."
+//	===== Preset Sync Functions =====
+def syncEffectPresets() {
+	device.updateSetting("syncEffects", [type:"bool", value: false])
+	parent.resetStates(device.deviceNetworkId)
+	state.effectPresets.each{
+		def effData = it
+		parent.syncEffectPreset(effData, device.deviceNetworkId)
+		pauseExecution(1000)
+	}
+	return "Synching Event Presets with all Kasa Light Strips."
+}
+
+def resetStates() {
+	state.effectPresets = []
+	state.effectsList =  ["updating"]
+}
+
+def updateEffectPreset(effData) {
+	logDebug("updateEffectPreset: ${effData.name}")
+	state.effectsList << effData.name
+	state.effectPresets << effData
+	runIn(5, updateCleanup)
+}
+
+def syncBulbPresets() {
+	device.updateSetting("syncBulbs", [type:"bool", value: false])
+//	runIn(1, sendBulbPresets)
+	parent.syncBulbPresets(state.bulbPresets, type())
+	return "Synching Bulb Presets with all Kasa Bulbs."
+}
+
+def updatePresets(bulbPresets) {
+	logDebug("updatePresets: Preset Bulb Data: ${bulbPresets}.")
+	state.bulbPresets = bulbPresets
 }
 
 //	===== Utility Methods =====
@@ -813,7 +839,7 @@ def setColor(Map color) {
         return
     }
 	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,"brightness":${level},""" +
-			""""hue":${hue},"saturation":${saturation},"transition_period":${transTime}}}}""")
+			""""color_temp":0,"hue":${hue},"saturation":${saturation},"transition_period":${transTime}}}}""")
 }
 
 def refresh() {
@@ -861,7 +887,7 @@ def effectSet(effName) {
 def parseEffect(resp) {
 	if (resp.get_lighting_effect) {
 		def effData = resp.get_lighting_effect
-		logDebug("parseEffect: ${state.createEffect} || ${effData}")
+		logDebug("parseEffect: ${effData}")
 		def effName = effData.name
 		sendEvent(name: "effectName", value: effName)
 		def enabled = false
@@ -890,7 +916,6 @@ def parseEffect(resp) {
 def bulbPresetCreate(psName) {
 	if (!state.bulbPresets) { state.bulbPresets = [:] }
 	psName = psName.trim()
-	logDebug("bulbPresetCreate: ${psName}")
 	def psData = [:]
 	psData["hue"] = device.currentValue("hue")
 	psData["saturation"] = device.currentValue("saturation")
@@ -898,12 +923,15 @@ def bulbPresetCreate(psName) {
 	def colorTemp = device.currentValue("colorTemperature")
 	if (colorTemp == null) { colorTemp = 0 }
 	psData["colTemp"] = colorTemp
+	logDebug("bulbPresetCreate: ${psName}, ${psData}")
+logTrace("bulbPresetCreate: ${psName}, ${psData}")
 	state.bulbPresets << ["${psName}": psData]
 }
 
 def bulbPresetDelete(psName) {
 	psName = psName.trim()
 	logDebug("bulbPresetDelete: ${psName}")
+logTrace("bulbPresetDelete: ${psName}")
 	def presets = state.bulbPresets
 	if (presets.toString().contains(psName)) {
 		presets.remove(psName)
@@ -918,58 +946,22 @@ def bulbPresetSet(psName, transTime = transition_Time) {
 	if (state.bulbPresets."${psName}") {
 		def psData = state.bulbPresets."${psName}"
 		logDebug("bulbPresetSet: ${psData}, transTime = ${transTime}")
+logTrace("bulbPresetSet: ${psData}, transTime = ${transTime}")
 		def hue = psData.hue
 		if (highRes != true) {
 			hue = Math.round(0.49 + hue * 3.6).toInteger()
 		}
 		sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,"brightness":${psData.level},""" +
-				""""hue":${hue},"saturation":${psData.saturation},"transition_period":${transTime}}}}""")
+				""""hue":${hue},"color_temp":0,"saturation":${psData.saturation},"transition_period":${transTime}}}}""")
 	} else {
 		logWarn("bulbPresetSet: ${psName} is not a valid name.")
 	}
 }
 
 //	===== Update Data =====
-def distResp(response) {
-	if (response["smartlife.iot.lightStrip"]) {
-		if (response["smartlife.iot.lightStrip"]."set_light_state") {
-			updateBulbData(response["smartlife.iot.lightStrip"]."set_light_state")
-			sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""")
-			pauseExecution(500)
-			if(emFunction) { getPower() }
-		} else {
-			def resp = response["smartlife.iot.lightStrip"]
-			logWarn("distResp: Invalid Return = ${resp}")
-		}
-	} else if (response.system) {
-		updateBulbData(response.system.get_sysinfo.light_state)
-		if(emFunction) { getPower() }
-	} else if (response["smartlife.iot.lighting_effect"]) {
-		parseEffect(response["smartlife.iot.lighting_effect"])
-	} else if (emFunction && response["smartlife.iot.common.emeter"]) {
-		def month = new Date().format("M").toInteger()
-		def emeterResp = response["smartlife.iot.common.emeter"]
-		if (emeterResp.get_realtime) {
-			setPower(emeterResp.get_realtime)
-		} else if (emeterResp.get_monthstat.month_list.find { it.month == month }) {
-			setEnergyToday(emeterResp.get_monthstat)
-		} else if (emeterResp.get_monthstat.month_list.find { it.month == month - 1 }) {
-			setLastMonth(emeterResp.get_monthstat)
-		} else {
-			logWarn("distResp: Unhandled response = ${response}")
-		}
-	} else if (response["smartlife.iot.common.cloud"]) {
-		setBindUnbind(response["smartlife.iot.common.cloud"])
-	} else if (response["smartlife.iot.common.system"]) {
-		logWarn("distResp: Rebooting device")
-	} else {
-		logWarn("distResp: Unhandled response = ${response}")
-	}
-	resetCommsError()
-}
-
 def updateBulbData(status) {
 	logDebug("updateBulbData: ${status}")
+logTrace("updateBulbData: ${status}")
 	if (status.err_code && status.err_code != 0) {
 		logWarn("updateBulbData: ${status.err_msg}")
 		return
@@ -978,10 +970,10 @@ def updateBulbData(status) {
 	def onOff = "on"
 	if (status.on_off == 0) { onOff = "off" }
 	deviceStatus << ["power" : onOff]
-	def isChange = "false"
+	def isChange = false
 	if (device.currentValue("switch") != onOff) {
 		sendEvent(name: "switch", value: onOff, type: "digital")
-		isChange = "true"
+		isChange = true
 	}
 	if (onOff == "on") {
 		def color = [:]
@@ -997,9 +989,10 @@ def updateBulbData(status) {
 		color << ["hue" : hue]
 		color << ["saturation" : saturation]
 		color << ["level" : level]
+		deviceStatus << ["color" : color]
 		def colorName = getColorName(hue)
 		if (device.currentValue("color") != color) {
-			isChange = "true"
+		isChange = true
 			sendEvent(name: "hue", value: hue)
 			sendEvent(name: "level", value: level, unit: "%")
 			sendEvent(name: "saturation", value: saturation)
