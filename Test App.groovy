@@ -6,15 +6,18 @@ License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaD
 
 Changes since version 6:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/Version%206%20Change%20Log.md
 
-===== Version 6.3.2) =====
-Fixed token acquisition method eliminate system-generated error.
-07.28.21	6.3.3	Fixes to LED ON/Off Functions (Swiches/Plugs Only).
+===== Version 6.4.0.5 =====
+1.	Added support for independent Light Strip driver
+2.	Added child-parent comms for
+	a.	Sync Effect Preset Data (Light Strip)
+	b.	Sync Bulb Preset Data (Light Strip, Color Bulb)
 ===================================================================================================*/
-def appVersion() { return "6.3.3" }
+def appVersion() { return "6.4.0" }
+def rel() { return "5" }
 import groovy.json.JsonSlurper
 
 definition(
-	name: "New Kasa Integration",
+	name: "Kasa Integration",
 	namespace: "davegut",
 	author: "Dave Gutheinz",
 	description: "Application to install TP-Link bulbs, plugs, and switches.",
@@ -53,7 +56,7 @@ def uninstalled() {
 }
 
 def startPage() {
-	logInfo("starting Kasa Integration, Version ${appVersion()}")
+	logInfo("starting Kasa Integration")
 	if (selectedRemoveDevices) { removeDevices() }
 	if (selectedAddDevices) { addDevices() }
 	if (!ver600) {
@@ -70,15 +73,19 @@ def startPage() {
 		app?.updateSetting("ver600", [type:"bool", value: true])
 	}
 	if (!debugLog) { app.updateSetting("debugLog", false) }
+	def segments
 	if (!lanSegment) {
 		def hub = location.hubs[0]
 		def hubIpArray = hub.localIP.split('\\.')
-		def networkPrefix = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
-		app?.updateSetting("lanSegment", [type:"string", value: networkPrefix])
+		segments = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
+		app?.updateSetting("lanSegment", [type:"string", value: segments])
+	} else {
+		segments = lanSegment
 	}
+	state.segArray = segments.split('\\,')
 
 	return dynamicPage(name:"startPage",
-					   title:"<b>Kasa Local Hubitat Integration, Version ${appVersion()}</b>",
+					   title:"<b>Kasa Local Hubitat Integration, Version ${appVersion()}-rel${rel()}</b>",
 					   uninstall: true,
 					   install: true) {
 		section() {
@@ -89,16 +96,10 @@ def startPage() {
 			if (showInstructions == true) {
 				paragraph "<textarea rows=19 cols=66 readonly='true'>${stPgIns()}</textarea>"
 			}
-			input "altLanSegment", "bool",
-				title: "<b>Use Alternate LAN Segment</b>",
-				submitOnChange: true,
-				defaultalue: false
-			if (altLanSegment == true) {
-				input "lanSegment", "string",
-					title: "<b>Alternate Lan Segment.</b>",
-					description: "Select if your devices and Hub are on different LAN segments",
-					submitOnChange: true
-			}
+			input "lanSegment", "string",
+				title: "<b>Lan Segments</b>",
+				description: "Select if your devices and Hub are on different LAN segments",
+				submitOnChange: true
 			input "useKasaCloud", "bool",
 				title: "<b>Interface to Kasa Cloud</b>",
 				description: "Use if you want to use the Kasa Cloud as an alternate control method",
@@ -130,23 +131,35 @@ def startPage() {
 	}
 }
 
+def createSegArray() {
+	def segments
+	if (!lanSegment) {
+		def hub = location.hubs[0]
+		def hubIpArray = hub.localIP.split('\\.')
+		segments = [hubIpArray[0],hubIpArray[1],hubIpArray[2]].join(".")
+		app?.updateSetting("lanSegment", [type:"string", value: segments])
+	} else {
+		segments = lanSegment
+	}
+	state.segArray = segments.split('\\,')
+}
+
 //	Get Kasa Cloud Credentials
 def kasaAuthenticationPage() {
 	logDebug("kasaAuthenticationPage")
 	return dynamicPage (name: "kasaAuthenticationPage", 
-    					title: "Initial Kasa Login Page, Version ${appVersion()}",
+    					title: "Initial Kasa Login Page, Version ${appVersion()}-rel${rel()}",
 						nextPage: startPage,
                         install: false) {
         section("Enter Kasa Account Credentials: ") {
-			input ("userName", "email", 
+			input ("userName", "email",
             		title: "TP-Link Kasa Email Address", 
-                    required: true, 
+                    required: true,
                     submitOnChange: true)
-			input ("userPassword", "password", 
-            		title: "TP-Link Kasa Account Password", 
-                    required: true, 
+			input ("userPassword", "password",
+            		title: "TP-Link Kasa Account Password",
+                    required: true,
                     submitOnChange: true)
-//			if (userName != null && userPassword != null) {
 			if (userName && userPassword && userName != null && userPassword != null) {
 				href "getToken", title: "Get or Update Kasa Token", description: "Tap to Get Kasa Token"
             }
@@ -182,7 +195,7 @@ def getToken() {
 			logInfo(message)
 			return resp.data.result.token
 		} else {
-			message += "getToken: Error obtaining token from Kasa Cloud."
+			message += "getToken: Error obtaining token from Kasa Cloud. Message = ${resp.data.msg}"
 			logWarn(message)
 		}
 	}
@@ -205,6 +218,7 @@ def addDevicesPage() {
 			requiredDrivers["${it.value.type}"] = "${it.value.type}"
 		}
 	}
+	
 	def reqDrivers = "1.\t<b>Ensure the following drivers are installed:</b>"
 	requiredDrivers.each {
 		reqDrivers += "\n\t\t${it.key}"
@@ -213,7 +227,7 @@ def addDevicesPage() {
 	pageInstructions += "${reqDrivers}\n"
 	pageInstructions += "2.\t<b>Assign Static IP Addresses.</b>"
 	return dynamicPage(name:"addDevicesPage",
-					   title: "Add Kasa Devices to Hubitat, Version ${appVersion()}",
+					   title: "Add Kasa Devices to Hubitat, Version ${appVersion()}-rel${rel()}",
 					   nextPage: startPage,
 					   install: false) {
 	 	section() {
@@ -257,7 +271,7 @@ def addDevices() {
 			} catch (error) {
 				logWarn("Failed to install device." + 
 						"\nDevice: ${device}" +
-						"\n<b>Driver: Dev ${device.value.type}")
+						"\n<b>Driver: ${device.value.type}")
 			}
 		}
 		pauseExecution(3000)
@@ -283,7 +297,7 @@ def removeDevicesPage() {
 					   title:"<b>Remove Kasa Devices from Hubitat</b>",
 					   nextPage: startPage,
 					   install: false) {
-		section("Select Devices to Remove from Hubitat, Version ${appVersion()}") {
+		section("Select Devices to Remove from Hubitat, Version ${appVersion()}-rel${rel()}") {
 			input ("selectedRemoveDevices", "enum",
 				   required: false,
 				   multiple: true,
@@ -313,11 +327,15 @@ def removeDevices() {
 
 //	Get Device Data Methods
 def findDevices() {
-	logInfo("findDevices: Searching for LAN deivces on IP Segment = ${lanSegment}")
-	for(int i = 2; i < 255; i++) {
-		def deviceIP = "${lanSegment}.${i.toString()}"
-		sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "parseLanData")
-		pauseExecution(25)
+	def pollSegment
+	state.segArray.each {
+		pollSegment = it.trim()
+		logInfo("findDevices: Searching for LAN deivces on IP Segment = ${pollSegment}")
+		for(int i = 2; i < 255; i++) {
+			def deviceIP = "${pollSegment}.${i.toString()}"
+			sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "parseLanData")
+			pauseExecution(25)
+		}
 	}
 	if (useKasaCloud == true) {
 		logInfo("findDevices: ${cloudGetDevices()}")
@@ -507,12 +525,16 @@ def fixConnection(type) {
 	if (type == "CLOUD") {
 		message += "Getting new token.  Value = ${getToken()}."
 	} else if (type == "LAN") {
-		for(int i = 2; i < 255; i++) {
-			def deviceIP = "${lanSegment}.${i.toString()}"
-			sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "updateDeviceIps")
-			pauseExecution(25)
+		def pollSegment
+		state.segArray.each {
+			pollSegment = it.trim()
+			logInfo("fixConnection: Updating IPs on segment = ${pollSegment}")
+			for(int i = 2; i < 255; i++) {
+				def deviceIP = "${pollSegment}.${i.toString()}"
+				sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "updateDeviceIps")
+				pauseExecution(25)
+			}
 		}
-		message += "Polled all IPs on segment ${lanSegment}."
 	}
 	return message
 }
@@ -548,7 +570,11 @@ private sendLanCmd(ip, command, action) {
 		 parseWarning: true,
 		 timeout: 3,
 		 callback: action])
-	sendHubCommand(myHubAction)
+	try {
+		sendHubCommand(myHubAction)
+	} catch (error) {
+		logWarn("sendLanCmd: command to ${ip} failed. Error = ${error}")
+	}
 }
 
 def sendKasaCmd(deviceId, command, appServerUrl = kasaCloudUrl) {
@@ -584,37 +610,13 @@ def sendKasaCmd(deviceId, command, appServerUrl = kasaCloudUrl) {
 	return cmdResponse
 }
 
-//	===== Coordinate between multiPlug =====
-def coordPoll(deviceId, plugNo, data) {
-	def devices = state.devices
-	devices.each {
-			def child = getChildDevice(it.value.dni)
-		if (child && it.value.plugNo != plugNo) {
-			child.coordPoll(data)
-		}
-	}
-}
-
-def coordinate(deviceId, plugNo, type, data) {
-	logDebug("coordinate: ${deviceId} / ${plugNo} / ${type} / ${data}")
-	def devices = state.devices
-	devices.each {
-		if (it.value.deviceId == deviceId) {
-			def child = getChildDevice(it.value.dni)
-			if (child) {
-				child.coord(type, data, plugNo)
-			}
-		}
-	}
-}
-
 //	===== Coordinate Bulb and Light Strip Preset Data =====
-def syncBulbPresets(bulbPresets) {
+def syncBulbPresets(bulbPresets, devType) {
 	logDebug("syncBulbPresets")
 	def devices = state.devices
 	devices.each {
 		def type = it.value.type
-		if (type == "Kasa Light Strip" || type == "Kasa Color Bulb") {
+		if (type == "Kasa ${devType}") {
 			def child = getChildDevice(it.value.dni)
 			if (child) {
 				child.updatePresets(bulbPresets)
@@ -622,8 +624,6 @@ def syncBulbPresets(bulbPresets) {
 		}
 	}
 }
-
-
 
 def resetStates(deviceNetworkId) {
 	logDebug("resetStates: ${deviceNetworkId}")
@@ -634,7 +634,6 @@ def resetStates(deviceNetworkId) {
 		if (type == "Kasa Light Strip") {
 			def child = getChildDevice(dni)
 			if (child && dni != deviceNetworkId) {
-log.trace "$type || $dni"
 				child.resetStates()
 			}
 		}
@@ -650,14 +649,28 @@ def syncEffectPreset(effData, deviceNetworkId) {
 		if (type == "Kasa Light Strip") {
 			def child = getChildDevice(dni)
 			if (child && dni != deviceNetworkId) {
-log.trace "$type || $dni"
 				child.updateEffectPreset(effData)
 			}
 		}
 	}
 }
 
-//	Utility Methods
+//	===== Coordinate between multi-plugs =====
+def coordinate(cType, coordData, deviceId, plugNo) {
+	logDebug("coordinate: ${cType}, ${coordData}, ${deviceId}, ${plugNo}")
+	def plugs = state.devices.findAll{ it.value.deviceId == deviceId }
+	plugs.each {
+		if (it.value.plugNo != plugNo) {
+			def child = getChildDevice(it.value.dni)
+			if (child) {
+				child.coordUpdate(cType, coordData)
+				pauseExecution(700)
+			}
+		}
+	}
+}
+
+//	===== Utility Methods =====
 private outputXOR(command) {
 	def str = ""
 	def encrCmd = ""
@@ -693,15 +706,15 @@ private Integer convertHexToInt(hex) { Integer.parseInt(hex,16) }
 
 def debugOff() { app.updateSetting("debugLog", false) }
 
-def logTrace(msg){ log.trace "[KasaInt/${appVersion()}] ${msg}" }
+def logTrace(msg){ log.trace "[KasaInt/${appVersion()}-rel${rel()}] ${msg}" }
 
 def logDebug(msg){
-	if(debugLog == true) { log.debug "[KasaInt/${appVersion()}]: ${msg}" }
+	if(debugLog == true) { log.debug "[KasaInt/${appVersion()}-rel${rel()}]: ${msg}" }
 }
 
-def logInfo(msg){ log.info "[KasaInt/${appVersion()}]: ${msg}" }
+def logInfo(msg){ log.info "[KasaInt/${appVersion()}-rel${rel()}]: ${msg}" }
 
-def logWarn(msg) { log.warn "[KasaInt/${appVersion()}]: ${msg}" }
+def logWarn(msg) { log.warn "[KasaInt/${appVersion()}-rel${rel()}]: ${msg}" }
 
 //	Page Instructions
 def stPgIns() {
