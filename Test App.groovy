@@ -13,7 +13,7 @@ Changes since version 6:  https://github.com/DaveGut/HubitatActive/blob/master/K
 	b.	Sync Bulb Preset Data (Light Strip, Color Bulb)
 ===================================================================================================*/
 def appVersion() { return "6.4.0" }
-def rel() { return "5" }
+def rel() { return "6" }
 import groovy.json.JsonSlurper
 
 definition(
@@ -34,7 +34,7 @@ preferences {
 	page(name: "kasaAuthenticationPage")
 	page(name: "addDevicesPage")
 	page(name: "removeDevicesPage")
-	page(name: "getToken")
+	page(name: "startGetToken")
 }
 
 def installed() { initialize() }
@@ -45,7 +45,7 @@ def initialize() {
 	logInfo("initialize")
 	unschedule()
 	if (useKasaCloud == true) {
-		schedule("0 30 2 ? * WED", getToken)
+		schedule("0 30 2 ? * WED", schedGetToken)
 	}
 }
 
@@ -161,11 +161,21 @@ def kasaAuthenticationPage() {
                     required: true,
                     submitOnChange: true)
 			if (userName && userPassword && userName != null && userPassword != null) {
-				href "getToken", title: "Get or Update Kasa Token", description: "Tap to Get Kasa Token"
-            }
+				href "startGetToken", title: "Get or Update Kasa Token", 
+					description: "Tap to Get Kasa Token"
+			}
 			paragraph "Select  '<'  at upper left corner to exit."
 		}
 	}
+}
+
+def startGetToken() {
+	logInfo("getTokenFromStart: Result = ${getToken()}")
+	startPage()
+}
+
+def schedGetToken() {
+	logInfo("schedGetToken: Result = ${getToken()}")
 }
 
 def getToken() {
@@ -191,15 +201,14 @@ def getToken() {
 	httpPostJson(getTokenParams) {resp ->
 		if (resp.status == 200 && resp.data.error_code == 0) {
 			app?.updateSetting("kasaToken", resp.data.result.token)
-			message += "getToken: TpLinkToken updated to ${resp.data.result.token}"
-			logInfo(message)
-			return resp.data.result.token
+			message = "Token updated to ${resp.data.result.token}"
 		} else {
-			message += "getToken: Error obtaining token from Kasa Cloud. Message = ${resp.data.msg}"
-			logWarn(message)
+			message = "Error obtaining token from Kasa Cloud. Message = ${resp.data.msg}"
+			logWarn("getToken: ${message}.")
 		}
 	}
-	startPage()
+	return message
+//	startPage()
 }
 
 //	Add Devices
@@ -282,8 +291,6 @@ def addDevices() {
 //	Remove Devices
 def removeDevicesPage() {
 	logDebug("removeDevicesPage")
-	state.devices = [:]
-	findDevices()
 	def devices = state.devices
 	def installedDevices = [:]
 	devices.each {
@@ -334,7 +341,8 @@ def findDevices() {
 		for(int i = 2; i < 255; i++) {
 			def deviceIP = "${pollSegment}.${i.toString()}"
 			sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "parseLanData")
-			pauseExecution(25)
+//			pauseExecution(25)
+			pauseExecution(100)
 		}
 	}
 	if (useKasaCloud == true) {
@@ -351,7 +359,7 @@ def cloudGetDevices() {
 	}
 	def cloudDevices = ""
 	def message = ""
-	def cloudUrl
+	def cloudUrl = ""
 	def cmdBody = [method: "getDeviceList"]
 	def getDevicesParams = [
 		uri: "https://wap.tplinkcloud.com?token=${kasaToken}",
@@ -486,7 +494,6 @@ def updateDevices(dni, ip, type, feature, model, alias, deviceId, plugNo, plugId
 	}
 	devices << ["${dni}" : device]
 	logInfo("updateDevices: ${type} ${alias} added to devices array.")
-	logDebug("updateDevices: ${alias} added to array. Data = ${device}")
 }
 
 def updateChildren() {
@@ -517,18 +524,19 @@ def fixConnection(type) {
 	logInfo("fixData: Update ${type} data")
 	def message = ""
 	if (pollEnable == false) {
-		message += "Unable to update data.  Updated in last 15 minutes."
+		message = "App fixConnection: Unable to update data.  Updated in last 15 minutes."
+		return message
 	} else {
 		runIn(900, pollEnable)
 		app?.updateSetting("pollEnabled", [type:"bool", value: false])
 	}
 	if (type == "CLOUD") {
-		message += "Getting new token.  Value = ${getToken()}."
+		message = "App fixConnection: Value = ${getToken()}."
 	} else if (type == "LAN") {
 		def pollSegment
+		message = "App fixConnection: Updating IPs on segments ${state.segArray}"
 		state.segArray.each {
 			pollSegment = it.trim()
-			logInfo("fixConnection: Updating IPs on segment = ${pollSegment}")
 			for(int i = 2; i < 255; i++) {
 				def deviceIP = "${pollSegment}.${i.toString()}"
 				sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "updateDeviceIps")
@@ -568,7 +576,8 @@ private sendLanCmd(ip, command, action) {
 		 destinationAddress: "${ip}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
 		 parseWarning: true,
-		 timeout: 3,
+		 timeout: 5,
+//		 timeout: 10,
 		 callback: action])
 	try {
 		sendHubCommand(myHubAction)
@@ -706,15 +715,15 @@ private Integer convertHexToInt(hex) { Integer.parseInt(hex,16) }
 
 def debugOff() { app.updateSetting("debugLog", false) }
 
-def logTrace(msg){ log.trace "[KasaInt/${appVersion()}-rel${rel()}] ${msg}" }
+def logTrace(msg){ log.trace "[KasaInt/${appVersion()}_R${rel()}] ${msg}" }
 
 def logDebug(msg){
-	if(debugLog == true) { log.debug "[KasaInt/${appVersion()}-rel${rel()}]: ${msg}" }
+	if(debugLog == true) { log.debug "[KasaInt/${appVersion()}_R${rel()}]: ${msg}" }
 }
 
-def logInfo(msg){ log.info "[KasaInt/${appVersion()}-rel${rel()}]: ${msg}" }
+def logInfo(msg){ log.info "[KasaInt/${appVersion()}_R${rel()}]: ${msg}" }
 
-def logWarn(msg) { log.warn "[KasaInt/${appVersion()}-rel${rel()}]: ${msg}" }
+def logWarn(msg) { log.warn "[KasaInt/${appVersion()}_R${rel()}]: ${msg}" }
 
 //	Page Instructions
 def stPgIns() {
