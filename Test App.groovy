@@ -236,7 +236,7 @@ def addDevicesPage() {
 	pageInstructions += "${reqDrivers}\n"
 	pageInstructions += "2.\t<b>Assign Static IP Addresses.</b>"
 	return dynamicPage(name:"addDevicesPage",
-					   title: "Add Kasa Devices to Hubitat, Version ${appVersion()}-rel${rel()}",
+					   title: "Add Kasa Devices to Hubitat, Version ${appVersion()}-R${rel()}",
 					   nextPage: startPage,
 					   install: false) {
 	 	section() {
@@ -244,7 +244,8 @@ def addDevicesPage() {
 			input ("selectedAddDevices", "enum",
 				   required: false,
 				   multiple: true,
-				   title: "Devices to add (${uninstalledDevices.size() ?: 0} available)",
+				   title: "Total Discovered deviced: ${devices.size() ?: 0}.  " +
+				   "Devices to add (${uninstalledDevices.size() ?: 0} available).",
 				   description: "Use the dropdown to select devices.  Then select 'Done'.",
 				   options: uninstalledDevices)
 		}
