@@ -13,7 +13,7 @@ Changes since version 6:  https://github.com/DaveGut/HubitatActive/blob/master/K
 	b.	Sync Bulb Preset Data (Light Strip, Color Bulb)
 ===================================================================================================*/
 def appVersion() { return "6.4.0" }
-def rel() { return "6" }
+def rel() { return "7" }
 import groovy.json.JsonSlurper
 
 definition(
@@ -34,6 +34,8 @@ preferences {
 	page(name: "kasaAuthenticationPage")
 	page(name: "addDevicesPage")
 	page(name: "removeDevicesPage")
+	page(name: "listDevicesByIp")
+	page(name: "listDevicesByName")
 	page(name: "startGetToken")
 }
 
@@ -118,11 +120,17 @@ def startPage() {
 				paragraph msg
 			}
 			href "addDevicesPage",
-				title: "<b>Install Kasa Devices / Update Installed Devices</b>",
-				description: "Installs newly detected Kasa Device."
+				title: "<b>Install Kasa Devices</b>",
+				description: "Installs newly detected Kasa Device"
 			href "removeDevicesPage",
 				title: "<b>Remove Kasa Devices</b>",
-				description: "Removes user selected Kasa Device."
+				description: "Removes user selected Kasa Device"
+			href "listDevicesByIp",
+				title: "<b>List All Kasa Devices by IP Address</b>",
+				description: "Finds devices and list by IP address. Also updates IP addresses."
+			href "listDevicesByName",
+				title: "<b>List All Kasa Devices by Name</b>",
+				description: "Finds devices and list by device name. Also updates IP addresses."
 			input "debugLog", "bool", 
 				title: "<b>Enable debug logging for 30 minutes</b>", 
 				submitOnChange: true,
@@ -223,11 +231,10 @@ def addDevicesPage() {
 	devices.each {
 		def isChild = getChildDevice(it.value.dni)
 		if (!isChild) {
-			uninstalledDevices["${it.value.dni}"] = "${it.value.alias} // ${it.value.type}"
+			uninstalledDevices["${it.value.dni}"] = "${it.value.alias}, ${it.value.type}"
 			requiredDrivers["${it.value.type}"] = "${it.value.type}"
 		}
 	}
-	
 	def reqDrivers = "1.\t<b>Ensure the following drivers are installed:</b>"
 	requiredDrivers.each {
 		reqDrivers += "\n\t\t${it.key}"
@@ -333,17 +340,76 @@ def removeDevices() {
 	app?.removeSetting("selectedRemoveDevices")
 }
 
+//	Update device IPs
+def listDevicesByIp() { 
+	logDebug("listDevicesByIp")
+	state.devices = [:]
+	findDevices()
+	def devices = state.devices
+	def deviceList = []
+	devices.each{
+		deviceList << "${it.value.ip}:   \t${it.value.alias}, ${it.value.type}"
+	}
+	log.trace deviceList
+	def theList = "<b>List of all Kasa Devices by device name</b>\n"
+	theList += "Total Kasa devices: ${devices.size() ?: 0}\n\n"
+	deviceList.each {
+		theList += "${it}\n"
+	}
+	return dynamicPage(name:"listDevicesByIp",
+					   title: "List Kasa Devices by IP Address, Version ${appVersion()}-R${rel()}",
+					   nextPage: startPage,
+					   install: false) {
+	 	section() {
+			paragraph theList
+		}
+	}
+}
+
+def listDevicesByName() { 
+	logDebug("listDevicesByName")
+	state.devices = [:]
+	findDevices()
+	def devices = state.devices
+	def deviceList = []
+	devices.each{
+		deviceList << "${it.value.alias.capitalize()},  ${it.value.type},  ${it.value.ip}"
+	}
+	deviceList.sort()
+	log.trace deviceList
+	def theList = "<b>List of all Kasa Devices by device name</b>\n"
+	theList += "Total Kasa devices: ${devices.size() ?: 0}\n\n"
+	deviceList.each {
+		theList += "${it}\n"
+	}
+	return dynamicPage(name:"listDevicesByName",
+					   title: "List Kasa Devices by DeviceName, Version ${appVersion()}-R${rel()}",
+					   nextPage: startPage,
+					   install: false) {
+	 	section() {
+			paragraph theList
+		}
+	}
+}
+
 //	Get Device Data Methods
 def findDevices() {
 	def pollSegment
 	state.segArray.each {
 		pollSegment = it.trim()
 		logInfo("findDevices: Searching for LAN deivces on IP Segment = ${pollSegment}")
+		def count = 0
 		for(int i = 2; i < 255; i++) {
+			count += 1
 			def deviceIP = "${pollSegment}.${i.toString()}"
 			sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "parseLanData")
-//			pauseExecution(25)
-			pauseExecution(100)
+			if (count == 50) {
+				count = 0
+//				log.warn "pausing for 10"
+				pauseExecution(10000)
+			} else {
+				pauseExecution(25)
+			}
 		}
 	}
 	if (useKasaCloud == true) {
@@ -402,14 +468,17 @@ def cloudGetDevices() {
 
 def parseLanData(response) {
 	def resp = parseLanMessage(response.description)
-	if (resp.type != "LAN_TYPE_UDPCLIENT") { return }
-	def clearResp = inputXOR(resp.payload)
-	if (clearResp.length() > 1022) {
-		clearResp = clearResp.substring(0,clearResp.indexOf("preferred")-2) + "}}}"
+	if (resp.type == "LAN_TYPE_UDPCLIENT") {
+		def clearResp = inputXOR(resp.payload)
+		if (clearResp.length() > 1022) {
+			clearResp = clearResp.substring(0,clearResp.indexOf("preferred")-2) + "}}}"
+		}
+		def ip = convertHexToIP(resp.ip)
+		def cmdResp = new JsonSlurper().parseText(clearResp).system.get_sysinfo
+		parseDeviceData(cmdResp, ip)
+	} else if (resp.type != "LAN_TYPE_UDPCLIENT_ERROR") {
+		logWarn("parseLanData: errorType = ${resp.type}, payload = ${resp.payload}")
 	}
-	def ip = convertHexToIP(resp.ip)
-	def cmdResp = new JsonSlurper().parseText(clearResp).system.get_sysinfo
-	parseDeviceData(cmdResp, ip)
 }
 
 def parseDeviceData(cmdResp, ip = null) {
@@ -577,8 +646,7 @@ private sendLanCmd(ip, command, action) {
 		 destinationAddress: "${ip}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
 		 parseWarning: true,
-		 timeout: 5,
-//		 timeout: 10,
+		 timeout: 10,
 		 callback: action])
 	try {
 		sendHubCommand(myHubAction)
