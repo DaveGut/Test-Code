@@ -408,7 +408,7 @@ def findDevices() {
 //				log.warn "pausing for 10"
 				pauseExecution(10000)
 			} else {
-				pauseExecution(25)
+				pauseExecution(50)
 			}
 		}
 	}
