@@ -13,7 +13,7 @@ Changes since version 6:  https://github.com/DaveGut/HubitatActive/blob/master/K
 	b.	Sync Bulb Preset Data (Light Strip, Color Bulb)
 ===================================================================================================*/
 def appVersion() { return "6.4.0" }
-def rel() { return "7" }
+def rel() { return "8" }
 import groovy.json.JsonSlurper
 
 definition(
@@ -340,7 +340,6 @@ def removeDevices() {
 	app?.removeSetting("selectedRemoveDevices")
 }
 
-//	Update device IPs
 def listDevicesByIp() { 
 	logDebug("listDevicesByIp")
 	state.devices = [:]
@@ -350,7 +349,6 @@ def listDevicesByIp() {
 	devices.each{
 		deviceList << "${it.value.ip}:   \t${it.value.alias}, ${it.value.type}"
 	}
-	log.trace deviceList
 	def theList = "<b>List of all Kasa Devices by device name</b>\n"
 	theList += "Total Kasa devices: ${devices.size() ?: 0}\n\n"
 	deviceList.each {
@@ -376,7 +374,6 @@ def listDevicesByName() {
 		deviceList << "${it.value.alias.capitalize()},  ${it.value.type},  ${it.value.ip}"
 	}
 	deviceList.sort()
-	log.trace deviceList
 	def theList = "<b>List of all Kasa Devices by device name</b>\n"
 	theList += "Total Kasa devices: ${devices.size() ?: 0}\n\n"
 	deviceList.each {
@@ -400,16 +397,15 @@ def findDevices() {
 		logInfo("findDevices: Searching for LAN deivces on IP Segment = ${pollSegment}")
 		def count = 0
 		for(int i = 2; i < 255; i++) {
-			count += 1
+//			count += 1
 			def deviceIP = "${pollSegment}.${i.toString()}"
 			sendLanCmd(deviceIP, """{"system":{"get_sysinfo":{}}}""", "parseLanData")
-			if (count == 50) {
-				count = 0
-//				log.warn "pausing for 10"
-				pauseExecution(10000)
-			} else {
-				pauseExecution(50)
-			}
+//			if (count == 50) {
+//				count = 0
+//				pauseExecution(5000)
+//			} else {
+				pauseExecution(100)
+//			}
 		}
 	}
 	if (useKasaCloud == true) {
@@ -646,7 +642,7 @@ private sendLanCmd(ip, command, action) {
 		 destinationAddress: "${ip}:9999",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING,
 		 parseWarning: true,
-		 timeout: 10,
+		 timeout: 7,
 		 callback: action])
 	try {
 		sendHubCommand(myHubAction)
