@@ -56,6 +56,7 @@ def on() {
 	state.tests = 0
 	state.successes = 0
 	logInfo("Starting Comms Test on IP ${deviceIp} using ${commsType}")
+	sendEvent(name: "switch", value: "on")
 	poll()
 	runEvery1Minute(poll)
 }
@@ -63,6 +64,7 @@ def off() {
 	unschedule()
 	interfaces.rawSocket.close()
 	logInfo("Stoping Comms Test. Tests = ${state.tests}, Successes = ${state.successes}")
+	sendEvent(name: "switch", value: "off")
 }
 def poll() {
 	state.tests += 1
@@ -188,6 +190,7 @@ def parse(message) {
 	if (message.length() > 8 && message.substring(0,4) == "0000") {
 		logDebug("parse: Success")
 		state.successes += 1
+		interfaces.rawSocket.close()
 	}
 }
 
