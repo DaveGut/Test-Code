@@ -1,1 +1,1 @@
-# DEPRECATED Local Hubitat-TP-Link-Integration CODE IS NOT CURRENT.
+# Test code based on user request.
