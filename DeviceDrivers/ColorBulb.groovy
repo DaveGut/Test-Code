@@ -17,7 +17,8 @@ def type() { return "Color Bulb" }
 def file() { return type().replaceAll(" ", "") }
 
 metadata {
-	definition (name: "Kasa ${type()}",
+//	definition (name: "Kasa ${type()}",
+	definition (name: "Kasa Color Bulb",
 				namespace: "davegut",
 				author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/${file()}.groovy"

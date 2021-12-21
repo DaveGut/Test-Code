@@ -23,7 +23,8 @@ def file() {
 }
 
 metadata {
-	definition (name: "Kasa ${type()}",
+//	definition (name: "Kasa ${type()}",
+	definition (name: "Kasa Plug Switch",
 				namespace: "davegut",
 				author: "Dave Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/${file()}.groovy"
