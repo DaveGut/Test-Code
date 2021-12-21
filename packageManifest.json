@@ -20,7 +20,7 @@
   "drivers": [
     {
       "id": "04d038f8-e362-4eef-b209-328cada4aa31",
-      "name": "Kasa Color Bulb}",
+      "name": "Kasa Color Bulb",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/Test-Code/master/DeviceDrivers/ColorBulb.groovy",
       "required": false
@@ -34,14 +34,14 @@
     },
     {
       "id": "1a3bff93-aac7-498f-bc5f-046953043ed3",
-      "name": "Kasa Plug Switch}",
+      "name": "Kasa Plug Switch",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/Test-Code/master/DeviceDrivers/Plug-Switch.groovy",
       "required": false
     },
     {
       "id": "bcb308e2-afc8-414c-b3f8-c887efaf98da",
-      "name": "Kasa Dimming Switch}",
+      "name": "Kasa Dimming Switch",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/Test-Code/master/DeviceDrivers/DimmingSwitch.groovy",
       "required": false
