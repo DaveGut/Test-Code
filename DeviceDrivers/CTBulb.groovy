@@ -3,78 +3,79 @@
 License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 6.5.1	Hot fix for loop in EM Month Stat Processing due to month = 1
 ===================================================================================================*/
-def type() { return "Light Strip" }
+//def type() { return "Color Bulb" }
+def type() { return "CT Bulb" }
+//def type() { return "Mono Bulb" }
+def file() { return type().replaceAll(" ", "") }
 def driverVer() { return "6.5.1" }
 
 metadata {
 	definition (name: "Kasa ${type()}",
 				namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/LightStrip.groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/${file()}.groovy"
 			   ) {
-        capability "Light"
+		capability "Light"
 		capability "Switch"
 		capability "Switch Level"
 		capability "Change Level"
- 		capability "Refresh"
+		capability "Refresh"
 		capability "Actuator"
-		capability "Color Temperature"
-		capability "Color Mode"
-		capability "Color Control"
-		capability "Light Effects"
-		command "effectSet", [[
-			name: "Name for effect.", 
-			type: "STRING"]]
-		command "effectCreate"
-		command "effectDelete", [[
-			name: "Name for effect to delete.", 
-			type: "STRING"]]
+		if (type() != "Mono Bulb") {
+			capability "Color Temperature"
+			command "setCircadian"
+			attribute "circadianState", "string"
+		}
+		if (type() == "Color Bulb") {
+			capability "Color Mode"
+			capability "Color Control"
+		}
 		command "setPollInterval", [[
 			name: "Poll Interval in seconds",
 			constraints: ["default", "5 seconds", "10 seconds", "15 seconds",
 						  "30 seconds", "1 minute", "5 minutes",  "10 minutes",
 						  "30 minutes"],
 			type: "ENUM"]]
+		//	EM Functions
 		capability "Power Meter"
 		capability "Energy Meter"
-		//	Psuedo Capability Energy Statistics
 		attribute "currMonthTotal", "number"
 		attribute "currMonthAvg", "number"
 		attribute "lastMonthTotal", "number"
 		attribute "lastMonthAvg", "number"
-		//	SCommunications Attributes
+		//	Communications
 		attribute "connection", "string"
 		attribute "commsError", "string"
 		//	Psuedo capability Light Presets
-		command "bulbPresetCreate", [[
-			name: "Name for preset.", 
-			type: "STRING"]]
-		command "bulbPresetDelete", [[
-			name: "Name for preset.", 
-			type: "STRING"]]
-		command "bulbPresetSet", [[
-			name: "Name for preset.", 
-			type: "STRING"],[
-			name: "Transition Time (seconds).", 
-			type: "STRING"]]
-		command "setRGB", [[
-			name: "red,green,blue", 
-			type: "STRING"]]
+		if (type() == "Color Bulb") {
+			command "bulbPresetCreate", [[
+				name: "Name for preset.", 
+				type: "STRING"]]
+			command "bulbPresetDelete", [[
+				name: "Name for preset.", 
+				type: "STRING"]]
+			command "bulbPresetSet", [[
+				name: "Name for preset.", 
+				type: "STRING"],[
+				name: "Transition Time (seconds).", 
+				type: "STRING"]]
+		}
 	}
-
 	preferences {
 		input ("debug", "bool",
-			   title: "Debug logging, 30 min.", 
+			   title: "30 minutes of debug logging", 
 			   defaultValue: false)
 		input ("emFunction", "bool", 
-				   title: "Enable Energy Monitor", 
+			   title: "Enable Energy Monitor", 
+			   defaultValue: false)
+		input ("transition_Time", "num",
+			   title: "Default Transition time (seconds)",
+			   defaultValue: 1)
+		if (type() == "Color Bulb") {
+			input ("syncBulbs", "bool",
+				   title: "Sync Bulb Preset Data",
 				   defaultValue: false)
-		input ("syncBulbs", "bool",
-			   title: "Sync Bulb Preset Data",
-			   defaultValue: false)
-		input ("syncEffects", "bool",
-			   title: "Sync Effect Preset Data",
-			   defaultValue: false)
+		}
 		input ("bind", "bool",
 			   title: "Kasa Cloud Binding",
 			   defalutValue: true)
@@ -89,7 +90,7 @@ metadata {
 						 "device" : "Kasa device name master", 
 						 "Hubitat" : "Hubitat label master"])
 		input ("rebootDev", "bool",
-			   title: "Reboot Device",
+			   title: "Reboot device <b>[Caution]</b>",
 			   defaultValue: false)
 	}
 }
@@ -97,8 +98,6 @@ metadata {
 def installed() {
 	def instStatus= installCommon()
 	state.bulbPresets = [:]
-	state.effectPresets = []
-	sendEvent(name: "lightEffects", value: [])
 	logInfo("installed: ${instStatus}")
 	runIn(2, updated)
 }
@@ -106,194 +105,102 @@ def installed() {
 def updated() {
 	def updStatus = updateCommon()
 	if (!state.bulbPresets) { state.bulbPresets = [:] }
-	if (!state.effectPresets) { state.effectPresets = [] }
 	if (transition_Time == null) {
 		device.updateSetting("transition_Time", [type:"number", value: 1])
 	}
+	updStatus << [transition_Time: "${transition_Time} seconds"]
 	if (syncBulbs) {
 		updStatus << [syncBulbs: syncBulbPresets()]
-	}
-	if (syncEffects) {
-		updStatus << [syncEffects: syncEffectPresets()]
 	}
 	logInfo("updated: ${updStatus}")
 	runIn(3, refresh)
 }
 
+def checkTransTime(transTime) {
+	if (transTime == null) { transTime = 0 }
+	else if (transTime > 9) { transTime = 9 }
+	transTime = 1000 * transTime.toInteger()
+	return transTime
+}
+
+def service() {
+	def service = "smartlife.iot.smartbulb.lightingservice"
+	if (getDataValue("feature") == "lightStrip") { service = "smartlife.iot.lightStrip" }
+	return service
+}
+
+def method() {
+	def method = "transition_light_state"
+	if (getDataValue("feature") == "lightStrip") { method = "set_light_state" }
+	return method
+}
+
 def on() {
-	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1}}}""")
+	def transTime = checkTransTime(transition_Time.toInteger())
+	sendCmd("""{"${service()}":""" +
+			"""{"${method()}":{"on_off":1,"transition_period":${transTime}}}}""")
 }
 
 def off() {
-	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":0}}}""")
+	def transTime = checkTransTime(transition_Time.toInteger())
+	sendCmd("""{"${service()}":""" +
+			"""{"${method()}":{"on_off":0,"transition_period":${transTime}}}}""")
 }
 
-def setLevel(level, transTime = 0) {
+def setLevel(level, transTime = transition_Time) {
 	if (level < 0) { level = 0 }
 	else if (level > 100) { level = 100 }
 	if (level == 0) {
 		off()
 	} else {
-		sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,""" +
-				""""brightness":${level}}}}""")
+		transTime = checkTransTime(transTime.toInteger())
+		sendCmd("""{"${service()}":""" +
+				"""{"${method()}":{"ignore_default":1,"on_off":1,""" +
+				""""brightness":${level},"transition_period":${transTime}}}}""")
 	}
 }
 
-def setColorTemperature(colorTemp, level = device.currentValue("level"), transTime = 0) {
+def setColorTemperature(colorTemp, level = device.currentValue("level"), transTime = transition_Time) {
+	if (level == null) { level = device.currentValue("level").toInteger() }
 	if (level < 0) { level = 0 }
 	else if (level > 100) { level = 100 }
 	if (level == 0) {
 		off()
 	} else {
-		if (colorTemp < 1000) { colorTemp = 1000 }
-		else if (colorTemp > 12000) { colorTemp = 12000 }
-		def hsvData = getCtHslValue(colorTemp)
-		state.currentCT = colorTemp
-		sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,""" +
-				""""on_off":1,"brightness":${level},"hue":${hsvData.hue},""" +
-				""""saturation":${hsvData.saturation}}}}""")
+		transTime = checkTransTime(transTime.toInteger())
+		def lowCt = 2500
+		def highCt = 9000
+		if (type() == "CT Bulb") {
+			lowCt = 2700
+			highCt = 6500
+		}
+		if (colorTemp < lowCt) { colorTemp = lowCt }
+		else if (colorTemp > highCt) { colorTemp = highCt }
+		sendCmd("""{"${service()}":{"${method()}":""" +
+				"""{"ignore_default":1,"on_off":1,"brightness":${level},"color_temp":${colorTemp},""" +
+				""""hue":0,"saturation":0,"transition_period":${transTime}}}}""")
 	}
 }
 
-def getCtHslValue(kelvin) {
-	kelvin = 100 * Math.round(kelvin / 100)
-	switch(kelvin) {
-		case 1000: rgb= [255, 56, 0]; break
-		case 1100: rgb= [255, 71, 0]; break
-		case 1200: rgb= [255, 83, 0]; break
-		case 1300: rgb= [255, 93, 0]; break
-		case 1400: rgb= [255, 101, 0]; break
-		case 1500: rgb= [255, 109, 0]; break
-		case 1600: rgb= [255, 115, 0]; break
-		case 1700: rgb= [255, 121, 0]; break
-		case 1800: rgb= [255, 126, 0]; break
-		case 1900: rgb= [255, 131, 0]; break
-		case 2000: rgb= [255, 138, 18]; break
-		case 2100: rgb= [255, 142, 33]; break
-		case 2200: rgb= [255, 147, 44]; break
-		case 2300: rgb= [255, 152, 54]; break
-		case 2400: rgb= [255, 157, 63]; break
-		case 2500: rgb= [255, 161, 72]; break
-		case 2600: rgb= [255, 165, 79]; break
-		case 2700: rgb= [255, 169, 87]; break
-		case 2800: rgb= [255, 173, 94]; break
-		case 2900: rgb= [255, 177, 101]; break
-		case 3000: rgb= [255, 180, 107]; break
-		case 3100: rgb= [255, 184, 114]; break
-		case 3200: rgb= [255, 187, 120]; break
-		case 3300: rgb= [255, 190, 126]; break
-		case 3400: rgb= [255, 193, 132]; break
-		case 3500: rgb= [255, 196, 137]; break
-		case 3600: rgb= [255, 199, 143]; break
-		case 3700: rgb= [255, 201, 148]; break
-		case 3800: rgb= [255, 204, 153]; break
-		case 3900: rgb= [255, 206, 159]; break
-		case 4000: rgb= [100, 209, 200]; break
-		case 4100: rgb= [255, 211, 168]; break
-		case 4200: rgb= [255, 213, 173]; break
-		case 4300: rgb= [255, 215, 177]; break
-		case 4400: rgb= [255, 217, 182]; break
-		case 4500: rgb= [255, 219, 186]; break
-		case 4600: rgb= [255, 221, 190]; break
-		case 4700: rgb= [255, 223, 194]; break
-		case 4800: rgb= [255, 225, 198]; break
-		case 4900: rgb= [255, 227, 202]; break
-		case 5000: rgb= [255, 228, 206]; break
-		case 5100: rgb= [255, 230, 210]; break
-		case 5200: rgb= [255, 232, 213]; break
-		case 5300: rgb= [255, 233, 217]; break
-		case 5400: rgb= [255, 235, 220]; break
-		case 5500: rgb= [255, 236, 224]; break
-		case 5600: rgb= [255, 238, 227]; break
-		case 5700: rgb= [255, 239, 230]; break
-		case 5800: rgb= [255, 240, 233]; break
-		case 5900: rgb= [255, 242, 236]; break
-		case 6000: rgb= [255, 243, 239]; break
-		case 6100: rgb= [255, 244, 242]; break
-		case 6200: rgb= [255, 245, 245]; break
-		case 6300: rgb= [255, 246, 247]; break
-		case 6400: rgb= [255, 248, 251]; break
-		case 6500: rgb= [255, 249, 253]; break
-		case 6600: rgb= [254, 249, 255]; break
-		case 6700: rgb= [252, 247, 255]; break
-		case 6800: rgb= [249, 246, 255]; break
-		case 6900: rgb= [247, 245, 255]; break
-		case 7000: rgb= [245, 243, 255]; break
-		case 7100: rgb= [243, 242, 255]; break
-		case 7200: rgb= [240, 241, 255]; break
-		case 7300: rgb= [239, 240, 255]; break
-		case 7400: rgb= [237, 239, 255]; break
-		case 7500: rgb= [235, 238, 255]; break
-		case 7600: rgb= [233, 237, 255]; break
-		case 7700: rgb= [231, 236, 255]; break
-		case 7800: rgb= [230, 235, 255]; break
-		case 7900: rgb= [228, 234, 255]; break
-		case 8000: rgb= [227, 233, 255]; break
-		case 8100: rgb= [225, 232, 255]; break
-		case 8200: rgb= [224, 231, 255]; break
-		case 8300: rgb= [222, 230, 255]; break
-		case 8400: rgb= [221, 230, 255]; break
-		case 8500: rgb= [220, 229, 255]; break
-		case 8600: rgb= [218, 229, 255]; break
-		case 8700: rgb= [217, 227, 255]; break
-		case 8800: rgb= [216, 227, 255]; break
-		case 8900: rgb= [215, 226, 255]; break
-		case 9000: rgb= [214, 225, 255]; break
-		case 9100: rgb= [212, 225, 255]; break
-		case 9200: rgb= [211, 224, 255]; break
-		case 9300: rgb= [210, 223, 255]; break
-		case 9400: rgb= [209, 223, 255]; break
-		case 9500: rgb= [208, 222, 255]; break
-		case 9600: rgb= [207, 221, 255]; break
-		case 9700: rgb= [207, 221, 255]; break
-		case 9800: rgb= [206, 220, 255]; break
-		case 9900: rgb= [205, 220, 255]; break
-		case 10000: rgb= [207, 218, 255]; break
-		case 10100: rgb= [207, 218, 255]; break
-		case 10200: rgb= [206, 217, 255]; break
-		case 10300: rgb= [205, 217, 255]; break
-		case 10400: rgb= [204, 216, 255]; break
-		case 10500: rgb= [204, 216, 255]; break
-		case 10600: rgb= [203, 215, 255]; break
-		case 10700: rgb= [202, 215, 255]; break
-		case 10800: rgb= [202, 214, 255]; break
-		case 10900: rgb= [201, 214, 255]; break
-		case 11000: rgb= [200, 213, 255]; break
-		case 11100: rgb= [200, 213, 255]; break
-		case 11200: rgb= [199, 212, 255]; break
-		case 11300: rgb= [198, 212, 255]; break
-		case 11400: rgb= [198, 212, 255]; break
-		case 11500: rgb= [197, 211, 255]; break
-		case 11600: rgb= [197, 211, 255]; break
-		case 11700: rgb= [197, 210, 255]; break
-		case 11800: rgb= [196, 210, 255]; break
-		case 11900: rgb= [195, 210, 255]; break
-		case 12000: rgb= [195, 209, 255]; break
-		default:
-			logWarn("setRgbData: Unknown.")
-			colorName = "Unknown"
-	}
-	def hsvData = hubitat.helper.ColorUtils.rgbToHSV([rgb[0].toInteger(), rgb[1].toInteger(), rgb[2].toInteger()])
-	def hue = (0.5 + hsvData[0]).toInteger()
-	def saturation = (0.5 + hsvData[1]).toInteger()
-	def level = (0.5 + hsvData[2]).toInteger()
-	def hslData = [
-		hue: hue,
-		saturation: saturation,
-		level: level
-		]
-	return hslData
+def setCircadian() {
+	sendCmd("""{"${service()}":""" +
+			"""{"${method()}":{"mode":"circadian"}}}""")
 }
 
-def setHue(hue) { setColor([hue: hue]) }
+def setHue(hue) {
+	setColor([hue: hue])
+}
 
-def setSaturation(saturation) { setColor([saturation: saturation]) }
+def setSaturation(saturation) {
+	setColor([saturation: saturation])
+}
 
-def setColor(Map color) {
+def setColor(Map color, transTime = transition_Time) {
 	if (color == null) {
 		LogWarn("setColor: Color map is null. Command not executed.")
 		return
 	}
+	transTime = checkTransTime(transTime.toInteger())
 	def level = device.currentValue("level")
 	if (color.level) { level = color.level }
 	def hue = device.currentValue("hue")
@@ -305,24 +212,9 @@ def setColor(Map color) {
 		logWarn("setColor: Entered hue, saturation, or level out of range! (H:${hue}, S:${saturation}, L:${level}")
         return
     }
-	state.currentCT = 0
-	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,""" +
-			""""on_off":1,"brightness":${level},"hue":${hue},"saturation":${saturation}}}}""")
-}
-
-def setRGB(rgb) {
-	logDebug("setRGB: ${rgb}") 
-	def rgbArray = rgb.split('\\,')
-	def hsvData = hubitat.helper.ColorUtils.rgbToHSV([rgbArray[0].toInteger(), rgbArray[1].toInteger(), rgbArray[2].toInteger()])
-	def hue = (0.5 + hsvData[0]).toInteger()
-	def saturation = (0.5 + hsvData[1]).toInteger()
-	def level = (0.5 + hsvData[2]).toInteger()
-	def Map hslData = [
-		hue: hue,
-		saturation: saturation,
-		level: level
-		]
-	setColor(hslData)
+	sendCmd("""{"${service()}":{"${method()}":""" +
+			"""{"ignore_default":1,"on_off":1,"brightness":${level},"color_temp":0,""" +
+			""""hue":${hue},"saturation":${saturation},"transition_period":${transTime}}}}""")
 }
 
 def refresh() { poll() }
@@ -332,8 +224,8 @@ def poll() {
 }
 
 def distResp(response) {
-	if (response["smartlife.iot.lightStrip"]) {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""")
+	if (response["${service()}"]) {
+		setSysInfo([light_state:response["${service()}"]."${method()}"])
 	} else if (response.system) {
 		if (response.system.get_sysinfo) {
 			setSysInfo(response.system.get_sysinfo)
@@ -349,8 +241,6 @@ def distResp(response) {
 		} else {
 			logWarn("distResp: Unhandled response = ${response}")
 		}
-	} else if (response["smartlife.iot.lighting_effect"]) {
-		parseEffect(response["smartlife.iot.lighting_effect"])
 	} else if (response["smartlife.iot.common.emeter"]) {
 		def emeterResp = response["smartlife.iot.common.emeter"]
 		distEmeter(emeterResp)
@@ -366,62 +256,46 @@ def distResp(response) {
 
 def setSysInfo(status) {
 	logDebug("setSysInfo: ${status}")
-	def effect = status.lighting_effect_state
-	def stripStatus = status.light_state
+	def bulbStatus = status.light_state
 	def updates = [:]
 	def onOff = "on"
-	if (stripStatus.on_off == 0) { onOff = "off" }
+	if (bulbStatus.on_off == 0) { onOff = "off" }
 	if (device.currentValue("switch") != onOff) {
 		updates << ["switch" : onOff]
 		sendEvent(name: "switch", value: onOff, type: "digital")
 	}
 	if (onOff == "on") {
-		def colorMode = "RGB"
-		if (effect.enable == 1) { colorMode = "EFFECTS" }
-		else if (state.currentCT > 0) { colorMode = "CT" }
-		def hue = stripStatus.hue
-		def hubHue = (hue / 3.6).toInteger()
-		def saturation = stripStatus.saturation
-		def level = stripStatus.brightness
-		if (stripStatus.groups) {
-			hue = stripStatus.groups[0][2]
-			saturation = stripStatus.groups[0][3]
-			level = stripStatus.groups[0][4]
-		}
-		def colorTemp = state.currentCT
-		def color = " "
-		def colorName = " "
-		def effectName = " "
-		if (colorMode == "EFFECTS") {
-			effectName = effect.name
-			level = effect.brightness
-			hubHue = 0	
-			saturation = 0
-			colorTemp = 0
-		} else if (colorMode == "CT") {
-			colorName = getCtName(colorTemp)
-			hubHue = 0
-			saturation = 0
-		} else if (colorMode == "RGB") {
-			colorName = getColorName(hue)
-			color = "{hue: ${hubHue},saturation:${saturation},level: ${level}}"
-		}
+		def level = bulbStatus.brightness
 		if (level != device.currentValue("level")) {
-			updates << ["level" : level]
-			sendEvent(name: "level", value: level, unit: "%")
+			updates << ["level" : bulbStatus.brightness]
+			sendEvent(name: "level", value: bulbStatus.brightness, unit: "%")
 		}
-		if (effectName != device.currentValue("effectName")) {
-			updates << ["effectName" : effectName]
-			sendEvent(name: "effectName", value: effectName)
+		if (device.currentValue("circadianState") != bulbStatus.mode) {
+			updates << ["mode" : bulbStatus.mode]
+			sendEvent(name: "circadianState", value: bulbStatus.mode)
 		}
-		if (device.currentValue("colorTemperature") != colorTemp) {
-			updates << ["colorTemp" : colorTemp]
-			sendEvent(name: "colorTemperature", value: colorTemp)
+		def ct = bulbStatus.color_temp.toInteger()
+		def hue = bulbStatus.hue.toInteger()
+		hubHue = (hue / 3.6).toInteger()
+		def colorMode
+		def colorName
+		def color = "{:}"
+		if (ct == 0) {
+			colorMode = "RGB"
+			colorName = getColorName(hue)
+			color = "{hue: ${hubHue},saturation:${bulbStatus.saturation},level: ${bulbStatus.brightness}}"
+		} else {
+			colorMode = "CT"
+			colorName = getCtName(ct)
+		}
+		if (device.currentValue("colorTemperature") != ct) {
+			updates << ["colorTemp" : ct]
+			sendEvent(name: "colorTemperature", value: ct)
 		}
 		if (color != device.currentValue("color")) {
 			updates << ["color" : color]
 			sendEvent(name: "hue", value: hubHue)
-			sendEvent(name: "saturation", value: saturation)
+			sendEvent(name: "saturation", value: bulbStatus.saturation)
 			sendEvent(name: "color", value: color)
 		}
 		if (device.currentValue("colorName") != colorName) {

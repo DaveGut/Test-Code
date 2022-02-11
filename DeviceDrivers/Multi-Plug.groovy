@@ -1,80 +1,56 @@
-/*	Kasa Device Driver Series
+Tr/*	Kasa Device Driver Series
 		Copyright Dave Gutheinz
 License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 6.5.1	Hot fix for loop in EM Month Stat Processing due to month = 1
 ===================================================================================================*/
-def type() { return "Light Strip" }
+//def type() { return "Plug Switch" }
+//def type() { return "EM Plug" }
+def type() { return "Multi Plug" }
+//def type() { return "EM Multi Plug" }
+def file() { return type().replaceAll(" ", "-") }
 def driverVer() { return "6.5.1" }
 
 metadata {
 	definition (name: "Kasa ${type()}",
 				namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/LightStrip.groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/${file()}.groovy"
 			   ) {
-        capability "Light"
 		capability "Switch"
-		capability "Switch Level"
-		capability "Change Level"
- 		capability "Refresh"
 		capability "Actuator"
-		capability "Color Temperature"
-		capability "Color Mode"
-		capability "Color Control"
-		capability "Light Effects"
-		command "effectSet", [[
-			name: "Name for effect.", 
-			type: "STRING"]]
-		command "effectCreate"
-		command "effectDelete", [[
-			name: "Name for effect to delete.", 
-			type: "STRING"]]
+		capability "Refresh"
 		command "setPollInterval", [[
 			name: "Poll Interval in seconds",
 			constraints: ["default", "5 seconds", "10 seconds", "15 seconds",
 						  "30 seconds", "1 minute", "5 minutes",  "10 minutes",
 						  "30 minutes"],
 			type: "ENUM"]]
+		command "ledOn"
+		command "ledOff"
+		attribute "led", "string"
+		attribute "connection", "string"
+		attribute "commsError", "string"
 		capability "Power Meter"
 		capability "Energy Meter"
-		//	Psuedo Capability Energy Statistics
 		attribute "currMonthTotal", "number"
 		attribute "currMonthAvg", "number"
 		attribute "lastMonthTotal", "number"
 		attribute "lastMonthAvg", "number"
-		//	SCommunications Attributes
-		attribute "connection", "string"
-		attribute "commsError", "string"
-		//	Psuedo capability Light Presets
-		command "bulbPresetCreate", [[
-			name: "Name for preset.", 
-			type: "STRING"]]
-		command "bulbPresetDelete", [[
-			name: "Name for preset.", 
-			type: "STRING"]]
-		command "bulbPresetSet", [[
-			name: "Name for preset.", 
-			type: "STRING"],[
-			name: "Transition Time (seconds).", 
-			type: "STRING"]]
-		command "setRGB", [[
-			name: "red,green,blue", 
-			type: "STRING"]]
 	}
-
 	preferences {
 		input ("debug", "bool",
-			   title: "Debug logging, 30 min.", 
+			   title: "30 minutes of debug logging", 
 			   defaultValue: false)
-		input ("emFunction", "bool", 
+		if (getDataValue("feature") == "TIM:ENE") {
+			input ("emFunction", "bool", 
 				   title: "Enable Energy Monitor", 
 				   defaultValue: false)
-		input ("syncBulbs", "bool",
-			   title: "Sync Bulb Preset Data",
-			   defaultValue: false)
-		input ("syncEffects", "bool",
-			   title: "Sync Effect Preset Data",
-			   defaultValue: false)
+		}
+		if (getDataValue("model") == "HS200" && getDataValue("deviceIP") != "CLOUD") {
+			input ("altLan", "bool",
+				   title: "Alternate LAN Comms (for comms problems only)",
+				   defaultValue: false)
+		}
 		input ("bind", "bool",
 			   title: "Kasa Cloud Binding",
 			   defalutValue: true)
@@ -89,240 +65,51 @@ metadata {
 						 "device" : "Kasa device name master", 
 						 "Hubitat" : "Hubitat label master"])
 		input ("rebootDev", "bool",
-			   title: "Reboot Device",
+			   title: "Reboot device <b>[Caution]</b>",
 			   defaultValue: false)
 	}
 }
 
 def installed() {
 	def instStatus= installCommon()
-	state.bulbPresets = [:]
-	state.effectPresets = []
-	sendEvent(name: "lightEffects", value: [])
 	logInfo("installed: ${instStatus}")
 	runIn(2, updated)
 }
 
 def updated() {
 	def updStatus = updateCommon()
-	if (!state.bulbPresets) { state.bulbPresets = [:] }
-	if (!state.effectPresets) { state.effectPresets = [] }
-	if (transition_Time == null) {
-		device.updateSetting("transition_Time", [type:"number", value: 1])
-	}
-	if (syncBulbs) {
-		updStatus << [syncBulbs: syncBulbPresets()]
-	}
-	if (syncEffects) {
-		updStatus << [syncEffects: syncEffectPresets()]
-	}
 	logInfo("updated: ${updStatus}")
 	runIn(3, refresh)
 }
 
 def on() {
-	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1}}}""")
+	if (getDataValue("plugNo") == null) {
+		sendCmd("""{"system":{"set_relay_state":{"state":1},"get_sysinfo":{}}}""")
+	} else {
+		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
+				""""system":{"set_relay_state":{"state":1},"get_sysinfo":{}}}""")
+	}
 }
 
 def off() {
-	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":0}}}""")
-}
-
-def setLevel(level, transTime = 0) {
-	if (level < 0) { level = 0 }
-	else if (level > 100) { level = 100 }
-	if (level == 0) {
-		off()
+	if (getDataValue("plugNo") == null) {
+		sendCmd("""{"system":{"set_relay_state":{"state":0},"get_sysinfo":{}}}""")
 	} else {
-		sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,"on_off":1,""" +
-				""""brightness":${level}}}}""")
+		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" +
+				""""system":{"set_relay_state":{"state":0},"get_sysinfo":{}}}""")
 	}
 }
 
-def setColorTemperature(colorTemp, level = device.currentValue("level"), transTime = 0) {
-	if (level < 0) { level = 0 }
-	else if (level > 100) { level = 100 }
-	if (level == 0) {
-		off()
-	} else {
-		if (colorTemp < 1000) { colorTemp = 1000 }
-		else if (colorTemp > 12000) { colorTemp = 12000 }
-		def hsvData = getCtHslValue(colorTemp)
-		state.currentCT = colorTemp
-		sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,""" +
-				""""on_off":1,"brightness":${level},"hue":${hsvData.hue},""" +
-				""""saturation":${hsvData.saturation}}}}""")
-	}
+def ledOn() {
+	logDebug("ledOn: Setting LED to on")
+	sendCmd("""{"system":{"set_led_off":{"off":0},""" +
+			""""get_sysinfo":{}}}""")
 }
 
-def getCtHslValue(kelvin) {
-	kelvin = 100 * Math.round(kelvin / 100)
-	switch(kelvin) {
-		case 1000: rgb= [255, 56, 0]; break
-		case 1100: rgb= [255, 71, 0]; break
-		case 1200: rgb= [255, 83, 0]; break
-		case 1300: rgb= [255, 93, 0]; break
-		case 1400: rgb= [255, 101, 0]; break
-		case 1500: rgb= [255, 109, 0]; break
-		case 1600: rgb= [255, 115, 0]; break
-		case 1700: rgb= [255, 121, 0]; break
-		case 1800: rgb= [255, 126, 0]; break
-		case 1900: rgb= [255, 131, 0]; break
-		case 2000: rgb= [255, 138, 18]; break
-		case 2100: rgb= [255, 142, 33]; break
-		case 2200: rgb= [255, 147, 44]; break
-		case 2300: rgb= [255, 152, 54]; break
-		case 2400: rgb= [255, 157, 63]; break
-		case 2500: rgb= [255, 161, 72]; break
-		case 2600: rgb= [255, 165, 79]; break
-		case 2700: rgb= [255, 169, 87]; break
-		case 2800: rgb= [255, 173, 94]; break
-		case 2900: rgb= [255, 177, 101]; break
-		case 3000: rgb= [255, 180, 107]; break
-		case 3100: rgb= [255, 184, 114]; break
-		case 3200: rgb= [255, 187, 120]; break
-		case 3300: rgb= [255, 190, 126]; break
-		case 3400: rgb= [255, 193, 132]; break
-		case 3500: rgb= [255, 196, 137]; break
-		case 3600: rgb= [255, 199, 143]; break
-		case 3700: rgb= [255, 201, 148]; break
-		case 3800: rgb= [255, 204, 153]; break
-		case 3900: rgb= [255, 206, 159]; break
-		case 4000: rgb= [100, 209, 200]; break
-		case 4100: rgb= [255, 211, 168]; break
-		case 4200: rgb= [255, 213, 173]; break
-		case 4300: rgb= [255, 215, 177]; break
-		case 4400: rgb= [255, 217, 182]; break
-		case 4500: rgb= [255, 219, 186]; break
-		case 4600: rgb= [255, 221, 190]; break
-		case 4700: rgb= [255, 223, 194]; break
-		case 4800: rgb= [255, 225, 198]; break
-		case 4900: rgb= [255, 227, 202]; break
-		case 5000: rgb= [255, 228, 206]; break
-		case 5100: rgb= [255, 230, 210]; break
-		case 5200: rgb= [255, 232, 213]; break
-		case 5300: rgb= [255, 233, 217]; break
-		case 5400: rgb= [255, 235, 220]; break
-		case 5500: rgb= [255, 236, 224]; break
-		case 5600: rgb= [255, 238, 227]; break
-		case 5700: rgb= [255, 239, 230]; break
-		case 5800: rgb= [255, 240, 233]; break
-		case 5900: rgb= [255, 242, 236]; break
-		case 6000: rgb= [255, 243, 239]; break
-		case 6100: rgb= [255, 244, 242]; break
-		case 6200: rgb= [255, 245, 245]; break
-		case 6300: rgb= [255, 246, 247]; break
-		case 6400: rgb= [255, 248, 251]; break
-		case 6500: rgb= [255, 249, 253]; break
-		case 6600: rgb= [254, 249, 255]; break
-		case 6700: rgb= [252, 247, 255]; break
-		case 6800: rgb= [249, 246, 255]; break
-		case 6900: rgb= [247, 245, 255]; break
-		case 7000: rgb= [245, 243, 255]; break
-		case 7100: rgb= [243, 242, 255]; break
-		case 7200: rgb= [240, 241, 255]; break
-		case 7300: rgb= [239, 240, 255]; break
-		case 7400: rgb= [237, 239, 255]; break
-		case 7500: rgb= [235, 238, 255]; break
-		case 7600: rgb= [233, 237, 255]; break
-		case 7700: rgb= [231, 236, 255]; break
-		case 7800: rgb= [230, 235, 255]; break
-		case 7900: rgb= [228, 234, 255]; break
-		case 8000: rgb= [227, 233, 255]; break
-		case 8100: rgb= [225, 232, 255]; break
-		case 8200: rgb= [224, 231, 255]; break
-		case 8300: rgb= [222, 230, 255]; break
-		case 8400: rgb= [221, 230, 255]; break
-		case 8500: rgb= [220, 229, 255]; break
-		case 8600: rgb= [218, 229, 255]; break
-		case 8700: rgb= [217, 227, 255]; break
-		case 8800: rgb= [216, 227, 255]; break
-		case 8900: rgb= [215, 226, 255]; break
-		case 9000: rgb= [214, 225, 255]; break
-		case 9100: rgb= [212, 225, 255]; break
-		case 9200: rgb= [211, 224, 255]; break
-		case 9300: rgb= [210, 223, 255]; break
-		case 9400: rgb= [209, 223, 255]; break
-		case 9500: rgb= [208, 222, 255]; break
-		case 9600: rgb= [207, 221, 255]; break
-		case 9700: rgb= [207, 221, 255]; break
-		case 9800: rgb= [206, 220, 255]; break
-		case 9900: rgb= [205, 220, 255]; break
-		case 10000: rgb= [207, 218, 255]; break
-		case 10100: rgb= [207, 218, 255]; break
-		case 10200: rgb= [206, 217, 255]; break
-		case 10300: rgb= [205, 217, 255]; break
-		case 10400: rgb= [204, 216, 255]; break
-		case 10500: rgb= [204, 216, 255]; break
-		case 10600: rgb= [203, 215, 255]; break
-		case 10700: rgb= [202, 215, 255]; break
-		case 10800: rgb= [202, 214, 255]; break
-		case 10900: rgb= [201, 214, 255]; break
-		case 11000: rgb= [200, 213, 255]; break
-		case 11100: rgb= [200, 213, 255]; break
-		case 11200: rgb= [199, 212, 255]; break
-		case 11300: rgb= [198, 212, 255]; break
-		case 11400: rgb= [198, 212, 255]; break
-		case 11500: rgb= [197, 211, 255]; break
-		case 11600: rgb= [197, 211, 255]; break
-		case 11700: rgb= [197, 210, 255]; break
-		case 11800: rgb= [196, 210, 255]; break
-		case 11900: rgb= [195, 210, 255]; break
-		case 12000: rgb= [195, 209, 255]; break
-		default:
-			logWarn("setRgbData: Unknown.")
-			colorName = "Unknown"
-	}
-	def hsvData = hubitat.helper.ColorUtils.rgbToHSV([rgb[0].toInteger(), rgb[1].toInteger(), rgb[2].toInteger()])
-	def hue = (0.5 + hsvData[0]).toInteger()
-	def saturation = (0.5 + hsvData[1]).toInteger()
-	def level = (0.5 + hsvData[2]).toInteger()
-	def hslData = [
-		hue: hue,
-		saturation: saturation,
-		level: level
-		]
-	return hslData
-}
-
-def setHue(hue) { setColor([hue: hue]) }
-
-def setSaturation(saturation) { setColor([saturation: saturation]) }
-
-def setColor(Map color) {
-	if (color == null) {
-		LogWarn("setColor: Color map is null. Command not executed.")
-		return
-	}
-	def level = device.currentValue("level")
-	if (color.level) { level = color.level }
-	def hue = device.currentValue("hue")
-	if (color.hue || color.hue == 0) { hue = color.hue.toInteger() }
-	def saturation = device.currentValue("saturation")
-	if (color.saturation || color.saturation == 0) { saturation = color.saturation }
-	hue = Math.round(0.49 + hue * 3.6).toInteger()
-	if (hue < 0 || hue > 360 || saturation < 0 || saturation > 100 || level < 0 || level > 100) {
-		logWarn("setColor: Entered hue, saturation, or level out of range! (H:${hue}, S:${saturation}, L:${level}")
-        return
-    }
-	state.currentCT = 0
-	sendCmd("""{"smartlife.iot.lightStrip":{"set_light_state":{"ignore_default":1,""" +
-			""""on_off":1,"brightness":${level},"hue":${hue},"saturation":${saturation}}}}""")
-}
-
-def setRGB(rgb) {
-	logDebug("setRGB: ${rgb}") 
-	def rgbArray = rgb.split('\\,')
-	def hsvData = hubitat.helper.ColorUtils.rgbToHSV([rgbArray[0].toInteger(), rgbArray[1].toInteger(), rgbArray[2].toInteger()])
-	def hue = (0.5 + hsvData[0]).toInteger()
-	def saturation = (0.5 + hsvData[1]).toInteger()
-	def level = (0.5 + hsvData[2]).toInteger()
-	def Map hslData = [
-		hue: hue,
-		saturation: saturation,
-		level: level
-		]
-	setColor(hslData)
+def ledOff() {
+	logDebug("ledOff: Setting LED to off")
+	sendCmd("""{"system":{"set_led_off":{"off":1},""" +
+			""""get_sysinfo":{}}}""")
 }
 
 def refresh() { poll() }
@@ -332,11 +119,11 @@ def poll() {
 }
 
 def distResp(response) {
-	if (response["smartlife.iot.lightStrip"]) {
-		sendCmd("""{"system":{"get_sysinfo":{}}}""")
-	} else if (response.system) {
+	if (response.system) {
 		if (response.system.get_sysinfo) {
 			setSysInfo(response.system.get_sysinfo)
+		} else if (response.system.set_relay_state) {
+			poll()
 		} else if (response.system.reboot) {
 			logWarn("distResp: Rebooting device.")
 		} else if (response.system.set_dev_alias) {
@@ -349,15 +136,10 @@ def distResp(response) {
 		} else {
 			logWarn("distResp: Unhandled response = ${response}")
 		}
-	} else if (response["smartlife.iot.lighting_effect"]) {
-		parseEffect(response["smartlife.iot.lighting_effect"])
-	} else if (response["smartlife.iot.common.emeter"]) {
-		def emeterResp = response["smartlife.iot.common.emeter"]
-		distEmeter(emeterResp)
-	} else if (response["smartlife.iot.common.cloud"]) {
-		setBindUnbind(response["smartlife.iot.common.cloud"])
-	} else if (response["smartlife.iot.common.system"]) {
-		logWarn("distResp: Rebooting device")
+	} else if (response.emeter) {
+		distEmeter(response.emeter)
+	} else if (response.cnCloud) {
+		setBindUnbind(response.cnCloud)
 	} else {
 		logWarn("distResp: Unhandled response = ${response}")
 	}
@@ -366,78 +148,47 @@ def distResp(response) {
 
 def setSysInfo(status) {
 	logDebug("setSysInfo: ${status}")
-	def effect = status.lighting_effect_state
-	def stripStatus = status.light_state
 	def updates = [:]
+	def switchStatus = status.relay_state
+	def ledStatus = status.led_off
+	if (getDataValue("plugNo") != null) {
+		if (device.currentValue("connection") != "CLOUD") {
+			status = status.children.find { it.id == getDataValue("plugNo") }
+		} else {
+			status = status.children.find { it.id == getDataValue("plugId") }
+		}
+		switchStatus = status.state
+	}
 	def onOff = "on"
-	if (stripStatus.on_off == 0) { onOff = "off" }
-	if (device.currentValue("switch") != onOff) {
-		updates << ["switch" : onOff]
+	if (switchStatus == 0) { onOff = "off" }
+	if (onOff != device.currentValue("switch")) {
+		updates << [switch: onOff]
 		sendEvent(name: "switch", value: onOff, type: "digital")
 	}
-	if (onOff == "on") {
-		def colorMode = "RGB"
-		if (effect.enable == 1) { colorMode = "EFFECTS" }
-		else if (state.currentCT > 0) { colorMode = "CT" }
-		def hue = stripStatus.hue
-		def hubHue = (hue / 3.6).toInteger()
-		def saturation = stripStatus.saturation
-		def level = stripStatus.brightness
-		if (stripStatus.groups) {
-			hue = stripStatus.groups[0][2]
-			saturation = stripStatus.groups[0][3]
-			level = stripStatus.groups[0][4]
-		}
-		def colorTemp = state.currentCT
-		def color = " "
-		def colorName = " "
-		def effectName = " "
-		if (colorMode == "EFFECTS") {
-			effectName = effect.name
-			level = effect.brightness
-			hubHue = 0	
-			saturation = 0
-			colorTemp = 0
-		} else if (colorMode == "CT") {
-			colorName = getCtName(colorTemp)
-			hubHue = 0
-			saturation = 0
-		} else if (colorMode == "RGB") {
-			colorName = getColorName(hue)
-			color = "{hue: ${hubHue},saturation:${saturation},level: ${level}}"
-		}
-		if (level != device.currentValue("level")) {
-			updates << ["level" : level]
-			sendEvent(name: "level", value: level, unit: "%")
-		}
-		if (effectName != device.currentValue("effectName")) {
-			updates << ["effectName" : effectName]
-			sendEvent(name: "effectName", value: effectName)
-		}
-		if (device.currentValue("colorTemperature") != colorTemp) {
-			updates << ["colorTemp" : colorTemp]
-			sendEvent(name: "colorTemperature", value: colorTemp)
-		}
-		if (color != device.currentValue("color")) {
-			updates << ["color" : color]
-			sendEvent(name: "hue", value: hubHue)
-			sendEvent(name: "saturation", value: saturation)
-			sendEvent(name: "color", value: color)
-		}
-		if (device.currentValue("colorName") != colorName) {
-			updates << ["colorName" : colorName]
-			updates << ["colorMode" : colorMode]
-			sendEvent(name: "colorMode", value: colorMode)
-		    sendEvent(name: "colorName", value: colorName)
-		}
+	def ledOnOff = "on"
+	if (ledStatus == 1) { ledOnOff = "off" }
+	if (ledOnOff != device.currentValue("led")) {
+		updates << [led: ledOnOff]
+		sendEvent(name: "led", value: ledOnOff)
 	}
-	if (nameSync == "device" && status.alias) {
+	if (nameSync == "device") {
 		device.setLabel(status.alias)
 		device.updateSetting("nameSync",[type:"enum", value:"none"])
 		updates << [label: status.alias]
 	}
 	if (updates != [:]) { logInfo("setSysinfo: ${updates}") }
-	if(emFunction) { getPower() }
+	if (emFunction) { getPower() }
+}
+
+def coordUpdate(cType, coordData) {
+	logDebug("coordUpdate: ${cType}, ${coordData}")
+	if (cType == "commsData") {
+		device.updateSetting("bind", [type:"bool", value: coordData.bind])
+		device.updateSetting("useCloud", [type:"bool", value: coordData.useCloud])
+		sendEvent(name: "connection", value: coordData.connection)
+	} else {
+		logWarn("coordUpdate: Unhandled Update: ${cType}, ${coordData}")
+	}
 }
 
 //	===== includes =====
@@ -1170,308 +921,3 @@ def setLastMonth(response) { // library marker davegut.kasaEnergyMonitor, line 1
 } // library marker davegut.kasaEnergyMonitor, line 193
 
 // ~~~~~ end include (260) davegut.kasaEnergyMonitor ~~~~~
-
-// ~~~~~ start include (257) davegut.bulbTools ~~~~~
-/*	bulb tools // library marker davegut.bulbTools, line 1
-
-		Copyright Dave Gutheinz // library marker davegut.bulbTools, line 3
-
-License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md // library marker davegut.bulbTools, line 5
-
-This library contains tools that can be useful to bulb developers in the future. // library marker davegut.bulbTools, line 7
-It is designed to be hardware and communications agnostic.  Each method, when  // library marker davegut.bulbTools, line 8
-called, returns the data within the specifications below. // library marker davegut.bulbTools, line 9
-===================================================================================================*/ // library marker davegut.bulbTools, line 10
-library ( // library marker davegut.bulbTools, line 11
-	name: "bulbTools", // library marker davegut.bulbTools, line 12
-	namespace: "davegut", // library marker davegut.bulbTools, line 13
-	author: "Dave Gutheinz", // library marker davegut.bulbTools, line 14
-	description: "Bulb and Light Strip Tools", // library marker davegut.bulbTools, line 15
-	category: "utility", // library marker davegut.bulbTools, line 16
-	documentationLink: "" // library marker davegut.bulbTools, line 17
-) // library marker davegut.bulbTools, line 18
-
-//	===== Level Up/Down for Bulbs and Dimmers ===== // library marker davegut.bulbTools, line 20
-def startLevelChange(direction) { // library marker davegut.bulbTools, line 21
-	if (direction == "up") { levelUp() } // library marker davegut.bulbTools, line 22
-	else { levelDown() } // library marker davegut.bulbTools, line 23
-} // library marker davegut.bulbTools, line 24
-
-def stopLevelChange() { // library marker davegut.bulbTools, line 26
-	unschedule(levelUp) // library marker davegut.bulbTools, line 27
-	unschedule(levelDown) // library marker davegut.bulbTools, line 28
-} // library marker davegut.bulbTools, line 29
-
-def levelUp() { // library marker davegut.bulbTools, line 31
-	def curLevel = device.currentValue("level").toInteger() // library marker davegut.bulbTools, line 32
-	if (curLevel == 100) { return } // library marker davegut.bulbTools, line 33
-	def newLevel = curLevel + 4 // library marker davegut.bulbTools, line 34
-	if (newLevel > 100) { newLevel = 100 } // library marker davegut.bulbTools, line 35
-	setLevel(newLevel, 0) // library marker davegut.bulbTools, line 36
-	runIn(1, levelUp) // library marker davegut.bulbTools, line 37
-} // library marker davegut.bulbTools, line 38
-
-def levelDown() { // library marker davegut.bulbTools, line 40
-	def curLevel = device.currentValue("level").toInteger() // library marker davegut.bulbTools, line 41
-	if (curLevel == 0) { return } // library marker davegut.bulbTools, line 42
-	def newLevel = curLevel - 4 // library marker davegut.bulbTools, line 43
-	if (newLevel < 0) { off() } // library marker davegut.bulbTools, line 44
-	else { // library marker davegut.bulbTools, line 45
-		setLevel(newLevel, 0) // library marker davegut.bulbTools, line 46
-		runIn(1, levelDown) // library marker davegut.bulbTools, line 47
-	} // library marker davegut.bulbTools, line 48
-} // library marker davegut.bulbTools, line 49
-
-//	===== Data Looksup / Create ===== // library marker davegut.bulbTools, line 51
-def getCtName(temp){ // library marker davegut.bulbTools, line 52
-    def value = temp.toInteger() // library marker davegut.bulbTools, line 53
-    def colorName // library marker davegut.bulbTools, line 54
-	if (value <= 2800) { colorName = "Incandescent" } // library marker davegut.bulbTools, line 55
-	else if (value <= 3300) { colorName = "Soft White" } // library marker davegut.bulbTools, line 56
-	else if (value <= 3500) { colorName = "Warm White" } // library marker davegut.bulbTools, line 57
-	else if (value <= 4150) { colorName = "Moonlight" } // library marker davegut.bulbTools, line 58
-	else if (value <= 5000) { colorName = "Horizon" } // library marker davegut.bulbTools, line 59
-	else if (value <= 5500) { colorName = "Daylight" } // library marker davegut.bulbTools, line 60
-	else if (value <= 6000) { colorName = "Electronic" } // library marker davegut.bulbTools, line 61
-	else if (value <= 6500) { colorName = "Skylight" } // library marker davegut.bulbTools, line 62
-	else { colorName = "Polar" } // library marker davegut.bulbTools, line 63
-	return colorName // library marker davegut.bulbTools, line 64
-} // library marker davegut.bulbTools, line 65
-
-def getColorName(hue){ // library marker davegut.bulbTools, line 67
-    def colorName // library marker davegut.bulbTools, line 68
-	switch (hue){ // library marker davegut.bulbTools, line 69
-		case 0..15: colorName = "Red" // library marker davegut.bulbTools, line 70
-            break // library marker davegut.bulbTools, line 71
-		case 16..45: colorName = "Orange" // library marker davegut.bulbTools, line 72
-            break // library marker davegut.bulbTools, line 73
-		case 46..75: colorName = "Yellow" // library marker davegut.bulbTools, line 74
-            break // library marker davegut.bulbTools, line 75
-		case 76..105: colorName = "Chartreuse" // library marker davegut.bulbTools, line 76
-            break // library marker davegut.bulbTools, line 77
-		case 106..135: colorName = "Green" // library marker davegut.bulbTools, line 78
-            break // library marker davegut.bulbTools, line 79
-		case 136..165: colorName = "Spring" // library marker davegut.bulbTools, line 80
-            break // library marker davegut.bulbTools, line 81
-		case 166..195: colorName = "Cyan" // library marker davegut.bulbTools, line 82
-            break // library marker davegut.bulbTools, line 83
-		case 196..225: colorName = "Azure" // library marker davegut.bulbTools, line 84
-            break // library marker davegut.bulbTools, line 85
-		case 226..255: colorName = "Blue" // library marker davegut.bulbTools, line 86
-            break // library marker davegut.bulbTools, line 87
-		case 256..285: colorName = "Violet" // library marker davegut.bulbTools, line 88
-            break // library marker davegut.bulbTools, line 89
-		case 286..315: colorName = "Magenta" // library marker davegut.bulbTools, line 90
-            break // library marker davegut.bulbTools, line 91
-		case 316..345: colorName = "Rose" // library marker davegut.bulbTools, line 92
-            break // library marker davegut.bulbTools, line 93
-		case 346..360: colorName = "Red" // library marker davegut.bulbTools, line 94
-            break // library marker davegut.bulbTools, line 95
-		default: // library marker davegut.bulbTools, line 96
-			logWarn("setRgbData: Unknown.") // library marker davegut.bulbTools, line 97
-			colorName = "Unknown" // library marker davegut.bulbTools, line 98
-    } // library marker davegut.bulbTools, line 99
-	return colorName // library marker davegut.bulbTools, line 100
-} // library marker davegut.bulbTools, line 101
-
-//	===== Bulb Presets ===== // library marker davegut.bulbTools, line 103
-def bulbPresetCreate(psName) { // library marker davegut.bulbTools, line 104
-	if (!state.bulbPresets) { state.bulbPresets = [:] } // library marker davegut.bulbTools, line 105
-	psName = psName.trim() // library marker davegut.bulbTools, line 106
-	logDebug("bulbPresetCreate: ${psName}") // library marker davegut.bulbTools, line 107
-	def psData = [:] // library marker davegut.bulbTools, line 108
-	psData["hue"] = device.currentValue("hue") // library marker davegut.bulbTools, line 109
-	psData["saturation"] = device.currentValue("saturation") // library marker davegut.bulbTools, line 110
-	psData["level"] = device.currentValue("level") // library marker davegut.bulbTools, line 111
-	def colorTemp = device.currentValue("colorTemperature") // library marker davegut.bulbTools, line 112
-	if (colorTemp == null) { colorTemp = 0 } // library marker davegut.bulbTools, line 113
-	psData["colTemp"] = colorTemp // library marker davegut.bulbTools, line 114
-	state.bulbPresets << ["${psName}": psData] // library marker davegut.bulbTools, line 115
-} // library marker davegut.bulbTools, line 116
-
-def bulbPresetDelete(psName) { // library marker davegut.bulbTools, line 118
-	psName = psName.trim() // library marker davegut.bulbTools, line 119
-	logDebug("bulbPresetDelete: ${psName}") // library marker davegut.bulbTools, line 120
-	def presets = state.bulbPresets // library marker davegut.bulbTools, line 121
-	if (presets.toString().contains(psName)) { // library marker davegut.bulbTools, line 122
-		presets.remove(psName) // library marker davegut.bulbTools, line 123
-	} else { // library marker davegut.bulbTools, line 124
-		logWarn("bulbPresetDelete: ${psName} is not a valid name.") // library marker davegut.bulbTools, line 125
-	} // library marker davegut.bulbTools, line 126
-} // library marker davegut.bulbTools, line 127
-
-def syncBulbPresets() { // library marker davegut.bulbTools, line 129
-	device.updateSetting("syncBulbs", [type:"bool", value: false]) // library marker davegut.bulbTools, line 130
-	parent.syncBulbPresets(state.bulbPresets, type()) // library marker davegut.bulbTools, line 131
-	return "Syncing" // library marker davegut.bulbTools, line 132
-} // library marker davegut.bulbTools, line 133
-
-def updatePresets(bulbPresets) { // library marker davegut.bulbTools, line 135
-	logDebug("updatePresets: Preset Bulb Data: ${bulbPresets}.") // library marker davegut.bulbTools, line 136
-	state.bulbPresets = bulbPresets // library marker davegut.bulbTools, line 137
-} // library marker davegut.bulbTools, line 138
-
-def bulbPresetSet(psName, transTime = transition_Time) { // library marker davegut.bulbTools, line 140
-	psName = psName.trim() // library marker davegut.bulbTools, line 141
-	if (transTime == null) { transTime = 0 } // library marker davegut.bulbTools, line 142
-	transTime = 1000 * transTime.toInteger() // library marker davegut.bulbTools, line 143
-	if (state.bulbPresets."${psName}") { // library marker davegut.bulbTools, line 144
-		def psData = state.bulbPresets."${psName}" // library marker davegut.bulbTools, line 145
-		if (psData.colTemp > 0) { // library marker davegut.bulbTools, line 146
-			setColorTemperature(psData.colTemp, psData.level, transTime) // library marker davegut.bulbTools, line 147
-		} else { // library marker davegut.bulbTools, line 148
-			setColor(psData) // library marker davegut.bulbTools, line 149
-		} // library marker davegut.bulbTools, line 150
-	} else { // library marker davegut.bulbTools, line 151
-		logWarn("bulbPresetSet: ${psName} is not a valid name.") // library marker davegut.bulbTools, line 152
-	} // library marker davegut.bulbTools, line 153
-} // library marker davegut.bulbTools, line 154
-
-//	===== Effect Presets ===== // library marker davegut.bulbTools, line 156
-def effectCreate() { // library marker davegut.bulbTools, line 157
-	state.createEffect = true // library marker davegut.bulbTools, line 158
-	sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""") // library marker davegut.bulbTools, line 159
-} // library marker davegut.bulbTools, line 160
-
-def parseEffect(resp) { // library marker davegut.bulbTools, line 162
-	logDebug("parseEffect: ${resp}") // library marker davegut.bulbTools, line 163
-	if (resp.get_lighting_effect) { // library marker davegut.bulbTools, line 164
-		def effData = resp.get_lighting_effect // library marker davegut.bulbTools, line 165
-		def effName = effData.name // library marker davegut.bulbTools, line 166
-		if (state.createEffect == true) { // library marker davegut.bulbTools, line 167
-			def existngEffect = state.effectPresets.find { it.name == effName } // library marker davegut.bulbTools, line 168
-			if (existngEffect == null) { // library marker davegut.bulbTools, line 169
-				state.effectPresets << effData // library marker davegut.bulbTools, line 170
-				resetLightEffects() // library marker davegut.bulbTools, line 171
-				logDebug("parseEffect: ${effName} added to effectPresets") // library marker davegut.bulbTools, line 172
-			} else { // library marker davegut.bulbTools, line 173
-				logWarn("parseEffect: ${effName} already exists.") // library marker davegut.bulbTools, line 174
-			} // library marker davegut.bulbTools, line 175
-			state.remove("createEffect") // library marker davegut.bulbTools, line 176
-		} // library marker davegut.bulbTools, line 177
-		refresh() // library marker davegut.bulbTools, line 178
-	} else { // library marker davegut.bulbTools, line 179
-		if (resp.set_lighting_effect.err_code != 0) { // library marker davegut.bulbTools, line 180
-			logWarn("parseEffect: Error setting effect.") // library marker davegut.bulbTools, line 181
-		} // library marker davegut.bulbTools, line 182
-		sendCmd("""{"smartlife.iot.lighting_effect":{"get_lighting_effect":{}}}""") // library marker davegut.bulbTools, line 183
-	} // library marker davegut.bulbTools, line 184
-} // library marker davegut.bulbTools, line 185
-
-def resetLightEffects() { // library marker davegut.bulbTools, line 187
-	if (state.effectsPresets != [:]) { // library marker davegut.bulbTools, line 188
-		def lightEffects = [] // library marker davegut.bulbTools, line 189
-		state.effectPresets.each{ // library marker davegut.bulbTools, line 190
-			def name = """ "${it.name}" """ // library marker davegut.bulbTools, line 191
-			lightEffects << name // library marker davegut.bulbTools, line 192
-		} // library marker davegut.bulbTools, line 193
-		sendEvent(name: "lightEffects", value: lightEffects) // library marker davegut.bulbTools, line 194
-	} // library marker davegut.bulbTools, line 195
-	return "Updated lightEffects list" // library marker davegut.bulbTools, line 196
-} // library marker davegut.bulbTools, line 197
-
-def setEffect(index) { // library marker davegut.bulbTools, line 199
-	logDebug("setEffect: effNo = ${index}") // library marker davegut.bulbTools, line 200
-	index = index.toInteger() // library marker davegut.bulbTools, line 201
-	def effectPresets = state.effectPresets // library marker davegut.bulbTools, line 202
-	if (effectPresets == []) { // library marker davegut.bulbTools, line 203
-		logWarn("setEffect: effectPresets database is empty.") // library marker davegut.bulbTools, line 204
-		return // library marker davegut.bulbTools, line 205
-	} // library marker davegut.bulbTools, line 206
-	def effData = effectPresets[index] // library marker davegut.bulbTools, line 207
-	sendEffect(effData)						  // library marker davegut.bulbTools, line 208
-} // library marker davegut.bulbTools, line 209
-
-def setPreviousEffect() { // library marker davegut.bulbTools, line 211
-	def effectPresets = state.effectPresets // library marker davegut.bulbTools, line 212
-	if (device.currentValue("colorMode") != "EFFECTS" || effectPresets == []) { // library marker davegut.bulbTools, line 213
-		logWarn("setPreviousEffect: Not available. Either not in Effects or data is empty.") // library marker davegut.bulbTools, line 214
-		return // library marker davegut.bulbTools, line 215
-	} // library marker davegut.bulbTools, line 216
-	def effName = device.currentValue("effectName").trim() // library marker davegut.bulbTools, line 217
-	def index = effectPresets.findIndexOf { it.name == effName } // library marker davegut.bulbTools, line 218
-	if (index == -1) { // library marker davegut.bulbTools, line 219
-		logWarn("setPreviousEffect: ${effName} not found in effectPresets.") // library marker davegut.bulbTools, line 220
-	} else { // library marker davegut.bulbTools, line 221
-		def size = effectPresets.size() // library marker davegut.bulbTools, line 222
-		if (index == 0) { index = size - 1 } // library marker davegut.bulbTools, line 223
-		else { index = index-1 } // library marker davegut.bulbTools, line 224
-		def effData = effectPresets[index] // library marker davegut.bulbTools, line 225
-		sendEffect(effData)						  // library marker davegut.bulbTools, line 226
-	} // library marker davegut.bulbTools, line 227
-} // library marker davegut.bulbTools, line 228
-
-def setNextEffect() { // library marker davegut.bulbTools, line 230
-	def effectPresets = state.effectPresets // library marker davegut.bulbTools, line 231
-	if (device.currentValue("colorMode") != "EFFECTS" || effectPresets == []) { // library marker davegut.bulbTools, line 232
-		logWarn("setNextEffect: Not available. Either not in Effects or data is empty.") // library marker davegut.bulbTools, line 233
-		return // library marker davegut.bulbTools, line 234
-	} // library marker davegut.bulbTools, line 235
-	def effName = device.currentValue("effectName").trim() // library marker davegut.bulbTools, line 236
-	def index = effectPresets.findIndexOf { it.name == effName } // library marker davegut.bulbTools, line 237
-	if (index == -1) { // library marker davegut.bulbTools, line 238
-		logWarn("setNextEffect: ${effName} not found in effectPresets.") // library marker davegut.bulbTools, line 239
-	} else { // library marker davegut.bulbTools, line 240
-		def size = effectPresets.size() // library marker davegut.bulbTools, line 241
-		if (index == size - 1) { index = 0 } // library marker davegut.bulbTools, line 242
-		else { index = index + 1 } // library marker davegut.bulbTools, line 243
-		def effData = effectPresets[index] // library marker davegut.bulbTools, line 244
-		sendEffect(effData)						  // library marker davegut.bulbTools, line 245
-	} // library marker davegut.bulbTools, line 246
-} // library marker davegut.bulbTools, line 247
-
-def effectSet(effName) { // library marker davegut.bulbTools, line 249
-	if (state.effectPresets == []) { // library marker davegut.bulbTools, line 250
-		logWarn("effectSet: effectPresets database is empty.") // library marker davegut.bulbTools, line 251
-		return // library marker davegut.bulbTools, line 252
-	} // library marker davegut.bulbTools, line 253
-	effName = effName.trim() // library marker davegut.bulbTools, line 254
-	logDebug("effectSet: ${effName}.") // library marker davegut.bulbTools, line 255
-	def effData = state.effectPresets.find { it.name == effName } // library marker davegut.bulbTools, line 256
-	if (effData == null) { // library marker davegut.bulbTools, line 257
-		logWarn("effectSet: ${effName} not found.") // library marker davegut.bulbTools, line 258
-		return // library marker davegut.bulbTools, line 259
-	} // library marker davegut.bulbTools, line 260
-	sendEffect(effData) // library marker davegut.bulbTools, line 261
-} // library marker davegut.bulbTools, line 262
-
-def effectDelete(effName) { // library marker davegut.bulbTools, line 264
-	sendEvent(name: "lightEffects", value: []) // library marker davegut.bulbTools, line 265
-	effName = effName.trim() // library marker davegut.bulbTools, line 266
-	def index = state.effectPresets.findIndexOf { it.name == effName } // library marker davegut.bulbTools, line 267
-	if (index == -1 || nameIndex == -1) { // library marker davegut.bulbTools, line 268
-		logWarn("effectDelete: ${effName} not in effectPresets!") // library marker davegut.bulbTools, line 269
-	} else { // library marker davegut.bulbTools, line 270
-		state.effectPresets.remove(index) // library marker davegut.bulbTools, line 271
-		resetLightEffects() // library marker davegut.bulbTools, line 272
-	} // library marker davegut.bulbTools, line 273
-	logDebug("effectDelete: deleted effect ${effName}") // library marker davegut.bulbTools, line 274
-} // library marker davegut.bulbTools, line 275
-
-def syncEffectPresets() { // library marker davegut.bulbTools, line 277
-	device.updateSetting("syncEffects", [type:"bool", value: false]) // library marker davegut.bulbTools, line 278
-	parent.resetStates(device.deviceNetworkId) // library marker davegut.bulbTools, line 279
-	state.effectPresets.each{ // library marker davegut.bulbTools, line 280
-		def effData = it // library marker davegut.bulbTools, line 281
-		parent.syncEffectPreset(effData, device.deviceNetworkId) // library marker davegut.bulbTools, line 282
-		pauseExecution(1000) // library marker davegut.bulbTools, line 283
-	} // library marker davegut.bulbTools, line 284
-	return "Synching" // library marker davegut.bulbTools, line 285
-} // library marker davegut.bulbTools, line 286
-
-def resetStates() { state.effectPresets = [] } // library marker davegut.bulbTools, line 288
-
-def updateEffectPreset(effData) { // library marker davegut.bulbTools, line 290
-	logDebug("updateEffectPreset: ${effData.name}") // library marker davegut.bulbTools, line 291
-	state.effectPresets << effData // library marker davegut.bulbTools, line 292
-	runIn(5, resetLightEffects) // library marker davegut.bulbTools, line 293
-} // library marker davegut.bulbTools, line 294
-
-def sendEffect(effData) { // library marker davegut.bulbTools, line 296
-	effData = new groovy.json.JsonBuilder(effData).toString() // library marker davegut.bulbTools, line 297
-	sendCmd("""{"smartlife.iot.lighting_effect":{"set_lighting_effect":""" + // library marker davegut.bulbTools, line 298
-			"""${effData}},"context":{"source":"<id>"}}""") // library marker davegut.bulbTools, line 299
-} // library marker davegut.bulbTools, line 300
-
-
-// ~~~~~ end include (257) davegut.bulbTools ~~~~~
