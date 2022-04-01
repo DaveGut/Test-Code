@@ -55,10 +55,6 @@ def updated() {
 			device.updateSetting("deviceIp", [type:"text", value: deviceIp])	
 		}
 		deviceData = getDeviceData()
-		if (deviceData.status == "failed") {
-			logInfo("updated: [status: failed, statusReason: Can not connect to TV]")
-			return
-		}
 	} else {
 		logInfo("updated: [status: failed, statusReason: No device IP]")
 		return
@@ -83,43 +79,37 @@ def updated() {
 }
 
 def getDeviceData() {
-	def deviceData = [:]
-	try {
-		httpGet([uri: "http://${deviceIp}:8001/api/v2/", timeout: commsTimeout]) { resp ->
-			deviceData << [status: "OK"]
+	def validDeviceData = false
+	try{
+		httpGet([uri: "http://${deviceIp}:8001/api/v2/", timeout: 5]) { resp ->
 			def wifiMac = resp.data.device.wifiMac
 			updateDataValue("deviceMac", wifiMac)
-			deviceData << [mac: wifiMac]
 			def alternateWolMac = wifiMac.replaceAll(":", "").toUpperCase()
 			updateDataValue("alternateWolMac", alternateWolMac)
-			deviceData << [alternateWolMac: alternateWolMac]
-			def dni = getMACFromIP(deviceIp)
-			device.setDeviceNetworkId(dni)
-			deviceData << [dni: dni]
+			def newDni = getMACFromIP(deviceIp)
 			def modelYear = "20" + resp.data.device.model[0..1]
 			updateDataValue("modelYear", modelYear)
-			deviceData << [modelYear: modelYear]
 			def frameTv = "false"
 			if (resp.data.device.FrameTVSupport) {
 				frameTv = resp.data.device.FrameTVSupport
 			}
 			updateDataValue("frameTv", frameTv)
-			deviceData << [frameTv: frameTv]
-			
-			def tokenSupport = false
 			if (resp.data.device.TokenAuthSupport) {
 				tokenSupport = resp.data.device.TokenAuthSupport
 			}
-			updateDataValue("tokenSupport", tokenSupport)
-			deviceData << [tokenSupport: tokenSupport]
 			def uuid = resp.data.device.duid.substring(5)
 			updateDataValue("uuid", uuid)
-			deviceData << [uuid: uuid]
+			updateDataValue("tokenSupport", tokenSupport)
+			logInfo("getDeviceData: year = $modelYear, frameTv = $frameTv, tokenSupport = $tokenSupport")
 		}
+		logInfo("getDeviceData: Updated Device Data.")
+		state.remove("driverError")
+		validDeviceData = true
 	} catch (error) {
-		deviceData << [status: "failed", statusReason: [error: error]]
+		logWarn("getDeviceData: Failed.  Error = ${error}")
+		state.driverError = "<b>getDeviceData failed. Rerun Save Preferences.</b>"
 	}
-	return deviceData
+	return validDeviceData
 }
 
 def versionUpdate() {
@@ -217,6 +207,7 @@ def connect(funct) {
 	} else {
 		url = "ws://${deviceIp}:8001/api/v2/channels/${samsungMeth}?name=${name}"
 	}
+log.trace url
 	state.currentFunction = funct
 	interfaces.webSocket.connect(url, ignoreSSLIssues: true)
 }
