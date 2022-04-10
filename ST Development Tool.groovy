@@ -56,7 +56,7 @@ def stGetDeviceStatus(stDeviceId) {
 				def respData = stDeviceSetup(stData.data.components.main)
 				return respData
 			} else {
-				logTrace("stGetDeviceStatus: ${stData}")
+				logTrace("stGetDeviceStatus: [${stDeviceId}  :  ${stData}]")
 			}
 		}
 	}
