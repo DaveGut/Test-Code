@@ -10,15 +10,15 @@ and limitations under the  License.
 ===== HISTORY =============================================================================
 0.1		Test 1 version.
 ===========================================================================================*/
-def driverVer() { return "0.1" }
+def driverVer() { return "0.2" }
 metadata {
 	definition (name: "Samsung Washer (ST) Test",
 				namespace: "davegut",
 				author: "David Gutheinz",
 				importUrl: ""
 			   ){
-		capability "Switch"
-		capability "Polling"
+//		capability "Switch"
+//		capability "Polling"
 		capability "Refresh"
 		attribute "kidsLock", "string"
 		command "stDeviceList"
@@ -61,7 +61,7 @@ def updated() {
 
 		if (debug) { runIn(1800, debugOff) }
 		updateData << [debugLog: debugLog, infoLog: infoLog]
-		runEvery5Minutes(poll)
+		runEvery5Minutes(refresh)
 		updateData << [pollInterval: "5 min"]
 //		updateData << [driver: versionUpdate()]
 	}
@@ -75,8 +75,8 @@ def updated() {
 	logInfo("updated: ${updateStatus}")
 }
 
-def refresh() { poll() }
-def poll() {
+def refresh() { getDeviceStatus() }
+def xxpoll() {
 	def respData = sendCmdData("main", "refresh", "refresh")
 	if (respData.status == "OK") { getDeviceStatus() }
 }
@@ -178,10 +178,10 @@ def deviceStatus(data) {
 //		sendEvent(name: "switch", value: onOff)
 //		stData << [switch: onOff]
 		if (onOff == "on") {
-//			runEvery1Minute(poll)
-			runEvery5Minutes(poll)
+//			runEvery1Minute(refresh)
+			runEvery5Minutes(refresh)
 		} else {
-			runEvery5Minutes(poll)
+			runEvery5Minutes(refresh)
 		}
 	}
 	
