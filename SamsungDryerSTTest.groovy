@@ -10,7 +10,7 @@ and limitations under the  License.
 ===== HISTORY =============================================================================
 0.1		Test 1 version.
 ===========================================================================================*/
-def driverVer() { return "0.02" }
+def driverVer() { return "0.03" }
 metadata {
 	definition (name: "Samsung Dryer (ST) Test",
 				namespace: "davegut",
@@ -227,7 +227,7 @@ stData << [switch: onOff]
 //	custom.jobBeginningStatus:[jobBeginningStatus:[value:null]], 
 		if (data["custom.jobBeginningStatus"] != null) {
 			def jobBeginStatus = data["custom.jobBeginningStatus"].jobBeginningStatus.value
-			state jobBeginStatus = jobBeginStatus
+			state.jobBeginStatus = jobBeginStatus
 			stData << [jobBeginStatus: jobBeginStatus]
 		}
 //	custom.dryerWrinklePrevent:[operatingState:[value:null], dryerWrinklePrevent:[value:off, timestamp:2022-03-28T19:41:13.634Z]], 

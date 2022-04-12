@@ -10,7 +10,7 @@ and limitations under the  License.
 ===== HISTORY =============================================================================
 0.1		Test 1 version.
 ===========================================================================================*/
-def driverVer() { return "0.2" }
+def driverVer() { return "0.3" }
 metadata {
 	definition (name: "Samsung Washer (ST) Test",
 				namespace: "davegut",
@@ -226,7 +226,7 @@ stData << [switch: onOff]
 //	custom.jobBeginningStatus:[jobBeginningStatus:[value:null]], 
 		if (data["custom.jobBeginningStatus"] != null) {
 			def jobBeginStatus = data["custom.jobBeginningStatus"].jobBeginningStatus.value
-			state jobBeginStatus = jobBeginStatus
+			state.jobBeginStatus = jobBeginStatus
 			stData << [jobBeginStatus: jobBeginStatus]
 		}
 //	samsungce.waterConsumptionReport:[waterConsumption:[value:null]], 
