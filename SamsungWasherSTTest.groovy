@@ -8,7 +8,7 @@ License is distributed on an  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 either express or implied. See the License for the specific language governing permissions
 and limitations under the  License.
 ===== HISTORY =============================================================================
-0.05	a.	Temp: Modify logInfo and logDebug to always log.
+0.06	a.	Temp: Modify logInfo and logDebug to always log.
 		b.	Fixed noted errors from test analysis.
 		c.	Changed polling to add deviceRefresh after detecting switch = on, 
 			then get the device status.
@@ -16,7 +16,7 @@ and limitations under the  License.
 		e.	Changed comms to async.
 ===========================================================================================*/
 import groovy.json.JsonSlurper
-def driverVer() { return "0.05" }
+def driverVer() { return "0.06" }
 metadata {
 	definition (name: "Samsung Washer via ST",
 				namespace: "davegut",
@@ -30,9 +30,9 @@ metadata {
 			constraints: ["pause", "run", "stop"]]]
 		command "getDeviceList"
 		attribute "kidsLock", "string"
-		attribute "remainingTime", "number"
 		attribute "machineState", "string"
 		attribute "jobState", "string"
+		attribute "remoteControlEnabled", "string"
 
 		//	Still Under Test		
 	}
@@ -87,8 +87,7 @@ def refreshParse(resp, data) {
 	def respData = validateResp(resp, "refreshParse")
 	if (respData == "error") { return }
 	def onOff = respData.switch.value
-	def status = setEvent("switch", onOff)
-	if (status != "noChange") {
+	if (device.currentValue("switch") != onOff) {
 		if (onOff == "off") {
 			runEvery5Minutes(refresh)
 		} else {
@@ -96,6 +95,7 @@ def refreshParse(resp, data) {
 		}
 		logDebug("refreshParse: [switch: ${onOff}]")
 	}
+	sendEvent(name: "switch", value: onOff)
 	if (onOff == "on") {stRefresh() }
 }
 
@@ -107,39 +107,70 @@ def deviceStatusParse(resp, data) {
 	
 //	test logData
 	def testLog = [:]
-/*	try {
-		testLog << [inputSource: mainData.mediaInputSource.inputSource.value]
+/*
+	try {
+		def inputSource = mainData.mediaInputSource.inputSource.value
+		testLog << [inputSource: inputSource]
 	} catch (error) {}
 	try {
-		testLog << [mediaInputSource: mainData["samsungvd.mediaInputSource"].inputSource.value]
+		def mediaInputSource = mainData["samsungvd.mediaInputSource"].inputSource.value
+		testLog << [mediaInputSource: mediaInputSource]
 	} catch (error) {}
 	try {
-		testLog << [soundMode: mainData["custom.soundmode"].soundMode.value]
-	} catch (error) {}*/
+		def soundMode = mainData["custom.soundmode"].soundMode.value
+		testLog << [soundMode: soundMode]
+	} catch (error) {}
+*/
 //	=============================================
 
 	try {
-		testLog << [kidsLock: mainData["samsungce.kidsLock"]]
 		def kidsLock = mainData["samsungce.kidsLock"].lockState.value
-		logData << [kidsLock: setEvent("kidsLock", kidsLock)]
-	} catch (error) {}
-
-	try {
-		testLog << [remainingTime: mainData["samsungce.washerDelayEnd"]]
-		def remainingTime = mainData["samsungce.washerDelayEnd"].remainingTime.value
-		logData << [remainingTime: setEvent("remainingTime", remainingTime)]
+		if (device.currentValue("kidsLock") != kidsLock) {
+			sendEvent(name: "kidsLock", value: kidsLock)
+			logData << [kidsLock: kidsLock]
+		}
 	} catch (error) {}
 
 	try {
 		def machineState = mainData.washerOperatingState.machineState.value
-		logData << [machineState: setEvent("machineState", machineState)]
+		if (device.currentValue("machineState") != machineState) {
+			sendEvent(name: "machineState", value: machineState)
+			logData << [machineState: machineState]
+		}
 	} catch (error) {}
-
+	
 	try {
 		def jobState = mainData.washerOperatingState.washerJobState.value
-		logData << [jobState: setEvent("jobState", jobState)]
+		if (device.currentValue("jobState") != jobState) {
+			sendEvent(name: "jobState", value: jobState)
+			logData << [jobState: jobState]
+		}
+	} catch (error) {  }
+	
+	try {
+//		def remoteControlEnabled = mainData.remoteControlStatus.remoteControlEnabled.value
+def remoteControlEnabled = "true"
+		if (device.currentValue("remoteControlEnabled") != remoteControlEnabled) {
+			sendEvent(name: "remoteControlEnabled", value: remoteControlEnabled)
+			logData << [remoteControlEnabled: remoteControlEnabled]
+		}
+	} catch (error) {  }
+	
+//	Time Alternatives
+	try {
+		testLog << [compTime: mainData.washerOperatingState.completionTime.value]
 	} catch (error) {}
-
+	try {
+		def payload = mainData.execute.data.value.payload
+		testLog << [exState: payload["x.com.samsung.da.state"]]
+		testLog << [exRemTime: payload["x.com.samsung.da.remainingTime"]]
+		testLog << [exProgPercent: payload["x.com.samsung.da.progressPercentage"]]
+		testLog << [exProgress: payload["x.com.samsung.da.progress:None"]]
+	} catch (error) {}
+	try {
+		testLog << [washingTime: mainData["samsungce.washerDryingTime"].washingTime.value]
+	} catch (error) {}
+	
 	if (logData != [:]) {
 		logDebug("getDeviceStatus: ${logData}")
 	}
@@ -265,7 +296,7 @@ private syncPost(sendData){ // library marker davegut.ST-Samsung-Comms, line 46
 		def errorResp = [status: "error", // library marker davegut.ST-Samsung-Comms, line 80
 						 reqMethod: sendData.parse, // library marker davegut.ST-Samsung-Comms, line 81
 						 errorMsg: error] // library marker davegut.ST-Samsung-Comms, line 82
-		logWarn("syncPost: ${errorResp}") // library marker davegut.ST-Samsung-Comms, line 83
+		logDebug("syncPost: ${errorResp}") // library marker davegut.ST-Samsung-Comms, line 83
 	} // library marker davegut.ST-Samsung-Comms, line 84
 	return respData // library marker davegut.ST-Samsung-Comms, line 85
 } // library marker davegut.ST-Samsung-Comms, line 86
@@ -376,47 +407,33 @@ def commonUpdate() { // library marker davegut.ST-Samsung-Common, line 10
 		updateStatus << [statusReason: statusReason] // library marker davegut.ST-Samsung-Common, line 30
 	} // library marker davegut.ST-Samsung-Common, line 31
 	updateStatus << [updateData: updateData] // library marker davegut.ST-Samsung-Common, line 32
-	runEvery5Minutes(refresh) // library marker davegut.ST-Samsung-Common, line 33
+	runEvery1Minute(refresh) // library marker davegut.ST-Samsung-Common, line 33
 	refresh() // library marker davegut.ST-Samsung-Common, line 34
 	return updateStatus // library marker davegut.ST-Samsung-Common, line 35
 } // library marker davegut.ST-Samsung-Common, line 36
 
-def setEvent(event, value) { // library marker davegut.ST-Samsung-Common, line 38
-	def status = "noChange" // library marker davegut.ST-Samsung-Common, line 39
-	if (device.currentValue(event) != value) { // library marker davegut.ST-Samsung-Common, line 40
-		try { // library marker davegut.ST-Samsung-Common, line 41
-			sendEvent(name: event, value: value) // library marker davegut.ST-Samsung-Common, line 42
-			status = [event, value] // library marker davegut.ST-Samsung-Common, line 43
-		} catch (error) { // library marker davegut.ST-Samsung-Common, line 44
-			status = "sendEventError" // library marker davegut.ST-Samsung-Common, line 45
-			logWarn("[${event}: ${value}: ${error}]") // library marker davegut.ST-Samsung-Common, line 46
-		} // library marker davegut.ST-Samsung-Common, line 47
-	} // library marker davegut.ST-Samsung-Common, line 48
-	return status // library marker davegut.ST-Samsung-Common, line 49
-} // library marker davegut.ST-Samsung-Common, line 50
-
-def getDeviceList() { // library marker davegut.ST-Samsung-Common, line 52
-	def sendData = [ // library marker davegut.ST-Samsung-Common, line 53
-		path: "/devices", // library marker davegut.ST-Samsung-Common, line 54
-		parse: "getDeviceListParse" // library marker davegut.ST-Samsung-Common, line 55
-		] // library marker davegut.ST-Samsung-Common, line 56
-	asyncGet(sendData) // library marker davegut.ST-Samsung-Common, line 57
-} // library marker davegut.ST-Samsung-Common, line 58
-def getDeviceListParse(resp, data) { // library marker davegut.ST-Samsung-Common, line 59
-	def respData = validateResp(resp, "getDeviceListParse") // library marker davegut.ST-Samsung-Common, line 60
-	if (respData == "error") { return } // library marker davegut.ST-Samsung-Common, line 61
-	log.info "" // library marker davegut.ST-Samsung-Common, line 62
-	respData.items.each { // library marker davegut.ST-Samsung-Common, line 63
-		def deviceData = [ // library marker davegut.ST-Samsung-Common, line 64
-			label: it.label, // library marker davegut.ST-Samsung-Common, line 65
-			manufacturer: it.manufacturerName, // library marker davegut.ST-Samsung-Common, line 66
-			presentationId: it.presentationId, // library marker davegut.ST-Samsung-Common, line 67
-			deviceId: it.deviceId // library marker davegut.ST-Samsung-Common, line 68
-		] // library marker davegut.ST-Samsung-Common, line 69
-		log.info "Found: ${deviceData}" // library marker davegut.ST-Samsung-Common, line 70
-		log.info "" // library marker davegut.ST-Samsung-Common, line 71
-	} // library marker davegut.ST-Samsung-Common, line 72
-} // library marker davegut.ST-Samsung-Common, line 73
+def getDeviceList() { // library marker davegut.ST-Samsung-Common, line 38
+	def sendData = [ // library marker davegut.ST-Samsung-Common, line 39
+		path: "/devices", // library marker davegut.ST-Samsung-Common, line 40
+		parse: "getDeviceListParse" // library marker davegut.ST-Samsung-Common, line 41
+		] // library marker davegut.ST-Samsung-Common, line 42
+	asyncGet(sendData) // library marker davegut.ST-Samsung-Common, line 43
+} // library marker davegut.ST-Samsung-Common, line 44
+def getDeviceListParse(resp, data) { // library marker davegut.ST-Samsung-Common, line 45
+	def respData = validateResp(resp, "getDeviceListParse") // library marker davegut.ST-Samsung-Common, line 46
+	if (respData == "error") { return } // library marker davegut.ST-Samsung-Common, line 47
+	log.info "" // library marker davegut.ST-Samsung-Common, line 48
+	respData.items.each { // library marker davegut.ST-Samsung-Common, line 49
+		def deviceData = [ // library marker davegut.ST-Samsung-Common, line 50
+			label: it.label, // library marker davegut.ST-Samsung-Common, line 51
+			manufacturer: it.manufacturerName, // library marker davegut.ST-Samsung-Common, line 52
+			presentationId: it.presentationId, // library marker davegut.ST-Samsung-Common, line 53
+			deviceId: it.deviceId // library marker davegut.ST-Samsung-Common, line 54
+		] // library marker davegut.ST-Samsung-Common, line 55
+		log.info "Found: ${deviceData}" // library marker davegut.ST-Samsung-Common, line 56
+		log.info "" // library marker davegut.ST-Samsung-Common, line 57
+	} // library marker davegut.ST-Samsung-Common, line 58
+} // library marker davegut.ST-Samsung-Common, line 59
 
 
 // ~~~~~ end include (450) davegut.ST-Samsung-Common ~~~~~
