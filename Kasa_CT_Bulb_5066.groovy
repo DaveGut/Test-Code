@@ -11,7 +11,7 @@ License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaD
 			https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/Changes-6_5_3.pdf
 6.5.4	Bug fix to transition time.  Increased debug logging on Parse Methods.
 ===================================================================================================*/
-def driverVer() { return "6.5.4" }
+def driverVer() { return "6.5.3" }
 def type() { return "CT Bulb" }
 
 metadata {
