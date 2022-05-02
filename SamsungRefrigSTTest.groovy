@@ -1,5 +1,5 @@
-/*	===== HUBITAT Samsung Dryer Using SmartThings ==========================================
-		Copyright 2022 Dave Gutheinz
+/*	===== HUBITAT Samsung Refrigerator Using SmartThings
+			Copyright 2022 Dave Gutheinz
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this  file
 except in compliance with the License. You may obtain a copy of the License at:
 		http://www.apache.org/licenses/LICENSE-2.0
@@ -9,72 +9,84 @@ either express or implied. See the License for the specific language governing p
 and limitations under the  License.
 ===== HISTORY =============================================================================
 0.1	Alpha version
-	a.	Finalize Refresh Design
-	b.	Created attribute "timeRemaing" with associated processing.
-	c.	Added button interface (push)
-		1: toggles machineState between run and pause.
-		2: sets machine state to stop.
-0.11	Alpha Version 2
-	a.	Added logInfo to calcTimeRemaining(). Reason: try to
-		understand completion time and calculation of timeRemaing better.
-0.2		Fixed timeRemaining
-		Adjusted final attributes.
+	Commands Implement: setRapidCooling, setRapidFreezing
+	Commands not implemented: coolerSetpoint, FreezerSetpoint, setDefrost, iceMakerOnOFf
+	Attributes not Implemented: coolerSetpoing, freezerSetpoing, icemaker
+	Ambiguities to resolve: ContactSensor (there are four reporting, cooler
+		freezer, main, and cvroom (meatdrawer).  May be the main reports any other contact
+		open.
 ===========================================================================================*/
 import groovy.json.JsonSlurper
-def driverVer() { return "0.2T" }
-
+def driverVer() { return "0.1T" }
 def simulate() { return false }
 def testData() {
-	def wrinklePrevent = "on"
-	def dryingTemp = "low"
-	def dryLevel = "low"	//
-	def completionTime = "2022-05-02T05:56:26Z"
-	def machineState = "rub"
-	def jobState = "spin"
-	def onOff = "on"
-	def kidsLock = "unlocked"
-	def remoteControl = "true"
+	def coolerContact = "closed"
+	def coolerTemperature = "35"
+
+	def freezerContact = "closed"
+	def freezerTemperature = "35"
+
+	def mainContact = "closed"
+	def defrost = "off"
+	def rapidCooling = "off"
+	def rapidFreezing = "off"
+//	def pwrFreeze = "false"
+	def filterReplace = "replace"
+
+	def drawerMode = "CV_FDR_MEAT"
+	def drawerContact = "closed"
 	
-	return  [components:[
+	return [components:[
+		cooler:[
+			contactSensor:[contact:[value: coolerContact]],
+			temperatureMeasurement:[temperature:[value: coolerTemperature]]], 
+		freezer:[
+			contactSensor:[contact:[value: freezerContact]],
+			temperatureMeasurement:[temperature:[value: freezerTemperature]]], 
 		main:[
-			"custom.dryerWrinklePrevent":[dryerWrinklePrevent:[value:wrinklePrevent]], 
-			"samsungce.dryerDryingTemperature":[dryingTemperature:[value:dryingTemp]], 
-			switch:[switch:[value:onOff]],
-			"custom.dryerDryLevel":[dryerDryLevel:[value:dryLevel]], 
-			"samsungce.kidsLock":[lockState:[value:kidsLock]], 
-			dryerOperatingState:[
-				completionTime:[value:completionTime], 
-				machineState:[value:machineState], 
-				dryerJobState:[value:jobState]], 
-			remoteControlStatus:[remoteControlEnabled:[value:remoteControl]], 
-		]]]
+			contactSensor:[contact:[value: mainContact]], 
+			refrigeration:[
+				defrost:[value: defrost], 
+				rapidCooling:[value: rapidCooling], 
+				rapidFreezing:[value: rapidFreezing]], 
+			"custom.waterFilter":[waterFilterStatus:[value: filterReplace]]], 
+		cvroom:[
+			"custom.fridgeMode":[fridgeMode:[value: drawerMode]], 
+			contactSensor:[contact:[value: drawerContact]]]
+	]]
 }
 
 metadata {
-	definition (name: "Samsung Dryer via ST",
+	definition (name: "Samsung Refrigerator via ST",
 				namespace: "davegut",
 				author: "David Gutheinz",
 				importUrl: ""
 			   ){
 		capability "Refresh"
-		attribute "switch", "string"
-		command "start"
-		command "pause"
-		command "stop"
-		attribute "jobState", "string"
-		attribute "machineState", "string"
-		attribute "kidsLock", "string"
-		attribute "remoteControlEnabled", "string"
+		attribute "coolerContact", "string"
+		attribute "coolerTemperature", "string"
+
+		attribute "freezerContact", "string"
+		attribute "freezerTemperature", "string"
+
+		attribute "mainContact", "string"
+		attribute "defrost", "string"
+		attribute "rapidCooling", "string"
+		attribute "rapidFreezing", "string"
+		attribute "filterReplace", "string"
+
+		attribute "drawerMode", "string"
+		attribute "drawerContact", "string"
 		command "getDeviceList"
-		capability "PushableButton"
-		//	Attributes under test.
-		attribute "completionTime", "string"
-		attribute "timeRemaining", "integer"
-		attribute "dryingTemperature", "string"
-		attribute "wrinklePrevent", "string"
-		attribute "dryLevel", "string"
+		command "setRapidCooling", [[
+			name: "Rapid Cooling",
+			constraints: ["on", "off"],
+			type: "ENUM"]]
+		command "setRapidFreezing", [[
+			name: "Rapid Freezing",
+			constraints: ["on", "off"],
+			type: "ENUM"]]
 	}
-	
 	preferences {
 		input ("debugLog", "bool",  
 			   title: "Enable debug logging for 30 minutes", defaultValue: false)
@@ -112,91 +124,100 @@ def deviceStatusParse(resp, data) {
 		respData = validateResp(resp, "deviceStatusParse")
 	}
 	if (respData == "error") { return }
-	def mainData = respData.components.main
+	def main = respData.components.main
+	def cooler = respData.components.cooler
+	def freezer = respData.components.freezer
+	def cvroom = respData.components.cvroom
 	def logData = [:]
 
 	try {
-		def onOff = mainData.switch.switch.value
-		if (device.currentValue("switch") != onOff) {
-			if (onOff == "off") {
-				runEvery10Minutes(refresh)
-			} else {
-				runEvery1Minute(refresh)
-			}
-			sendEvent(name: "switch", value: onOff)
-			logData << [switch: onOff]
+		def coolerContact = cooler.contactSensor.contact.value
+		if (device.currentValue("coolerContact") != coolerContact) {
+			sendEvent(name: "coolerContact", value: coolerContact)
+			logData << [coolerContact: coolerContact]
 		}
-	} catch (e) { logWarn("deviceStatusParse: switch") }
-	
-	try {
-		def kidsLock = mainData["samsungce.kidsLock"].lockState.value
-		if (device.currentValue("kidsLock") != kidsLock) {
-			sendEvent(name: "kidsLock", value: kidsLock)
-			logData << [kidsLock: kidsLock]
-		}
-	} catch (e) { logWarn("deviceStatusParse: kidsLock") }
-	
-	try {
-		def machineState = mainData.dryerOperatingState.machineState.value
-		if (device.currentValue("machineState") != machineState) {
-			sendEvent(name: "machineState", value: machineState)
-			logData << [machineState: machineState]
-		}
-	} catch (e) { logWarn("deviceStatusParse: machineState") }
-	
-	try {
-		def jobState = mainData.dryerOperatingState.dryerJobState.value
-		if (device.currentValue("jobState") != jobState) {
-			sendEvent(name: "jobState", value: jobState)
-			logData << [jobState: jobState]
-		}
-	} catch (e) { logWarn("deviceStatusParse: jobState") }
-	
-	try {
-		def remoteControlEnabled = mainData.remoteControlStatus.remoteControlEnabled.value
-		if (device.currentValue("remoteControlEnabled") != remoteControlEnabled) {
-			sendEvent(name: "remoteControlEnabled", value: remoteControlEnabled)
-			logData << [remoteControlEnabled: remoteControlEnabled]
-		}
-	} catch (e) { logWarn("deviceStatusParse: remoteControlEnabled") }
-	
-	try {
-		def completionTime = mainData.dryerOperatingState.completionTime.value
-		if (completionTime != null) {
-			sendEvent(name: "completionTime", value: completionTime)
-			logData << [completionTime: completionTime]
-			def timeRemaining = calcTimeRemaining(completionTime)
-			if (device.currentValue("timeRemaining") != timeRemaining) {
-				sendEvent(name: "timeRemaining", value: timeRemaining)
-				logData << [timeRemaining: timeRemaining]
-			}
-		}
-	} catch (e) { logWarn("deviceStatusParse: timeRemaining") }
+	} catch (e) { logWarn("deviceStatusParse: coolerContact") }
 
 	try {
-		def wrinklePrevent = mainData["custom.dryerWrinklePrevent"].dryerWrinklePrevent.value
-		if (device.currentValue("wrinklePrevent") != wrinklePrevent) {
-			sendEvent(name: "wrinklePrevent", value: wrinklePrevent)
-			logData << [wrinklePrevent: wrinklePrevent]
+		def coolerTemperature = cooler.temperatureMeasurement.temperature.value
+		if (device.currentValue("coolerTemperature") != coolerTemperature) {
+			sendEvent(name: "coolerTemperature", value: coolerTemperature)
+			logData << [coolerTemperature: coolerTemperature]
 		}
-	} catch (e) { logWarn("deviceStatusParse: wrinklePrevent") }
-	
+	} catch (e) { logWarn("deviceStatusParse: coolerTemperature") }
+
 	try {
-		def dryingTemperature = mainData["samsungce.dryerDryingTemperature"].dryingTemperature.value
-		if (device.currentValue("dryingTemperature") != dryingTemperature) {
-			sendEvent(name: "dryingTemperature", value: dryingTemperature)
-			logData << [dryingTemperature: dryingTemperature]
+		def freezerContact = freezer.contactSensor.contact.value
+		if (device.currentValue("freezerContact") != freezerContact) {
+			sendEvent(name: "freezerContact", value: freezerContact)
+			logData << [freezerContact: freezerContact]
 		}
-	} catch (e) { logWarn("deviceStatusParse: dryingTemperature") }
-	
+	} catch (e) { logWarn("deviceStatusParse: freezerContact") }
+
 	try {
-		def dryLevel = mainData["custom.dryerDryLevel"].dryerDryLevel.value
-		if (device.currentValue("dryLevel") != dryLevel) {
-			sendEvent(name: "dryLevel", value: dryLevel)
-			logData << [dryLevel: dryLevel]
+		def freezerTemperature = freezer.temperatureMeasurement.temperature.value
+		if (device.currentValue("freezerTemperature") != freezerTemperature) {
+			sendEvent(name: "freezerTemperature", value: freezerTemperature)
+			logData << [freezerTemperature: freezerTemperature]
 		}
-	} catch (e) { logWarn("deviceStatusParse: dryLevel") }
-	
+	} catch (e) { logWarn("deviceStatusParse: freezerTemperature") }
+
+	try {
+		def mainContact = main.contactSensor.contact.value
+		if (device.currentValue("mainContact") != mainContact) {
+			sendEvent(name: "mainContact", value: mainContact)
+			logData << [mainContact: mainContact]
+		}
+	} catch (e) { logWarn("deviceStatusParse: mainContact") }
+
+	try {
+		def defrost = main.refrigeration.defrost.value
+		if (device.currentValue("defrost") != defrost) {
+			sendEvent(name: "defrost", value: defrost)
+			logData << [defrost: defrost]
+		}
+	} catch (e) { logWarn("deviceStatusParse: defrost") }
+
+	try {
+		def rapidCooling = main.refrigeration.rapidCooling.value
+		if (device.currentValue("rapidCooling") != rapidCooling) {
+			sendEvent(name: "rapidCooling", value: rapidCooling)
+			logData << [rapidCooling: rapidCooling]
+		}
+	} catch (e) { logWarn("deviceStatusParse: rapidCooling") }
+
+	try {
+		def rapidFreezing = main.refrigeration.rapidFreezing.value
+		if (device.currentValue("rapidFreezing") != rapidFreezing) {
+			sendEvent(name: "rapidFreezing", value: rapidFreezing)
+			logData << [rapidFreezing: rapidFreezing]
+		}
+	} catch (e) { logWarn("deviceStatusParse: rapidFreezing") }
+
+	try {
+		def filterReplace = main["custom.waterFilter"].waterFilterStatus.value
+		if (device.currentValue("filterReplace") != filterReplace) {
+			sendEvent(name: "filterReplace", value: filterReplace)
+			logData << [filterReplace: filterReplace]
+		}
+	} catch (e) { logWarn("deviceStatusParse: filterReplace") }
+
+	try {
+		def drawerContact = cvroom.contactSensor.contact.value
+		if (device.currentValue("drawerContact") != drawerContact) {
+			sendEvent(name: "drawerContact", value: drawerContact)
+			logData << [drawerContact: drawerContact]
+		}
+	} catch (e) { logWarn("deviceStatusParse: drawerContact") }
+
+	try {
+		def drawerMode = cvroom["custom.fridgeMode"].fridgeMode.value
+		if (device.currentValue("drawerMode") != drawerMode) {
+			sendEvent(name: "drawerMode", value: drawerMode)
+			logData << [drawerMode: drawerMode]
+		}
+	} catch (e) { logWarn("deviceStatusParse: drawerMode") }
+
 	if (logData != [:]) {
 		logInfo("getDeviceStatus: ${logData}")
 	}
@@ -205,22 +226,24 @@ def deviceStatusParse(resp, data) {
 }
 
 //	===== Commands =====
-def start() { setMachineState("run") }
-def pause() { setMachineState("pause") }
-def stop() { setMachineState("stop") }
-def setMachineState(machState) {
-	def remoteControlEnabled = device.currentValue("remoteControlEnabled")
-	logDebug("setMachineState: ${machState}, ${remotControlEnabled}")
-	if (remoteControlEnabled == "true") {
-		def cmdData = [
-			component: "main",
-			capability: "dryerOperatingState",
-			command: "setMachineState",
-			arguments: [machState]]
-		cmdRespParse(syncPost(cmdData))
-	} else {
-		logDebug("setMachineState: [status: failed, remoteControlEnabled: false]")
-	}
+def setRapidCooling(onOff) {
+	logDebug("setRapidCooling: ${onOff}")
+	def cmdData = [
+		component: "main",
+		capability: "refrigeration",
+		command: "setRapidCooling",
+		arguments: [onOff]]
+	cmdRespParse(syncPost(cmdData))
+}
+
+def setRapidFreezing(onOff) {
+	logDebug("setRapidFreezing: ${onOff}")
+	def cmdData = [
+		component: "main",
+		capability: "refrigeration",
+		command: "setRapidFreezing",
+		arguments: [onOff]]
+	cmdRespParse(syncPost(cmdData))
 }
 
 //	===== button interface =====
@@ -232,9 +255,10 @@ def push(pushed) {
 		pushed = pushed.toInteger()
 		switch(pushed) {
 			//	===== Physical Remote Commands =====
-			case 1 : start(); break
-			case 2 : pause(); break
-			case 3 : stop(); break
+			case 1 : setRapidCooling("on"); break
+			case 2 : setRapidCooling("off"); break
+			case 3 : setRapidFreezing("on"); break
+			case 4 : setRapidFreezing("off"); break
 			default:
 				logWarn("push: Invalid Button Number!")
 		}

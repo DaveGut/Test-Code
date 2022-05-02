@@ -397,95 +397,96 @@ def commonUpdate() { // library marker davegut.ST-Common, line 10
 } // library marker davegut.ST-Common, line 40
 
 def cmdRespParse(respData) { // library marker davegut.ST-Common, line 42
-	if (respData == "error") { // library marker davegut.ST-Common, line 43
-		logData << [error: "error from setMachineState"] // library marker davegut.ST-Common, line 44
-	} else if (respData.status == "OK") { // library marker davegut.ST-Common, line 45
-		runIn(2, refresh) // library marker davegut.ST-Common, line 46
-	} else { // library marker davegut.ST-Common, line 47
-		logData << [error: respData] // library marker davegut.ST-Common, line 48
-	} // library marker davegut.ST-Common, line 49
-} // library marker davegut.ST-Common, line 50
+	def logData = [:] // library marker davegut.ST-Common, line 43
+	if (respData == "error") { // library marker davegut.ST-Common, line 44
+		logData << [error: "error from setMachineState"] // library marker davegut.ST-Common, line 45
+	} else if (respData.status == "OK") { // library marker davegut.ST-Common, line 46
+		runIn(2, refresh) // library marker davegut.ST-Common, line 47
+	} else { // library marker davegut.ST-Common, line 48
+		logData << [error: respData] // library marker davegut.ST-Common, line 49
+	} // library marker davegut.ST-Common, line 50
+} // library marker davegut.ST-Common, line 51
 
-def commonRefresh() { // library marker davegut.ST-Common, line 52
-/*	Design // library marker davegut.ST-Common, line 53
-	a.	Complete a deviceRefresh // library marker davegut.ST-Common, line 54
-		1.	Ignore response. Will refresh data in ST for device. // library marker davegut.ST-Common, line 55
-	b.	run getDeviceStatus // library marker davegut.ST-Common, line 56
-		1.	Capture switch attributes // library marker davegut.ST-Common, line 57
-			a) if on, set runEvery1Minute(refresh) // library marker davegut.ST-Common, line 58
-			b)	if off, set runEvery10Minutes(refresh) // library marker davegut.ST-Common, line 59
-		2.	Capture other attributes // library marker davegut.ST-Common, line 60
-		3.	Log a list of current attribute states.  (Temporary) // library marker davegut.ST-Common, line 61
-*/ // library marker davegut.ST-Common, line 62
-	def cmdData = [ // library marker davegut.ST-Common, line 63
-		component: "main", // library marker davegut.ST-Common, line 64
-		capability: "refresh", // library marker davegut.ST-Common, line 65
-		command: "refresh", // library marker davegut.ST-Common, line 66
-		arguments: []] // library marker davegut.ST-Common, line 67
-	syncPost(cmdData) // library marker davegut.ST-Common, line 68
-	def respData = syncPost(sendData) // library marker davegut.ST-Common, line 69
-	getDeviceStatus() // library marker davegut.ST-Common, line 70
-} // library marker davegut.ST-Common, line 71
+def commonRefresh() { // library marker davegut.ST-Common, line 53
+/*	Design // library marker davegut.ST-Common, line 54
+	a.	Complete a deviceRefresh // library marker davegut.ST-Common, line 55
+		1.	Ignore response. Will refresh data in ST for device. // library marker davegut.ST-Common, line 56
+	b.	run getDeviceStatus // library marker davegut.ST-Common, line 57
+		1.	Capture switch attributes // library marker davegut.ST-Common, line 58
+			a) if on, set runEvery1Minute(refresh) // library marker davegut.ST-Common, line 59
+			b)	if off, set runEvery10Minutes(refresh) // library marker davegut.ST-Common, line 60
+		2.	Capture other attributes // library marker davegut.ST-Common, line 61
+		3.	Log a list of current attribute states.  (Temporary) // library marker davegut.ST-Common, line 62
+*/ // library marker davegut.ST-Common, line 63
+	def cmdData = [ // library marker davegut.ST-Common, line 64
+		component: "main", // library marker davegut.ST-Common, line 65
+		capability: "refresh", // library marker davegut.ST-Common, line 66
+		command: "refresh", // library marker davegut.ST-Common, line 67
+		arguments: []] // library marker davegut.ST-Common, line 68
+	syncPost(cmdData) // library marker davegut.ST-Common, line 69
+	def respData = syncPost(sendData) // library marker davegut.ST-Common, line 70
+	getDeviceStatus() // library marker davegut.ST-Common, line 71
+} // library marker davegut.ST-Common, line 72
 
-def getDeviceStatus(parseMethod = "deviceStatusParse") { // library marker davegut.ST-Common, line 73
-	def sendData = [ // library marker davegut.ST-Common, line 74
-		path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 75
-		parse: parseMethod // library marker davegut.ST-Common, line 76
-		] // library marker davegut.ST-Common, line 77
-	asyncGet(sendData) // library marker davegut.ST-Common, line 78
-} // library marker davegut.ST-Common, line 79
+def getDeviceStatus(parseMethod = "deviceStatusParse") { // library marker davegut.ST-Common, line 74
+	def sendData = [ // library marker davegut.ST-Common, line 75
+		path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 76
+		parse: parseMethod // library marker davegut.ST-Common, line 77
+		] // library marker davegut.ST-Common, line 78
+	asyncGet(sendData) // library marker davegut.ST-Common, line 79
+} // library marker davegut.ST-Common, line 80
 
-def listAttributes() { // library marker davegut.ST-Common, line 81
-	def attrs = device.getSupportedAttributes() // library marker davegut.ST-Common, line 82
-	def attrList = [:] // library marker davegut.ST-Common, line 83
-	attrs.each { // library marker davegut.ST-Common, line 84
-		def val = device.currentValue("${it}") // library marker davegut.ST-Common, line 85
-		attrList << ["${it}": val] // library marker davegut.ST-Common, line 86
-	} // library marker davegut.ST-Common, line 87
-//	logDebug("Attributes: ${attrList}") // library marker davegut.ST-Common, line 88
-	logTrace("Attributes: ${attrList}") // library marker davegut.ST-Common, line 89
-} // library marker davegut.ST-Common, line 90
+def listAttributes() { // library marker davegut.ST-Common, line 82
+	def attrs = device.getSupportedAttributes() // library marker davegut.ST-Common, line 83
+	def attrList = [:] // library marker davegut.ST-Common, line 84
+	attrs.each { // library marker davegut.ST-Common, line 85
+		def val = device.currentValue("${it}") // library marker davegut.ST-Common, line 86
+		attrList << ["${it}": val] // library marker davegut.ST-Common, line 87
+	} // library marker davegut.ST-Common, line 88
+//	logDebug("Attributes: ${attrList}") // library marker davegut.ST-Common, line 89
+	logTrace("Attributes: ${attrList}") // library marker davegut.ST-Common, line 90
+} // library marker davegut.ST-Common, line 91
 
-def on() { setSwitch("on") } // library marker davegut.ST-Common, line 92
-def off() { setSwitch("off") } // library marker davegut.ST-Common, line 93
-def setSwitch(onOff) { // library marker davegut.ST-Common, line 94
-	logDebug("setSwitch: ${onOff}") // library marker davegut.ST-Common, line 95
-	def cmdData = [ // library marker davegut.ST-Common, line 96
-		component: "main", // library marker davegut.ST-Common, line 97
-		capability: "switch", // library marker davegut.ST-Common, line 98
-		command: onOff, // library marker davegut.ST-Common, line 99
-		arguments: []] // library marker davegut.ST-Common, line 100
-	cmdRespParse(syncPost(cmdData)) // library marker davegut.ST-Common, line 101
-} // library marker davegut.ST-Common, line 102
+def on() { setSwitch("on") } // library marker davegut.ST-Common, line 93
+def off() { setSwitch("off") } // library marker davegut.ST-Common, line 94
+def setSwitch(onOff) { // library marker davegut.ST-Common, line 95
+	logDebug("setSwitch: ${onOff}") // library marker davegut.ST-Common, line 96
+	def cmdData = [ // library marker davegut.ST-Common, line 97
+		component: "main", // library marker davegut.ST-Common, line 98
+		capability: "switch", // library marker davegut.ST-Common, line 99
+		command: onOff, // library marker davegut.ST-Common, line 100
+		arguments: []] // library marker davegut.ST-Common, line 101
+	cmdRespParse(syncPost(cmdData)) // library marker davegut.ST-Common, line 102
+} // library marker davegut.ST-Common, line 103
 
-def getDeviceList() { // library marker davegut.ST-Common, line 104
-	def sendData = [ // library marker davegut.ST-Common, line 105
-		path: "/devices", // library marker davegut.ST-Common, line 106
-		parse: "getDeviceListParse" // library marker davegut.ST-Common, line 107
-		] // library marker davegut.ST-Common, line 108
-	asyncGet(sendData) // library marker davegut.ST-Common, line 109
-} // library marker davegut.ST-Common, line 110
-def getDeviceListParse(resp, data) { // library marker davegut.ST-Common, line 111
-	def respData = validateResp(resp, "getDeviceListParse") // library marker davegut.ST-Common, line 112
-	if (respData == "error") { return } // library marker davegut.ST-Common, line 113
-	log.info "" // library marker davegut.ST-Common, line 114
-	respData.items.each { // library marker davegut.ST-Common, line 115
-		log.trace "${it.label}:   ${it.deviceId}" // library marker davegut.ST-Common, line 116
-	} // library marker davegut.ST-Common, line 117
-	log.warn "<b>Copy your device's deviceId value and enter into the device Preferences.</b>" // library marker davegut.ST-Common, line 118
-} // library marker davegut.ST-Common, line 119
+def getDeviceList() { // library marker davegut.ST-Common, line 105
+	def sendData = [ // library marker davegut.ST-Common, line 106
+		path: "/devices", // library marker davegut.ST-Common, line 107
+		parse: "getDeviceListParse" // library marker davegut.ST-Common, line 108
+		] // library marker davegut.ST-Common, line 109
+	asyncGet(sendData) // library marker davegut.ST-Common, line 110
+} // library marker davegut.ST-Common, line 111
+def getDeviceListParse(resp, data) { // library marker davegut.ST-Common, line 112
+	def respData = validateResp(resp, "getDeviceListParse") // library marker davegut.ST-Common, line 113
+	if (respData == "error") { return } // library marker davegut.ST-Common, line 114
+	log.info "" // library marker davegut.ST-Common, line 115
+	respData.items.each { // library marker davegut.ST-Common, line 116
+		log.trace "${it.label}:   ${it.deviceId}" // library marker davegut.ST-Common, line 117
+	} // library marker davegut.ST-Common, line 118
+	log.warn "<b>Copy your device's deviceId value and enter into the device Preferences.</b>" // library marker davegut.ST-Common, line 119
+} // library marker davegut.ST-Common, line 120
 
-def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, line 121
-	Integer currTime = now() // library marker davegut.ST-Common, line 122
-	Integer compTime // library marker davegut.ST-Common, line 123
-	try { // library marker davegut.ST-Common, line 124
-		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 125
-	} catch (e) { // library marker davegut.ST-Common, line 126
-		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 127
-	} // library marker davegut.ST-Common, line 128
-	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 129
-	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 130
-	return timeRemaining // library marker davegut.ST-Common, line 131
-} // library marker davegut.ST-Common, line 132
+def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, line 122
+	Integer currTime = now() // library marker davegut.ST-Common, line 123
+	Integer compTime // library marker davegut.ST-Common, line 124
+	try { // library marker davegut.ST-Common, line 125
+		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 126
+	} catch (e) { // library marker davegut.ST-Common, line 127
+		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 128
+	} // library marker davegut.ST-Common, line 129
+	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 130
+	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 131
+	return timeRemaining // library marker davegut.ST-Common, line 132
+} // library marker davegut.ST-Common, line 133
 
 // ~~~~~ end include (450) davegut.ST-Common ~~~~~
