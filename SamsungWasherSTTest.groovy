@@ -17,21 +17,22 @@ and limitations under the  License.
 0.11	Alpha Version 2
 	a.	Added logInfo to calcTimeRemaining(). Reason: try to
 		understand completion time and calculation of timeRemaing better.
+0.2		Fixed timeRemaing to set <0 to 0.
+		Fixed attributes to clear last null values.
 ===========================================================================================*/
 import groovy.json.JsonSlurper
-def driverVer() { return "0.11T" }
+def driverVer() { return "0.2T" }
 
 def simulate() { return false }
 def testData() {
 	def waterTemp = "warm"
-	def completionTime = "2022-04-28T19:56:26Z"
-	def machineState = "stop"
-	def jobState = "none"
-	def onOff = "off"
+	def completionTime = "2022-05-02T05:56:26Z"
+	def machineState = "run"
+	def jobState = "wash"
+	def onOff = "on"
 	def kidsLock = "unlocked"
-	def soilLevel = "normal"
-	def remoteControl = "false"
-	def washingTime = "22"
+	def soilLevel = "high"
+	def remoteControlEnabled = "true"
 	def spinLevel = "low"
 	
 	return  [components:[
@@ -44,8 +45,7 @@ def testData() {
 			switch:[switch:[value:onOff]], 
 			"samsungce.kidsLock":[lockState:[value:kidsLock]], 
 			"custom.washerSoilLevel":[washerSoilLevel:[value:soilLevel]], 
-			remoteControlStatus:[remoteControlEnabled:[value:remoteControl]], 
-			"samsungce.washerWashingTime":[washingTime:[value:washingTime]], 
+			remoteControlStatus:[remoteControlEnabled:[value:remoteControlEnabled]], 
 			"custom.washerSpinLevel":[washerSpinLevel:[value:spinLevel]]
 		]]]
 }
@@ -70,7 +70,7 @@ metadata {
 		attribute "completionTime", "string"
 		attribute "timeRemaining", "integer"
 		attribute "waterTemperature", "string"
-		attribute "washingTime", "string"
+		attribute "jobState", "string"
 		attribute "soilLevel", "string"
 		attribute "spinLevel", "string"
 	}
@@ -144,6 +144,14 @@ def deviceStatusParse(resp, data) {
 	} catch (e) { logWarn("deviceStatusParse: machineState") }
 	
 	try {
+		def jobState = mainData.washerOperatingState.washerJobState.value
+		if (device.currentValue("jobState") != jobState) {
+			sendEvent(name: "jobState", value: jobState)
+			logData << [machineState: jobState]
+		}
+	} catch (e) { logWarn("deviceStatusParse: jobState") }
+	
+	try {
 		def remoteControlEnabled = mainData.remoteControlStatus.remoteControlEnabled.value
 		if (device.currentValue("remoteControlEnabled") != remoteControlEnabled) {
 			sendEvent(name: "remoteControlEnabled", value: remoteControlEnabled)
@@ -181,21 +189,13 @@ def deviceStatusParse(resp, data) {
 	} catch (e) { logWarn("deviceStatusParse: soilLevel") }
 
 	try {
-		def washingTime = mainData["samsungce.washerWashingTime"].washingTime.value
-		if (device.currentValue("washingTime") != washingTime) {
-			sendEvent(name: "washingTime", value: washingTime)
-			logData << [washingTime: washingTime]
-		}
-	} catch (e) { logWarn("deviceStatusParse: washingTime") }
-
-	try {
 		def spinLevel = mainData["custom.washerSpinLevel"].washerSpinLevel.value
 		if (device.currentValue("spinLevel") != spinLevel) {
 			sendEvent(name: "spinLevel", value: spinLevel)
 			logData << [spinLevel: spinLevel]
 		}
 	} catch (e) { logWarn("deviceStatusParse: spinLevel") }
-
+	
 	if (logData != [:]) {
 		logInfo("getDeviceStatus: ${logData}")
 	}
@@ -385,14 +385,14 @@ def commonUpdate() { // library marker davegut.ST-Common, line 10
 			updateDataValue("driverVersion", driverVer()) // library marker davegut.ST-Common, line 28
 			updateData << [driverVer: driverVer()] // library marker davegut.ST-Common, line 29
 		} // library marker davegut.ST-Common, line 30
-	} // library marker davegut.ST-Common, line 31
-	def updateStatus = [:] // library marker davegut.ST-Common, line 32
-	updateStatus << [status: status] // library marker davegut.ST-Common, line 33
-	if (statusReason != "") { // library marker davegut.ST-Common, line 34
-		updateStatus << [statusReason: statusReason] // library marker davegut.ST-Common, line 35
-	} // library marker davegut.ST-Common, line 36
-	updateStatus << [updateData: updateData] // library marker davegut.ST-Common, line 37
-	refresh() // library marker davegut.ST-Common, line 38
+		refresh() // library marker davegut.ST-Common, line 31
+	} // library marker davegut.ST-Common, line 32
+	def updateStatus = [:] // library marker davegut.ST-Common, line 33
+	updateStatus << [status: status] // library marker davegut.ST-Common, line 34
+	if (statusReason != "") { // library marker davegut.ST-Common, line 35
+		updateStatus << [statusReason: statusReason] // library marker davegut.ST-Common, line 36
+	} // library marker davegut.ST-Common, line 37
+	updateStatus << [updateData: updateData] // library marker davegut.ST-Common, line 38
 	return updateStatus // library marker davegut.ST-Common, line 39
 } // library marker davegut.ST-Common, line 40
 
@@ -484,22 +484,8 @@ def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, lin
 		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 127
 	} // library marker davegut.ST-Common, line 128
 	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 129
-//	return [compTime: compTime, currTime: currTime, timeRemaining: "${timeRemaining} secs"] // library marker davegut.ST-Common, line 130
+	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 130
 	return timeRemaining // library marker davegut.ST-Common, line 131
 } // library marker davegut.ST-Common, line 132
-def yyycalcTimeRemaining(compTime) { // library marker davegut.ST-Common, line 133
-	Integer currentTime = new Date().getTime() // library marker davegut.ST-Common, line 134
-	Integer finishTime = Date.parse("yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'", compTime).getTime() // library marker davegut.ST-Common, line 135
-	finishTime = finishTime + location.timeZone.rawOffset // library marker davegut.ST-Common, line 136
-	def timeRemaining = ((finishTime - currentTime)/1000).toInteger() // library marker davegut.ST-Common, line 137
-	return timeRemaining // library marker davegut.ST-Common, line 138
-} // library marker davegut.ST-Common, line 139
-def xxcalcTimeRemaining(compTime) { // library marker davegut.ST-Common, line 140
-	Integer currentTime = new Date().getTime() // library marker davegut.ST-Common, line 141
-	Integer finishTime = Date.parse("yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'", compTime).getTime() // library marker davegut.ST-Common, line 142
-	finishTime = finishTime + location.timeZone.rawOffset // library marker davegut.ST-Common, line 143
-	def timeRemaining = ((finishTime - currentTime)/1000).toInteger() // library marker davegut.ST-Common, line 144
-	return timeRemaining // library marker davegut.ST-Common, line 145
-} // library marker davegut.ST-Common, line 146
 
 // ~~~~~ end include (450) davegut.ST-Common ~~~~~

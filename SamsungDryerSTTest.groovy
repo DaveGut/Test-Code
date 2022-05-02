@@ -17,23 +17,23 @@ and limitations under the  License.
 0.11	Alpha Version 2
 	a.	Added logInfo to calcTimeRemaining(). Reason: try to
 		understand completion time and calculation of timeRemaing better.
+0.2		Fixed timeRemaining
+		Adjusted final attributes.
 ===========================================================================================*/
 import groovy.json.JsonSlurper
-def driverVer() { return "0.11T" }
+def driverVer() { return "0.2T" }
 
 def simulate() { return false }
 def testData() {
-	def wrinklePrevent = "off"
-	def dryingTemp = "medium"
-	def dryLevel = "normal"
-	def completionTime = "2022-04-28T19:56:26Z"
-	def machineState = "stop"
-	def jobState = "none"
-	def onOff = "off"
+	def wrinklePrevent = "on"
+	def dryingTemp = "low"
+	def dryLevel = "low"	//
+	def completionTime = "2022-05-02T05:56:26Z"
+	def machineState = "rub"
+	def jobState = "spin"
+	def onOff = "on"
 	def kidsLock = "unlocked"
-	def soilLevel = "normal"
-	def remoteControl = "false"
-	def dryingTime = "22"
+	def remoteControl = "true"
 	
 	return  [components:[
 		main:[
@@ -47,7 +47,6 @@ def testData() {
 				machineState:[value:machineState], 
 				dryerJobState:[value:jobState]], 
 			remoteControlStatus:[remoteControlEnabled:[value:remoteControl]], 
-			"samsungce.dryerDryingTime":[dryingTime:[value:dryingTime]]
 		]]]
 }
 
@@ -62,21 +61,20 @@ metadata {
 		command "start"
 		command "pause"
 		command "stop"
-		attribute "dryerJobState", "string"
+		attribute "jobState", "string"
 		attribute "machineState", "string"
 		attribute "kidsLock", "string"
 		attribute "remoteControlEnabled", "string"
 		command "getDeviceList"
-		attribute "timeRemaining", "integer"
 		capability "PushableButton"
 		//	Attributes under test.
 		attribute "completionTime", "string"
 		attribute "timeRemaining", "integer"
 		attribute "dryingTemperature", "string"
 		attribute "wrinklePrevent", "string"
-		attribute "dryingTime", "string"
 		attribute "dryLevel", "string"
 	}
+	
 	preferences {
 		input ("debugLog", "bool",  
 			   title: "Enable debug logging for 30 minutes", defaultValue: false)
@@ -190,14 +188,6 @@ def deviceStatusParse(resp, data) {
 			logData << [dryingTemperature: dryingTemperature]
 		}
 	} catch (e) { logWarn("deviceStatusParse: dryingTemperature") }
-	
-	try {
-		def dryingTime = mainData["samsungce.dryerDryingTime"].dryingTime.value
-		if (device.currentValue("dryingTime") != dryingTime) {
-			sendEvent(name: "dryingTime", value: dryingTime)
-			logData << [dryingTime: dryingTime]
-		}
-	} catch (e) { logWarn("deviceStatusParse: dryingTime") }
 	
 	try {
 		def dryLevel = mainData["custom.dryerDryLevel"].dryerDryLevel.value
@@ -396,14 +386,14 @@ def commonUpdate() { // library marker davegut.ST-Common, line 10
 			updateDataValue("driverVersion", driverVer()) // library marker davegut.ST-Common, line 28
 			updateData << [driverVer: driverVer()] // library marker davegut.ST-Common, line 29
 		} // library marker davegut.ST-Common, line 30
-	} // library marker davegut.ST-Common, line 31
-	def updateStatus = [:] // library marker davegut.ST-Common, line 32
-	updateStatus << [status: status] // library marker davegut.ST-Common, line 33
-	if (statusReason != "") { // library marker davegut.ST-Common, line 34
-		updateStatus << [statusReason: statusReason] // library marker davegut.ST-Common, line 35
-	} // library marker davegut.ST-Common, line 36
-	updateStatus << [updateData: updateData] // library marker davegut.ST-Common, line 37
-	refresh() // library marker davegut.ST-Common, line 38
+		refresh() // library marker davegut.ST-Common, line 31
+	} // library marker davegut.ST-Common, line 32
+	def updateStatus = [:] // library marker davegut.ST-Common, line 33
+	updateStatus << [status: status] // library marker davegut.ST-Common, line 34
+	if (statusReason != "") { // library marker davegut.ST-Common, line 35
+		updateStatus << [statusReason: statusReason] // library marker davegut.ST-Common, line 36
+	} // library marker davegut.ST-Common, line 37
+	updateStatus << [updateData: updateData] // library marker davegut.ST-Common, line 38
 	return updateStatus // library marker davegut.ST-Common, line 39
 } // library marker davegut.ST-Common, line 40
 
@@ -495,22 +485,8 @@ def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, lin
 		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 127
 	} // library marker davegut.ST-Common, line 128
 	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 129
-//	return [compTime: compTime, currTime: currTime, timeRemaining: "${timeRemaining} secs"] // library marker davegut.ST-Common, line 130
+	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 130
 	return timeRemaining // library marker davegut.ST-Common, line 131
 } // library marker davegut.ST-Common, line 132
-def yyycalcTimeRemaining(compTime) { // library marker davegut.ST-Common, line 133
-	Integer currentTime = new Date().getTime() // library marker davegut.ST-Common, line 134
-	Integer finishTime = Date.parse("yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'", compTime).getTime() // library marker davegut.ST-Common, line 135
-	finishTime = finishTime + location.timeZone.rawOffset // library marker davegut.ST-Common, line 136
-	def timeRemaining = ((finishTime - currentTime)/1000).toInteger() // library marker davegut.ST-Common, line 137
-	return timeRemaining // library marker davegut.ST-Common, line 138
-} // library marker davegut.ST-Common, line 139
-def xxcalcTimeRemaining(compTime) { // library marker davegut.ST-Common, line 140
-	Integer currentTime = new Date().getTime() // library marker davegut.ST-Common, line 141
-	Integer finishTime = Date.parse("yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'", compTime).getTime() // library marker davegut.ST-Common, line 142
-	finishTime = finishTime + location.timeZone.rawOffset // library marker davegut.ST-Common, line 143
-	def timeRemaining = ((finishTime - currentTime)/1000).toInteger() // library marker davegut.ST-Common, line 144
-	return timeRemaining // library marker davegut.ST-Common, line 145
-} // library marker davegut.ST-Common, line 146
 
 // ~~~~~ end include (450) davegut.ST-Common ~~~~~
