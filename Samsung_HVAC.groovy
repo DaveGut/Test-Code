@@ -268,9 +268,9 @@ def setCoolingSetpoint(setpoint) {
 //	per one of the Samsung HVAC user manuals.
 //	a.	auto() then setCoolingSetpoint(20).  Send log data
 //	b.	cool() then setCoolingSetpoint(22).  Send log data
-//	c.	heat() then setCoolingSetpoint(15).  Send log data
+//	c.	heat() then seHeatingSetpoint(15).  Send log data
 //	d.	auto(), wait 30s, cool(), wait 30s, heat().  Send log data
-	if (device.currentValue("thermostatMode") == "heat") {
+	if (device.currentValue("thermostatMode") != "heat") {
 		def cmdData = [
 			component: "main",
 			capability: "thermostatCoolingSetpoint",
