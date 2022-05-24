@@ -1,72 +1,31 @@
 /*	===== HUBITAT Samsung HVAC Using SmartThings ==========================================
-Example drivers and apps can be found at:
-	https://github.com/hubitat/HubitatPublic
+Changes in rev 0.6
+Adjusted design.  I am adjusting the design to work explicitly as your AC unit works.  This
+will work with hubitat; however, there may be some limitations.  We can address these after
+getting the base control working. (The thermostat mode was leading to a complex design that
+would be hard to verify/test).
+1.	Remove capability "Thermostat".
+2.	Add capabilities TemperatureMeasurement, ThremostatFanMode, ThermostatMode, 
+	ThermostatCoolingSetpoint (Note: ThermostatCoolingSetpoint matches the ST design for 
+	the device. The attribute thermostatCoolingSetpoint will be used for temperature control
+	in all thermostat modes.)
+3.	Modify command setThermostatFanMode to add high, medium, and low to selection to
+	match the device's capabilities.
+4.	Modify command setThermostatMode to add dry and wind to selection to
+	match the device's capabilities.
 
-The design will be based upon the SmartThings interface defined at:
-	https://developer-preview.smartthings.com/docs/api/public
-specifcally using the category (left of page) devices -> devices using
-	listDevices to generate a device list for selection of deviceId
-	executeCommandsOnADevice for execution of commands
-	getTheFullStatusOfADevice
-Additionally, from the status data, I get a list of capabilities.  I then can deteermine
-available commands / attributes for the ST Capabilities from
-	production: https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities-reference
-	proposed: https://developer-preview.smartthings.com/docs/devices/capabilities/proposed
-
-Hubitat design will use Hubitat capabilities as well as custom commands and attributes.  For
-capabilities, the commands and attributes are defined in:
-	https://docs.hubitat.com/index.php?title=Driver_Capability_List
-
-My contribution is to define the best capability set for the device.  Capabilities are the
-interface between the Hubitat devices and the various support apps (thermostat scheduler,
-rule machine, alexa/google integration) and selecting the right ones will enable better
-integration within the Hubiverse.  Below is my set of capabilities for this design.
-
-//	Capability Refresh
-	//	Command: refresh - will send refresh to SmartThings then request device status.
-//	Capability Switch
-	//	Commands: on, off
-	//	Attribute: switch
-//	Capability Thermostat
-	//	Commands:
-		//	fanAuto, fanCirculate(medium), fanOn, setThermostatFanMode
-		//	setCoolingSetpoint, setHeatingSetpoint
-		//	auto, cool, heat, off, setThermostatMode
-			//	Note that the ST design does not have a mode of off.  They use the switch
-			//	capability.  My design will do the same.  Design will be to send an
-			//	off command when the off is selected.  When any other mode is selected,
-			//	we will send an ON followed by the Mode Command.  This will make the
-			//	interface consistent with the Hubiverse.
-	//	Attributes:
-		//	supportedThermostatFanModes, thermostatFanMode
-		//	temperature
-		//	coolingSetpoint, heating setpoint
-		//	supportedThermostateModes, thermostatMode
-	//	Implementation Notes:
-		//	SmartThings Driver is for Air Conditioner.  It therefore misses any control of
-		//	Heating setPoint.
-			//	Test coolingSetpoint functions to determine if they act as heatingSetpoint
-			//	when the device is in heat mode.  May have to revert to NOT using Thermostat.
-		//	Will have to design interface for cooling/heating setpoint and use in auto mode.
-		//	MIA CMDS: emergencyHeat (just set to heat)
-	//	Custom commands/attributes
-		//	cmd: autoClean, attribute: autoCleanMode
-		//	custom attribute dustFilterStatus
+Testing:
+Open Log Window
+Run command Z Test
+	This command will collect current device state, change the states to explicit values,
+	(three runs), then restore to the current state.  Logs are how I will determine operation.
+Send logs.
 
 ===========================================================================================*/
 import groovy.json.JsonSlurper
 def driverVer() { return "0.5" }
 
-/*	Since I do not have an actual device, I set up a data simulator from the data you provided
-me.  This allows me to test the status parsing.  I can also develop temporary routines to test
-certain commands - but mostly I rely on the user to test commands.*/
 def testData() {
-/*	This data defines the ST component (main) and capabilities (switch, airConditionerFanMode, etc.
-	Each capability then has aattributes (i.e., switch) as well current values.  In the design,
-	I go to the ST Developers page capabilities to get the available commands for formal
-	capabilities (switch is ON and OFF).  for custom capabilities (i.e., custom.autoCleaningMode)
-	I have to try to guess the command name and sometimes the values.
-*/
 	return [components:[
 		main:[
 			switch:[switch:[value: "on"]],
@@ -74,9 +33,6 @@ def testData() {
 				fanMode:[value: "auto"],
 				supportedAcFanModes:[value:["auto", "low", "medium", "high"]]],
 			temperatureMeasurement:[temperature:[value:"22", unit: "C"]],
-			"custom.thermostatSetpointControl":[
-				minimumSetpoint:[value: "16.0", unit: "C"],
-				maximumSetpoint:[value: "21.0", unit: "C"]],
 			thermostatCoolingSetpoint:[coolingSetpoint:[value: "22.0", unit: "C"]],
 			airConditionerMode:[
 				supportedAcModes:[value:["auto", "cool", "dry", "wind", "heat"]],
@@ -85,15 +41,11 @@ def testData() {
 			"custom.dustFilter":[dustFilterStatus:[value: "normal"]]
 		]]]
 }
-def testResp() {
-	return [results:
-			[
-				[
-					id: "testResponse",
-					status: "ACCEPTED"
-				]
-			]
-		   ]
+def testResp(cmdData) {
+	return [
+		cmdData: cmdData,
+		status: [status: "OK",
+				 results:[[id: "e9585885-3848-4fea-b0db-ece30ff1701e", status: "ACCEPTED"]]]]
 }
 
 metadata {
@@ -106,22 +58,25 @@ metadata {
 			   ){
 		capability "Refresh"
 		capability "Switch"
-		capability "Thermostat"
+		capability "TemperatureMeasurement"
+		capability "ThermostatCoolingSetpoint"
+		capability "ThermostatFanMode"
+		command "setThermostatFanMode", [[
+			name: "Fan Mode",
+			constraints: ["on", "circulate", "auto", "high", "medium", "low"],
+			type: "ENUM"]]
+		capability "ThermostatMode"
+		command "setThermostatMode", [[
+			name: "Thermostat Mode",
+			constraints: ["auto", "off", "heat", "emergency heat", "cool", "dry", "wind"],
+			type: "ENUM"]]
 		attribute "autoCleaningMode", "string"
 		attribute "dustFilterStatus", "string"
-		command "getDeviceList"		//	Used as part of the installation process.
-//	Per the user document, there is a custom command "custom.thermostatSetpointControl".
-//	It has a minimum and maximum temperature range.  On other thermostats, this defines
-//	the range for house temperature (low - high) in auto mode.  Not positive here.
-//	The below are EXPERIMENTAL COMMANDS.  The experiment will be detailed in the method section.
-//	Note, these will probably be moved to the preferences section after testing.
-		command "setMinimumSetpoint", ["NUMBER"]
-		command "setMaximumSetpoint", ["NUMBER"]
-		attribute "setpointRange", "JSON_OBJECT"
+		command "getDeviceList"
+		//	Test commands for data collection
+		command "zTest"
 	}
 	preferences {
-		/*	The SmartThings Driver does not support a fan mode of circulate.  Here,
-			I will allow the user to define the fan speed for when circulate is selected. */
 		input ("simulate", "bool", title: "Simulation Mode", defalutValue: false)
 		input ("circSpeed", "enum", title: "Fan Circulate Speed",
 			   defaultValue: "medium", options: ["low", "medium", "high"])
@@ -134,13 +89,69 @@ metadata {
 	}
 }
 
+//	Prior to running test, open a log page.  Wnen complete, send log.
+def zTest() {
+	//	Disable info and debug logging
+	//	Note.  For setting updates (like below), the settings will not
+	//	take effect while running the current method (or chained methods).
+	//	I use a runIn to execute the command.  This allows the new
+	//	setting to be in effect.
+	device.updateSetting("infoLog", [type:"bool", value: false])
+	device.updateSetting("debugLog", [type:"bool", value: false])
+	runIn(2, execTest)
+}
+
+def execTest() {
+	def curMode = device.currentValue("thermostatMode")
+	def fanMode = device.currentValue("thermostatFanMode")
+	def curTempSetting = device.currentValue("coolingSetpoint")
+	//	Run 1
+	poll()
+	pauseExecution(2000)
+	log.trace "<b>test:[mode: auto, fanMode: auto, temp: 22]</b>"
+	auto()
+	pauseExecution(2000)
+	setThermostatFanMode("auto")
+	pauseExecution(2000)
+	setCoolingSetpoint(22)
+	pauseExecution(5000)
+	//	Run 2
+	poll()
+	pauseExecution(2000)
+	log.trace "<b>test:[mode: heat, fanMode: medium, temp: 17]</b>"
+	heat()
+	pauseExecution(2000)
+	setThermostatFanMode("medium")
+	pauseExecution(2000)
+	setCoolingSetpoint(17)
+	pauseExecution(5000)
+	//	Run 3
+	poll()
+	pauseExecution(2000)
+	log.trace "<b>test:[mode: cool, fanMode: low, temp: 22]</b>"
+	cool()
+	pauseExecution(2000)
+	setThermostatFanMode("low")
+	pauseExecution(2000)
+	setCoolingSetpoint(22)
+	pauseExecution(5000)
+	//	Restore original settings
+	poll()
+	pauseExecution(2000)
+	log.trace "<b>resetDefault:[mode: ${curMode}, fanMode: ${fanMode}, temp: ${curTempSetting}]</b>"
+	setThermostatMode(curMode)
+	pauseExecution(2000)
+	setThermostatFanMode(fanMode)
+	pauseExecution(2000)
+	setCoolingSetpoint(curTempSetting)
+	pauseExecution(5000)
+	poll()
+}
+
 def installed() {
-/*	Runs only when device is installed.  Usually contains a hook to updated;
-however, since I need a key to continue, nothing here.*/
 }
 
 def updated() {
-//	Runs every time "savePreferences" is selected from device's edit page.
 	def commonStatus = commonUpdate()
 	logInfo("updated: ${commonStatus}")
 	if (simulate == true) {
@@ -148,7 +159,6 @@ def updated() {
 	}
 }
 
-//	Will place in library on next version
 def commonUpdate() {
 	unschedule()
 	def updateData = [:]
@@ -181,11 +191,6 @@ def commonUpdate() {
 	return updateStatus
 }
 
-//	Methods.  Used for exposed commands and for internal processing.
-//	I usually place the control interface first followed by the status
-//	interface, and then finally the communications interface.
-//	===== Control Interface =====
-//	Capability Refresh
 def refresh() { 
 	def cmdData = [
 		component: "main",
@@ -215,43 +220,36 @@ def auto() { setThermostatMode("auto") }
 def cool() { setThermostatMode("cool") }
 def heat() { setThermostatMode("heat") }
 def emergencyHeat() {
-//	Not available.  Set mode to heat if not already.
 	logWarn("emergencyHeat: not available. Setting Thermostat to heat")
 	setThermostatMode("heat")
 }
 def setThermostatMode(thermostatMode) {
-/*	From the ST Capabilities list, capability is "airConditionerMode", the command
-	is "setAirConditionerMode(mode) and the argument is the mode to be set.
-	From a use perspective, this is called from heat, cool, auto, or emergencyHeat.
-	TESTING:  If the unit is set to off and a mode is selected here, does the unit
-	then turn on automatically??????  If not, I will add a switch(on) command prior
-	to setting the mode.
-	Available modes include those listed in the attribute 
-		supportedAcModes:[value:["auto", "cool", "dry", "wind", "heat"]]
-*/
-	def cmdData = [
-		component: "main",
-		capability: "airConditionerMode",
-		command: "setAirConditionerMode",
-		arguments: [thermostatMode]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setThermostatMode: [cmdData: ${cmdData}, status: ${cmdStatus}]")
+// Modify to thermostatMode "off".
+	if (thermostatMode == "off") {
+		off()
+	} else {
+		def cmdData = [
+			component: "main",
+			capability: "airConditionerMode",
+			command: "setAirConditionerMode",
+			arguments: [thermostatMode]]
+		def cmdStatus = deviceCommand(cmdData)
+		logInfo("setThermostatMode: [cmdData: ${cmdData}, status: ${cmdStatus}]")
+	}
 }
 
-//	Fan modes
 def fanAuto() { setThermostatFanMode("auto") }
-def fanCirculate() {
-//	uses the preference value circSpeed.
-	setThermostatFanMode(circSpeed)
-}
-def fanOn() {
-//	Not supported on ST Interface.  For simplicity, I will use the same
-//	speed as the command above.  We could set up a separage preference - your thoughts.
-	setThermostatFanMode(circSpeed)
-}
+def fanCirculate() { setThermostatFanMode("circulate") }
+def fanOn() { setThermostatFanMode("on") }
 def setThermostatFanMode(fanMode) {
-//	See notes on setThermostatMode.  Same general issue.
-//	modes: supportedAcFanModes:[value:["auto", "low", "medium", "high"]]
+	//	supportedAcFanModes:[value:["auto", "low", "medium", "high"]]
+	//	Modified metadata to add above to default on, auto, circulate.
+	//	Handle on and circulate in respect to available modes from device.
+	if (fanMode == "circulate") {
+		fanMode = circSpeed
+	} else if (fanMode == "on") {
+		fanMode = "auto"
+	}
 	def cmdData = [
 		component: "main",
 		capability: "airConditionerFanMode",
@@ -261,80 +259,20 @@ def setThermostatFanMode(fanMode) {
 	logInfo("setThermostatFanMode: [cmdData: ${cmdData}, status: ${cmdStatus}]")
 }
 
-//	Temperature Control
+//	Cooling Setpoint (used for all setpoints)
 def setCoolingSetpoint(setpoint) {
-//	setCoolingSetpoint Experiment.
-//	Seeing if colling set point is used to set mode temperature
-//	per one of the Samsung HVAC user manuals.
-//	a.	auto() then setCoolingSetpoint(20).  Send log data
-//	b.	cool() then setCoolingSetpoint(22).  Send log data
-//	c.	heat() then seHeatingSetpoint(15).  Send log data
-//	d.	auto(), wait 30s, cool(), wait 30s, heat().  Send log data
-	if (device.currentValue("thermostatMode") != "heat") {
-		def cmdData = [
-			component: "main",
-			capability: "thermostatCoolingSetpoint",
-			command: "setCoolingSetpoint",
-			arguments: [setpoint]]
-		def cmdStatus = deviceCommand(cmdData)
-		logInfo("setCoolingSetpoint: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-	} else {
-		logWarn("setCoolingSetpoint: AC Mode must be cool.")
-	}
-}
-
-def setHeatingSetpoint(setpoint) {
-	if (device.currentValue("thermostatMode") == "heat") {
-		def cmdData = [
-			component: "main",
-			capability: "thermostatCoolingSetpoint",
-			command: "setCoolingSetpoint",
-			arguments: [setpoint]]
-		def cmdStatus = deviceCommand(cmdData)
-		logInfo("setHeatingSetpoint: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-	} else {
-		logWarn("setHeatingSetpoint: AC Mode must be heat.")
-	}
-}
-
-//	Experimental setpoint control. No SmartThings api defined for custom command,
-//	so, I am guessing here.
-//	Min/Max Setpoint Experiment, phase 1 - command works???
-//	a.	maxSetpoint = {current temperature} - 5
-//	b.	minSetpoint = maxSetpoint - 5
-//	c.	Run: auto(), fanAuto(), setMinimumSetpoint(minSetpoint), setMaximumSetpoint(maxSetpoint). send log.
-//	d.	Observe:  The unit should start cooling the living space.
-//	e.	maxSetpoint: Increase by 15
-//	f.	Run: setMaximumSetpoint(maxSetpoint). send log.
-//	g.	Observe:  The unit should stop cooling or heating the living Space.
-//	h.	minSetpoint: Increase by 15.
-//	i.	Run: setMinimumSetpoint(minSetpoint). send log.
-//	j.	Observe: The unit should start heating the unit.
-//	k.	Reset your unit to desired setting using the unit's remote control.
-def setMinimumSetpoint(setpoint) {
 	def cmdData = [
 		component: "main",
-		capability: "custom.thermostatSetpointControl",
-		command: "setMinimumSetpoint",
+		capability: "thermostatCoolingSetpoint",
+		command: "setCoolingSetpoint",
 		arguments: [setpoint]]
 	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setMinimumSetpoint: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-def setMaximumSetpoint(setpoint) {
-	def cmdData = [
-		component: "main",
-		capability: "custom.thermostatSetpointControl",
-		command: "setMaximumSetpoint",
-		arguments: [setpoint]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setMaximumSetpoint: [cmdData: ${cmdData}, status: ${cmdStatus}]")
+	logInfo("setCoolingSetpoint: [cmdData: ${cmdData}, status: ${cmdStatus}]")
 }
 
-//	Compose the command data before sending
 def deviceCommand(cmdData) {
-	def respData
 	if (simulate == true) {
-		respData = testResp()
+		respData = testResp(cmdData)
 	} else if (!stDeviceId || stDeviceId.trim() == "") {
 		respData = "[status: FAILED, data: no stDeviceId]"
 		logWarn("deviceCommand: [status: ERROR, errorMsg: no stDeviceId]")
@@ -344,9 +282,8 @@ def deviceCommand(cmdData) {
 			cmdData: cmdData
 		]
 		respData = syncPost(sendData)
-//		poll()
 	}
-	poll()
+	runIn(1, poll)
 	return respData
 }
 
@@ -367,18 +304,19 @@ def poll() {
 
 //	Device Status Parse Method
 def deviceStatusParse(resp, data) {
-	def respLog
+	//	Fixed to generate logWarn as specified in design.
+	def respLog = [:]
 	if (resp.status == 200) {
 		try {
 			def respData = new JsonSlurper().parseText(resp.data)
 			statusParse(respData.components.main)
 		} catch (err) {
-			respLog = [status: "ERROR",
+			respLog << [status: "ERROR",
 						errorMsg: err,
 						respData: resp.data]
 		}
 	} else {
-		respLog = [status: "ERROR",
+		respLog << [status: "ERROR",
 					httpCode: resp.status,
 					errorMsg: resp.errorMessage]
 	}
@@ -387,44 +325,30 @@ def deviceStatusParse(resp, data) {
 	}
 }
 def statusParse(parseData) {
-	def logData = [:]
-	
 	setAttribute("switch", parseData.switch.switch.value)
 
 	//	Try loops will eventually go away.  Needed to detect errors against actual device.
 	def tempUnit
 	try {
 		tempUnit = parseData.temperatureMeasurement.temperature.unit
-		setAttribute("temperature", 
-					 parseData.temperatureMeasurement.temperature.value, tempUnit)
+		def temp = Double.parseDouble(parseData.temperatureMeasurement.temperature.value)
+		setAttribute("temperature", temp, tempUnit)
 	} catch (e) {
 		logWarn("statusParse: [temperature: ${e}]")
 	}
 
 	try {
-		def thermostatMode = parseData.airConditionerMode.airConditionerMode.value
-		setAttribute("thermostatMode", thermostatMode)
-		if (thermostatMode == "heat") {
-			setAttribute("thermostatSetpoint", device.currentValue("heatingSetpoint"), tempUnit)
-		} else if (thermostatMode == "cool") {
-			setAttribute("thermostatSetpoint", device.currentValue("coolingSetpoint"), tempUnit)
-		} else if (thermostatMode == "auto") {
-			setAttribute("thermostatSetpoint", device.currentValue("setpointRange"), tempUnit)
-		}
+		setAttribute("thermostatMode", 
+					 parseData.airConditionerMode.airConditionerMode.value)
 	} catch (e) {
 		logWarn("statusParse: [thermostatMode: ${e}]")
 	}
 
 	try {
-		if (thermostatMode == "heat") {
-			setAttribute("heatingSetpoint", 
-						 parseData.thermostatCoolingSetpoint.coolingSetpoint.value, tempUnit)
-		} else if (thermostatMode == "cool") {
-			setAttribute("coolingSetpoint", 
-						 parseData.thermostatCoolingSetpoint.coolingSetpoint.value, tempUnit)
-		}
+		def temp = Double.parseDouble(parseData.thermostatCoolingSetpoint.coolingSetpoint.value)
+		setAttribute("coolingSetpoint", temp,tempUnit)
 	} catch (e) {
-		logWarn("statusParse: [heatingSetpoint: ${e}]")
+		logWarn("statusParse: [coolingSetpoint: ${e}]")
 	}
 
 	try {
@@ -433,16 +357,6 @@ def statusParse(parseData) {
 	} catch (e) {
 		logWarn("statusParse: [thermostatFanMode: ${e}]")
 	}
-	
-	
-	try {
-		def minSetpoint = parseData["custom.thermostatSetpointControl"].minimumSetpoint.value
-		def maxSetpoint = parseData["custom.thermostatSetpointControl"].maximumSetpoint.value
-		def setpointRange = [min: minSetpoint, max: maxSetpoint]
-		setAttribute("setpointRange", setpointRange, tempUnit)
-	} catch (e) {
-		logWarn("statusParse: [minimumSetpoint: ${e}]")
-	}
 
 	try {
 		setAttribute("dustFilterStatus", 
@@ -450,18 +364,14 @@ def statusParse(parseData) {
 	} catch (e) {
 		logWarn("statusParse: [dustFilterStatus: ${e}]")
 	}
-		
+
 	try {
 		setAttribute("autoCleaningMode", 
 					 parseData["custom.autoCleaningMode"].autoCleaningMode.value)
 	} catch (e) {
 		logWarn("statusParse: [autoCleaningMode: ${e}]")
 	}
-	
-//	if (logData != [:]) {
-//		logInfo("deviceStatusParse: ${logData}")
-//	}
-//	Temp Test Code
+
 	runIn(1, listAttributes)
 }
 
