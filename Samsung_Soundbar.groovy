@@ -9,19 +9,16 @@ License Information:  https://github.com/DaveGut/HubitatActive/blob/master/KasaD
 ===========================================================================================*/
 def driverVer() { return "0.8" }
 metadata {
-	definition (name: "Samsung Soundbar",
+	definition (name: "ST Samsung Soundbar Test",
 				namespace: "davegut",
 				author: "David Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungTvRemote/SamsungSoundbar.groovy"
+				importUrl: ""
 			   ){
-		capability "AudioVolume"
-		capability "MediaTransport"
 		capability "Switch"
-		attribute "trackTime", "NUMBER"
-		attribute "elapsedTime", "Number"
-		attribute "trackData", "JSON"
-		attribute "soundFrom", "JSON"
-		capability "AudioNotification"
+		capability "MediaInputSource"
+		capability "MediaTransport"
+		capability "AudioVolume"
+		
 		capability "Refresh"
 		//	Device Setup Commands
 		command "deviceSetup"	//	Development Tool
@@ -33,14 +30,13 @@ metadata {
 			input ("stDeviceId", "string", title: "SmartThings Device ID", defaultValue: "")
 		}
 		if (stDeviceId) {
-			input ("notificationLevel", "num", title: "Notification volume increase in percent", defaultValue: 5)
-//			input ("simulate", "bool", title: "Simulation Mode", defalutValue: false)
+			input ("simulate", "bool", title: "Simulation Mode", defalutValue: false)
 			input ("pollInterval", "enum", title: "Poll Interval (minutes)",
 				   options: ["1", "5", "10", "30"], defaultValue: "5")
 			input ("debugLog", "bool",  
 				   title: "Enable debug logging for 30 minutes", defaultValue: false)
 			input ("infoLog", "bool",  
-				   title: "Enable description text logging", defaultValue: true)
+				   title: "Enable information logging", defaultValue: true)
 		}
 	}
 }
@@ -49,52 +45,58 @@ metadata {
 //	===== Installation, setup and update ===================
 //	========================================================
 def installed() {
-	sendEvent(name: "volume", value: 0)
 	runIn(1, updated)
 }
 
 def updated() {
-	state.remove("pollInterval")
 	def commonStatus = commonUpdate()
-	setPollInterval(pollInterval)
-	commonStatus << [pollInterval: pollInterval]
 	if (commonStatus.status == "OK") {
 		logInfo("updated: ${commonStatus}")
 	} else {
 		logWarn("updated: ${commonStatus}")
 	}
+	deviceSetup()
 }
 
-def deviceSetup() { getDeviceStatus("deviceSetupParse") }
-def deviceSetupParse(resp, data) {
-	def setupData = [:]
-	def respData = validateResp(resp, "deviceStatusParse")
-	def components = []
-	respData.components.each{
-		components << it.key
-	}
-	state.components = components
-	if (respData == "error") { return }
-	def mainData = respData.components.main
-	
-	def supportedInputs =  mainData.mediaInputSource.supportedInputSources.value
-	sendEvent(name: "supportedInputs", value: supportedInputs)	
-	state.supportedInputs = supportedInputs
-	setupData << [supportedInputs: supportedInputs]
-	
-	def supportedPictureModes = mainData["custom.picturemode"].supportedPictureModes.value
-	state.supportedPictureModes = supportedPictureModes
-	setupData << [supportedPictureModes:  supportedPictureModes]
-	
-	def supportedSoundModes =  mainData["custom.soundmode"].supportedSoundModes.value
-	state.supportedSoundModes =  supportedSoundModes
-	setupData << [supportedSoundModes:  supportedSoundModes]
-	
-	return setupData
+//	===== Switch =====
+def on() { setSwitch("on") }
+def off() { setSwitch("off") }
+def setSwitch(onOff) {
+	def cmdData = [
+		component: "main",
+		capability: "switch",
+		command: onOff,
+		arguments: []]
+	def cmdStatus = deviceCommand(cmdData)
+	logInfo("setSwitch: [cmdData: ${cmdData}, status: ${cmdStatus}]")
 }
 
-//	===== Audio Volume / Audio Mute =====
-//	Implemented as capability AudioVolume
+//	===== Media Input Source =====
+def setInputSource(inputSource) {
+	def cmdData = [
+		component: "main",
+		capability: "mediaInputSource",
+		command: "setInputSource",
+		arguments: [inputSource]]
+	def cmdStatus = deviceCommand(cmdData)
+	logInfo("setInputSource: [cmdData: ${cmdData}, status: ${cmdStatus}]")
+}
+
+//	===== Media Transport =====
+def play() { setMediaPlayback("play") }
+def pause() { setMediaPlayback("pause") }
+def stop() { setMediaPlayback("stop") }
+def setMediaPlayback(pbMode) {
+	def cmdData = [
+		component: "main",
+		capability: "mediaPlayback",
+		command: pbMode,
+		arguments: []]
+	def cmdStatus = deviceCommand(cmdData)
+	logInfo("setMediaPlayback: [cmdData: ${cmdData}, status: ${cmdStatus}]")
+}
+
+//	===== Audio Volume =====
 def setVolume(volume) {
 	if (volume == null) { volume = device.currentValue("volume") }
 	def cmdData = [
@@ -107,13 +109,13 @@ def setVolume(volume) {
 }
 def volumeUp() { 
 	def curVol = device.currentValue("volume")
-	def newVol = curVol + 2
+	def newVol = curVol + 1
 	if (newVol > 50) { newVol = 50 }
 	setVolume(newVol)
 }
 def volumeDown() {
 	def curVol = device.currentValue("volume")
-	def newVol = curVol - 2
+	def newVol = curVol - 1
 	if (newVol > 50) { newVol = 0 }
 	setVolume(newVol)
 }
@@ -130,122 +132,14 @@ def setMute(muteValue) {
 	logInfo("setMute: [cmdData: ${cmdData}, status: ${cmdStatus}]")
 }
 
-//	===== Media Playback =====
-//	Implemented as capability MediaTransport
-def play() { setMediaPlayback("play") }
-def pause() { setMediaPlayback("pause") }
-def stop() { setMediaPlayback("stop") }
-def setMediaPlayback(pbMode) {
-	def cmdData = [
-		component: "main",
-		capability: "mediaPlayback",
-		command: pbMode,
-		arguments: []]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setMediaPlayback: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-
-//	===== Media Input Source =====
-//	Implemented as Media Input Source
-def setInputSource(inputSource) {
-	def cmdData = [
-		component: "main",
-		capability: "mediaInputSource",
-		command: "setInputSource",
-		arguments: [inputSource]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setInputSource: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-
-//	===== Switch =====
-def on() { setSwitch("on") }
-def off() { setSwitch("off") }
-def setSwitch(onOff) {
-	def cmdData = [
-		component: "main",
-		capability: "switch",
-		command: onOff,
-		arguments: []]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setSwitch: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-
-//	===== Audio Notification =====
-//	Implemented as Audio Notification
-def playText(text, level=null) {
-	def trackData = textToSpeech(text)
-	logInfo("playText: [text: ${text}]")
-	playTrack(trackData.uri, level)
-}
-def playTextAndRestore(text, level=null) {
-	def trackData = textToSpeech(text)
-	logInfo("playTextAndRestore: [text: ${text}]")
-	playTrackAndRestore(trackData.uri, level)
-}
-def playTextAndResume(text, level=null) {
-	def trackData = textToSpeech(text)
-	logInfo("playTextAndResume: [text: ${text}]")
-	playTrackAndResume(trackData.uri, level)
-}
-
-def convertToTrack(text) {
-	def ttsApiKey = "2cef725970f14ee6b8cb843495f6f08e"
-	def ttsLang = "en-au"
-	def uriText = URLEncoder.encode(text, "UTF-8").replaceAll(/\+/, "%20")
-	def trackUri = "http://api.voicerss.org/?" +
-		"key=${ttsApiKey.trim()}" +
-		"&f=48khz_16bit_mono" +
-		"&c=MP3" +
-		"&hl=${ttsLang}" +
-		"&src=${uriText}"
-		def duration = (1 + text.length() / 10).toInteger()
-		return [uri: trackUri, duration: duration]
-}
-
-def playTrack(trackData, level = null) {
-	def volume = setNotificationVolume(level)
-	def cmdData = [
-		component: "main",
-		capability: "audioNotification",
-		command: "playTrack",
-		arguments: [trackData, volume]]
-//		arguments: ["https://streams.radio.co/se1a320b47/listen", volume]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("playTrack: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-def playTrackAndRestore(trackData, level=null) {
-	def volume = setNotificationVolume(level)
-	def cmdData = [
-		component: "main",
-		capability: "audioNotification",
-		command: "playTrackAndRestore",
-		arguments: [trackData, volume]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("playTrackAndRestore: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-def playTrackAndResume(trackData, level=null) {
-	logDebug("playTrackAndResume: Volume = ${volume}, trackData = ${trackData}")
-	def volume = setNotificationVolume(level)
-	def cmdData = [
-		component: "main",
-		capability: "audioNotification",
-		command: "playTrackAndResume",
-		arguments: [trackData, volume]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("playTrackAndResume: [cmdData: ${cmdData}, status: ${cmdStatus}]")
-}
-
-def setNotificationVolume(level) {
-	if (level == null) { level = device.currentValue("volume") }
-	return level + notificationLevel.toInteger()
-}
-
-//	Status Parse
-def validateResp(resp, data) {
+def distResp(resp, data) {
 	def respLog = [:]
 	if (resp.status == 200) {
 		try {
 			def respData = new JsonSlurper().parseText(resp.data)
+			if (data == "deviceSetup") {
+				deviceSetupParse(resp.components.main)
+			}
 			statusParse(respData.components.main)
 		} catch (err) {
 			respLog << [status: "ERROR",
@@ -258,91 +152,62 @@ def validateResp(resp, data) {
 					errorMsg: resp.errorMessage]
 	}
 	if (respLog != [:]) {
-		logWarn("validateResp: ${respLog}")
+		logWarn("distResp: ${respLog}")
 	}
 }
 
+def deviceSetupParse(mainData) {
+	def setupData = [:]
+	try {
+		def supportedInputs =  mainData.mediaInputSource.supportedInputSources.value
+		sendEvent(name: "supportedInputs", value: supportedInputs)	
+		setupData << [supportedInputs: supportedInputs]
+	} catch (e) { logWarn("deviceSetupParse: supportedInputs") }
+	if (setupData != [:]) {
+		logInfo("statusParse: ${stData}")
+	}	
+}
+
 def statusParse(mainData) {
-	def logData = [:]
-	def onOff = mainData.switch.switch.value
 	def stData = [:]
 	try {
-	if (device.currentValue("switch") != onOff) {
-//		if (onOff == "off") {
-//			setPollInterval("10")
-//		} else {
-//			setPollInterval("1")
-//		}
-		sendEvent(name: "switch", value: onOff)
-		stData << [switch: onOff]
-	}
+		def onOff = mainData.switch.switch.value
+		if (device.currentValue("switch") != onOff) {
+			sendEvent(name: "switch", value: onOff)
+			stData << [switch: onOff]
+		}
 	} catch (e) { logWarn("switch") }
-	
 	try {
-	def volume = mainData.audioVolume.volume.value.toInteger()
-	if (device.currentValue("volume").toInteger() != volume) {
-		sendEvent(name: "volume", value: volume)
-		stData << [volume: volume]
-	}
-	} catch (e) { logWarn("volume") }
-	
+		def volume = mainData.audioVolume.volume.value.toInteger()
+		if (!device.currentValue("volume") || device.currentValue("volume").toInteger() != volume) {
+			sendEvent(name: "volume", value: volume)
+			stData << [volume: volume]
+		}
+	} catch (e) { logWarn("volume: ${e}") }
+
 	try {
-	def mute = mainData.audioMute.mute.value
-	if (device.currentValue("mute") != mute) {
-		sendEvent(name: "mute", value: mute)
-		stData << [mute: mute]
-	}
+		def mute = mainData.audioMute.mute.value
+		if (device.currentValue("mute") != mute) {
+			sendEvent(name: "mute", value: mute)
+			stData << [mute: mute]
+		}
 	} catch (e) { logWarn("mute") }
-	
+
 	try {
-	def transportStatus = mainData.mediaPlayback.playbackStatus.value
-	if (device.currentValue("transportStatus") != transportStatus) {
-		sendEvent(name: "transportStatus", value: transportStatus)
-		stData << [transportStatus: transportStatus]
-	}
+		def transportStatus = mainData.mediaPlayback.playbackStatus.value
+		if (device.currentValue("transportStatus") != transportStatus) {
+			sendEvent(name: "transportStatus", value: transportStatus)
+			stData << [transportStatus: transportStatus]
+		}
 	} catch (e) { logWarn("transportStatus") }
-	
+
 	try {
 	def mediaInputSource = mainData.mediaInputSource.inputSource.value
-	if (device.currentValue("mediaInputSource") != mediaInputSource) {
-		sendEvent(name: "mediaInputSource", value: mediaInputSource)		
-		stData << [mediaInputSource: mediaInputSource]
-	}
-	} catch (e) { logWarn("mediaInputSource") }
-	
-	try {
-	def soundFrom = mainData["samsungvd.soundFrom"]
-	def soundFromData = [mode: soundFrom.mode.value,
-						 name: soundFrom.detailName.value]
-	if (device.currentValue("soundFrom") != soundFromData) {
-		sendEvent(name: "soundFrom", value: soundFromData)		
-		stData << [soundFrom: soundFromData]
-	}
-	} catch (e) { logWarn("soundFrom") }
-	
-	try {
-	def trackTime = mainData.audioTrackData.totalTime.value
-	if (device.currentValue("trackTime") != trackTime) {
-		sendEvent(name: "trackTime", value: trackTime)		
-		stData << [trackTime: trackTime]
-	}
-	} catch (e) { logWarn("trackTime") }
-		
-	try {
-	def elapsedTime = mainData.audioTrackData.elapsedTime.value
-	if (device.currentValue("elapsedTime") != elapsedTime) {
-		sendEvent(name: "elapsedTime", value: elapsedTime)		
-		stData << [elapsedTime: elapsedTime]
-	}
-	} catch (e) { logWarn("elapsedTime") }
-		
-	try {
-	def trackData = mainData.audioTrackData.audioTrackData.value
-	if (device.currentValue("trackData") != trackData) {
-		sendEvent(name: "trackData", value: trackData)		
-		stData << [trackData: trackData]
-	}
-	} catch (e) { logWarn("trackData") }
+		if (device.currentValue("mediaInputSource") != mediaInputSource) {
+			sendEvent(name: "mediaInputSource", value: mediaInputSource)
+			stData << [mediaInputSource: mediaInputSource]
+		}
+	} catch (e) { logWarn("mediaInputSource: ${e}") }
 		
 	if (stData != [:]) {
 		logInfo("statusParse: ${stData}")
@@ -421,98 +286,140 @@ library ( // library marker davegut.ST-Communications, line 1
 ) // library marker davegut.ST-Communications, line 8
 import groovy.json.JsonSlurper // library marker davegut.ST-Communications, line 9
 
-private asyncGet(sendData) { // library marker davegut.ST-Communications, line 11
-	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 12
-		logWarn("asyncGet: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 13
-	} else { // library marker davegut.ST-Communications, line 14
-		logDebug("asyncGet: ${sendData}") // library marker davegut.ST-Communications, line 15
-		def sendCmdParams = [ // library marker davegut.ST-Communications, line 16
-			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 17
-			path: sendData.path, // library marker davegut.ST-Communications, line 18
-			headers: ['Authorization': 'Bearer ' + stApiKey.trim()]] // library marker davegut.ST-Communications, line 19
-		try { // library marker davegut.ST-Communications, line 20
-			asynchttpGet(sendData.parse, sendCmdParams) // library marker davegut.ST-Communications, line 21
-		} catch (error) { // library marker davegut.ST-Communications, line 22
-			logWarn("asyncGet: [status: error, statusReason: ${error}]") // library marker davegut.ST-Communications, line 23
-		} // library marker davegut.ST-Communications, line 24
-	} // library marker davegut.ST-Communications, line 25
-} // library marker davegut.ST-Communications, line 26
+private asyncGet(sendData, passData = "none") { // library marker davegut.ST-Communications, line 11
+log.trace "======================== asyncGet =====" // library marker davegut.ST-Communications, line 12
+	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 13
+		logWarn("asyncGet: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 14
+	} else { // library marker davegut.ST-Communications, line 15
+		logDebug("asyncGet: ${sendData}, ${passData}") // library marker davegut.ST-Communications, line 16
+		def sendCmdParams = [ // library marker davegut.ST-Communications, line 17
+			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 18
+			path: sendData.path, // library marker davegut.ST-Communications, line 19
+			headers: ['Authorization': 'Bearer ' + stApiKey.trim()]] // library marker davegut.ST-Communications, line 20
+		try { // library marker davegut.ST-Communications, line 21
+			asynchttpGet(sendData.parse, sendCmdParams, [reason: passData]) // library marker davegut.ST-Communications, line 22
+//			asynchttpGet(sendData.parse, sendCmdParams) // library marker davegut.ST-Communications, line 23
+		} catch (error) { // library marker davegut.ST-Communications, line 24
+			logWarn("asyncGet: [status: error, statusReason: ${error}]") // library marker davegut.ST-Communications, line 25
+		} // library marker davegut.ST-Communications, line 26
+	} // library marker davegut.ST-Communications, line 27
+} // library marker davegut.ST-Communications, line 28
 
-private syncGet(path){ // library marker davegut.ST-Communications, line 28
-	def respData = [:] // library marker davegut.ST-Communications, line 29
-	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 30
-		respData << [status: "ERROR", errorMsg: "no stApiKey"] // library marker davegut.ST-Communications, line 31
-		logWarn("syncGet: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 32
-	} else { // library marker davegut.ST-Communications, line 33
-		logDebug("syncGet: ${sendData}") // library marker davegut.ST-Communications, line 34
-		def sendCmdParams = [ // library marker davegut.ST-Communications, line 35
-			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 36
-			path: path, // library marker davegut.ST-Communications, line 37
-			headers: ['Authorization': 'Bearer ' + stApiKey.trim()] // library marker davegut.ST-Communications, line 38
-		] // library marker davegut.ST-Communications, line 39
-		try { // library marker davegut.ST-Communications, line 40
-			httpGet(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 41
-				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 42
-					respData << [status: "OK", results: resp.data] // library marker davegut.ST-Communications, line 43
-				} else { // library marker davegut.ST-Communications, line 44
-					respData << [status: "FAILED", errorMsg: "httpCode: ${resp.status}"] // library marker davegut.ST-Communications, line 45
-					def warnData = [status:"ERROR", // library marker davegut.ST-Communications, line 46
-									cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 47
-									httpCode: resp.status, // library marker davegut.ST-Communications, line 48
-									errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 49
-					logWarn("syncGet: ${warnData}") // library marker davegut.ST-Communications, line 50
-				} // library marker davegut.ST-Communications, line 51
-			} // library marker davegut.ST-Communications, line 52
-		} catch (error) { // library marker davegut.ST-Communications, line 53
-			respData << [status: "FAILED", errorMsg: "non-HTTP Error"] // library marker davegut.ST-Communications, line 54
-			def warnData = [status: "ERROR", // library marker davegut.ST-Communications, line 55
-							cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 56
-							httpCode: "No Response", // library marker davegut.ST-Communications, line 57
-							errorMsg: error] // library marker davegut.ST-Communications, line 58
-			logWarn("syncGet: ${warnData}") // library marker davegut.ST-Communications, line 59
-		} // library marker davegut.ST-Communications, line 60
-	} // library marker davegut.ST-Communications, line 61
-	return respData // library marker davegut.ST-Communications, line 62
-} // library marker davegut.ST-Communications, line 63
+private syncGet(path){ // library marker davegut.ST-Communications, line 30
+	def respData = [:] // library marker davegut.ST-Communications, line 31
+	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 32
+		respData << [status: "ERROR", errorMsg: "no stApiKey"] // library marker davegut.ST-Communications, line 33
+		logWarn("syncGet: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 34
+	} else { // library marker davegut.ST-Communications, line 35
+		logDebug("syncGet: ${sendData}") // library marker davegut.ST-Communications, line 36
+		def sendCmdParams = [ // library marker davegut.ST-Communications, line 37
+			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 38
+			path: path, // library marker davegut.ST-Communications, line 39
+			headers: ['Authorization': 'Bearer ' + stApiKey.trim()] // library marker davegut.ST-Communications, line 40
+		] // library marker davegut.ST-Communications, line 41
+		try { // library marker davegut.ST-Communications, line 42
+			httpGet(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 43
+				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 44
+					respData << [status: "OK", results: resp.data] // library marker davegut.ST-Communications, line 45
+				} else { // library marker davegut.ST-Communications, line 46
+					respData << [status: "FAILED", errorMsg: "httpCode: ${resp.status}"] // library marker davegut.ST-Communications, line 47
+					def warnData = [status:"ERROR", // library marker davegut.ST-Communications, line 48
+									cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 49
+									httpCode: resp.status, // library marker davegut.ST-Communications, line 50
+									errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 51
+					logWarn("syncGet: ${warnData}") // library marker davegut.ST-Communications, line 52
+				} // library marker davegut.ST-Communications, line 53
+			} // library marker davegut.ST-Communications, line 54
+		} catch (error) { // library marker davegut.ST-Communications, line 55
+			respData << [status: "FAILED", errorMsg: "non-HTTP Error"] // library marker davegut.ST-Communications, line 56
+			def warnData = [status: "ERROR", // library marker davegut.ST-Communications, line 57
+							cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 58
+							httpCode: "No Response", // library marker davegut.ST-Communications, line 59
+							errorMsg: error] // library marker davegut.ST-Communications, line 60
+			logWarn("syncGet: ${warnData}") // library marker davegut.ST-Communications, line 61
+		} // library marker davegut.ST-Communications, line 62
+	} // library marker davegut.ST-Communications, line 63
+	return respData // library marker davegut.ST-Communications, line 64
+} // library marker davegut.ST-Communications, line 65
 
-private syncPost(sendData){ // library marker davegut.ST-Communications, line 65
-	def respData = [:] // library marker davegut.ST-Communications, line 66
-	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 67
-		respData << [status: "ERROR", errorMsg: "no stApiKey"] // library marker davegut.ST-Communications, line 68
-		logWarn("syncPost: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 69
-	} else { // library marker davegut.ST-Communications, line 70
-		logDebug("syncPost: ${sendData}") // library marker davegut.ST-Communications, line 71
-		def cmdBody = [commands: [sendData.cmdData]] // library marker davegut.ST-Communications, line 72
-		def sendCmdParams = [ // library marker davegut.ST-Communications, line 73
-			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 74
-			path: sendData.path, // library marker davegut.ST-Communications, line 75
-			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 76
-			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 77
-		] // library marker davegut.ST-Communications, line 78
-		try { // library marker davegut.ST-Communications, line 79
-			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 80
-				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 81
-					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 82
-				} else { // library marker davegut.ST-Communications, line 83
-					respData << [status: "FAILED", errorMsg: "httpCode: ${resp.status}"] // library marker davegut.ST-Communications, line 84
-					def warnData = [status:"ERROR", // library marker davegut.ST-Communications, line 85
-									cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 86
-									httpCode: resp.status, // library marker davegut.ST-Communications, line 87
-									errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 88
-					logWarn("syncPost: ${warnData}") // library marker davegut.ST-Communications, line 89
-				} // library marker davegut.ST-Communications, line 90
-			} // library marker davegut.ST-Communications, line 91
-		} catch (error) { // library marker davegut.ST-Communications, line 92
-			respData << [status: "FAILED", errorMsg: "non-HTTP Error"] // library marker davegut.ST-Communications, line 93
-			def warnData = [status: "ERROR", // library marker davegut.ST-Communications, line 94
-							cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 95
-							httpCode: "No Response", // library marker davegut.ST-Communications, line 96
-							errorMsg: error] // library marker davegut.ST-Communications, line 97
-			logWarn("syncPost: ${warnData}") // library marker davegut.ST-Communications, line 98
-		} // library marker davegut.ST-Communications, line 99
-	} // library marker davegut.ST-Communications, line 100
-	return respData // library marker davegut.ST-Communications, line 101
-} // library marker davegut.ST-Communications, line 102
+private xxasyncPost(sendData){ // library marker davegut.ST-Communications, line 67
+	def respData = [:] // library marker davegut.ST-Communications, line 68
+	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 69
+		respData << [status: "ERROR", errorMsg: "no stApiKey"] // library marker davegut.ST-Communications, line 70
+		logWarn("syncPost: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 71
+	} else { // library marker davegut.ST-Communications, line 72
+		logDebug("syncPost: ${sendData}") // library marker davegut.ST-Communications, line 73
+		def cmdBody = [commands: [sendData.cmdData]] // library marker davegut.ST-Communications, line 74
+		def sendCmdParams = [ // library marker davegut.ST-Communications, line 75
+			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 76
+			path: sendData.path, // library marker davegut.ST-Communications, line 77
+			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 78
+			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 79
+		] // library marker davegut.ST-Communications, line 80
+		try { // library marker davegut.ST-Communications, line 81
+			asynchttpPost(sendData.parse, sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 82
+				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 83
+					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 84
+				} else { // library marker davegut.ST-Communications, line 85
+					respData << [status: "FAILED", errorMsg: "httpCode: ${resp.status}"] // library marker davegut.ST-Communications, line 86
+					def warnData = [status:"ERROR", // library marker davegut.ST-Communications, line 87
+									cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 88
+									httpCode: resp.status, // library marker davegut.ST-Communications, line 89
+									errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 90
+					logWarn("syncPost: ${warnData}") // library marker davegut.ST-Communications, line 91
+				} // library marker davegut.ST-Communications, line 92
+			} // library marker davegut.ST-Communications, line 93
+		} catch (error) { // library marker davegut.ST-Communications, line 94
+			respData << [status: "FAILED", errorMsg: "non-HTTP Error"] // library marker davegut.ST-Communications, line 95
+			def warnData = [status: "ERROR", // library marker davegut.ST-Communications, line 96
+							cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 97
+							httpCode: "No Response", // library marker davegut.ST-Communications, line 98
+							errorMsg: error] // library marker davegut.ST-Communications, line 99
+			logWarn("syncPost: ${warnData}") // library marker davegut.ST-Communications, line 100
+		} // library marker davegut.ST-Communications, line 101
+	} // library marker davegut.ST-Communications, line 102
+	return respData // library marker davegut.ST-Communications, line 103
+} // library marker davegut.ST-Communications, line 104
+
+private syncPost(sendData){ // library marker davegut.ST-Communications, line 106
+log.trace "======================== syncPost =====" // library marker davegut.ST-Communications, line 107
+	def respData = [:] // library marker davegut.ST-Communications, line 108
+	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 109
+		respData << [status: "ERROR", errorMsg: "no stApiKey"] // library marker davegut.ST-Communications, line 110
+		logWarn("syncPost: [status: ERROR, errorMsg: no stApiKey]") // library marker davegut.ST-Communications, line 111
+	} else { // library marker davegut.ST-Communications, line 112
+		logDebug("syncPost: ${sendData}") // library marker davegut.ST-Communications, line 113
+		def cmdBody = [commands: [sendData.cmdData]] // library marker davegut.ST-Communications, line 114
+		def sendCmdParams = [ // library marker davegut.ST-Communications, line 115
+			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 116
+			path: sendData.path, // library marker davegut.ST-Communications, line 117
+			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 118
+			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 119
+		] // library marker davegut.ST-Communications, line 120
+		try { // library marker davegut.ST-Communications, line 121
+			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 122
+				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 123
+					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 124
+				} else { // library marker davegut.ST-Communications, line 125
+					respData << [status: "FAILED", errorMsg: "httpCode: ${resp.status}"] // library marker davegut.ST-Communications, line 126
+					def warnData = [status:"ERROR", // library marker davegut.ST-Communications, line 127
+									cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 128
+									httpCode: resp.status, // library marker davegut.ST-Communications, line 129
+									errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 130
+					logWarn("syncPost: ${warnData}") // library marker davegut.ST-Communications, line 131
+				} // library marker davegut.ST-Communications, line 132
+			} // library marker davegut.ST-Communications, line 133
+		} catch (error) { // library marker davegut.ST-Communications, line 134
+			respData << [status: "FAILED", errorMsg: "non-HTTP Error"] // library marker davegut.ST-Communications, line 135
+			def warnData = [status: "ERROR", // library marker davegut.ST-Communications, line 136
+							cmdData: sendData.cmdData, // library marker davegut.ST-Communications, line 137
+							httpCode: "No Response", // library marker davegut.ST-Communications, line 138
+							errorMsg: error] // library marker davegut.ST-Communications, line 139
+			logWarn("syncPost: ${warnData}") // library marker davegut.ST-Communications, line 140
+		} // library marker davegut.ST-Communications, line 141
+	} // library marker davegut.ST-Communications, line 142
+	return respData // library marker davegut.ST-Communications, line 143
+} // library marker davegut.ST-Communications, line 144
 
 // ~~~~~ end include (387) davegut.ST-Communications ~~~~~
 
@@ -611,58 +518,79 @@ def poll() { // library marker davegut.ST-Common, line 80
 	} else { // library marker davegut.ST-Common, line 92
 		def sendData = [ // library marker davegut.ST-Common, line 93
 			path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 94
-			parse: "validateResp" // library marker davegut.ST-Common, line 95
+			parse: "distResp" // library marker davegut.ST-Common, line 95
 			] // library marker davegut.ST-Common, line 96
-		asyncGet(sendData) // library marker davegut.ST-Common, line 97
+		asyncGet(sendData, "statusParse") // library marker davegut.ST-Common, line 97
 	} // library marker davegut.ST-Common, line 98
 } // library marker davegut.ST-Common, line 99
 
-def getDeviceList() { // library marker davegut.ST-Common, line 101
-	def sendData = [ // library marker davegut.ST-Common, line 102
-		path: "/devices", // library marker davegut.ST-Common, line 103
-		parse: "getDeviceListParse" // library marker davegut.ST-Common, line 104
-		] // library marker davegut.ST-Common, line 105
-	asyncGet(sendData) // library marker davegut.ST-Common, line 106
-} // library marker davegut.ST-Common, line 107
+def deviceSetup() { // library marker davegut.ST-Common, line 101
+	if (simulate == true) { // library marker davegut.ST-Common, line 102
+		def children = getChildDevices() // library marker davegut.ST-Common, line 103
+		if (children) { // library marker davegut.ST-Common, line 104
+			children.each { // library marker davegut.ST-Common, line 105
+				it.deviceSetupParse(testData()) // library marker davegut.ST-Common, line 106
+			} // library marker davegut.ST-Common, line 107
+		} // library marker davegut.ST-Common, line 108
+		deviceSetupParse(testData()) // library marker davegut.ST-Common, line 109
+	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 110
+		respData = "[status: FAILED, data: no stDeviceId]" // library marker davegut.ST-Common, line 111
+		logWarn("poll: [status: ERROR, errorMsg: no stDeviceId]") // library marker davegut.ST-Common, line 112
+	} else { // library marker davegut.ST-Common, line 113
+		def sendData = [ // library marker davegut.ST-Common, line 114
+			path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 115
+			parse: "distResp" // library marker davegut.ST-Common, line 116
+			] // library marker davegut.ST-Common, line 117
+		asyncGet(sendData, "deviceSetup") // library marker davegut.ST-Common, line 118
+	} // library marker davegut.ST-Common, line 119
+} // library marker davegut.ST-Common, line 120
 
-def getDeviceListParse(resp, data) { // library marker davegut.ST-Common, line 109
-	def respData // library marker davegut.ST-Common, line 110
-	if (resp.status != 200) { // library marker davegut.ST-Common, line 111
-		respData = [status: "ERROR", // library marker davegut.ST-Common, line 112
-					httpCode: resp.status, // library marker davegut.ST-Common, line 113
-					errorMsg: resp.errorMessage] // library marker davegut.ST-Common, line 114
-	} else { // library marker davegut.ST-Common, line 115
-		try { // library marker davegut.ST-Common, line 116
-			respData = new JsonSlurper().parseText(resp.data) // library marker davegut.ST-Common, line 117
-		} catch (err) { // library marker davegut.ST-Common, line 118
-			respData = [status: "ERROR", // library marker davegut.ST-Common, line 119
-						errorMsg: err, // library marker davegut.ST-Common, line 120
-						respData: resp.data] // library marker davegut.ST-Common, line 121
-		} // library marker davegut.ST-Common, line 122
-	} // library marker davegut.ST-Common, line 123
-	if (respData.status == "ERROR") { // library marker davegut.ST-Common, line 124
-		logWarn("getDeviceListParse: ${respData}") // library marker davegut.ST-Common, line 125
-	} else { // library marker davegut.ST-Common, line 126
-		log.info "" // library marker davegut.ST-Common, line 127
-		respData.items.each { // library marker davegut.ST-Common, line 128
-			log.trace "${it.label}:   ${it.deviceId}" // library marker davegut.ST-Common, line 129
-		} // library marker davegut.ST-Common, line 130
-		log.trace "<b>Copy your device's deviceId value and enter into the device Preferences.</b>" // library marker davegut.ST-Common, line 131
-	} // library marker davegut.ST-Common, line 132
-} // library marker davegut.ST-Common, line 133
+def getDeviceList() { // library marker davegut.ST-Common, line 122
+	def sendData = [ // library marker davegut.ST-Common, line 123
+		path: "/devices", // library marker davegut.ST-Common, line 124
+		parse: "getDeviceListParse" // library marker davegut.ST-Common, line 125
+		] // library marker davegut.ST-Common, line 126
+	asyncGet(sendData) // library marker davegut.ST-Common, line 127
+} // library marker davegut.ST-Common, line 128
 
-def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, line 135
-	Integer currTime = now() // library marker davegut.ST-Common, line 136
-	Integer compTime // library marker davegut.ST-Common, line 137
-	try { // library marker davegut.ST-Common, line 138
-		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 139
-	} catch (e) { // library marker davegut.ST-Common, line 140
-		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 141
-	} // library marker davegut.ST-Common, line 142
-	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 143
-	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 144
-	return timeRemaining // library marker davegut.ST-Common, line 145
-} // library marker davegut.ST-Common, line 146
+def getDeviceListParse(resp, data) { // library marker davegut.ST-Common, line 130
+	def respData // library marker davegut.ST-Common, line 131
+	if (resp.status != 200) { // library marker davegut.ST-Common, line 132
+		respData = [status: "ERROR", // library marker davegut.ST-Common, line 133
+					httpCode: resp.status, // library marker davegut.ST-Common, line 134
+					errorMsg: resp.errorMessage] // library marker davegut.ST-Common, line 135
+	} else { // library marker davegut.ST-Common, line 136
+		try { // library marker davegut.ST-Common, line 137
+			respData = new JsonSlurper().parseText(resp.data) // library marker davegut.ST-Common, line 138
+		} catch (err) { // library marker davegut.ST-Common, line 139
+			respData = [status: "ERROR", // library marker davegut.ST-Common, line 140
+						errorMsg: err, // library marker davegut.ST-Common, line 141
+						respData: resp.data] // library marker davegut.ST-Common, line 142
+		} // library marker davegut.ST-Common, line 143
+	} // library marker davegut.ST-Common, line 144
+	if (respData.status == "ERROR") { // library marker davegut.ST-Common, line 145
+		logWarn("getDeviceListParse: ${respData}") // library marker davegut.ST-Common, line 146
+	} else { // library marker davegut.ST-Common, line 147
+		log.info "" // library marker davegut.ST-Common, line 148
+		respData.items.each { // library marker davegut.ST-Common, line 149
+			log.trace "${it.label}:   ${it.deviceId}" // library marker davegut.ST-Common, line 150
+		} // library marker davegut.ST-Common, line 151
+		log.trace "<b>Copy your device's deviceId value and enter into the device Preferences.</b>" // library marker davegut.ST-Common, line 152
+	} // library marker davegut.ST-Common, line 153
+} // library marker davegut.ST-Common, line 154
+
+def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, line 156
+	Integer currTime = now() // library marker davegut.ST-Common, line 157
+	Integer compTime // library marker davegut.ST-Common, line 158
+	try { // library marker davegut.ST-Common, line 159
+		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 160
+	} catch (e) { // library marker davegut.ST-Common, line 161
+		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 162
+	} // library marker davegut.ST-Common, line 163
+	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 164
+	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 165
+	return timeRemaining // library marker davegut.ST-Common, line 166
+} // library marker davegut.ST-Common, line 167
 
 // ~~~~~ end include (642) davegut.ST-Common ~~~~~
 
