@@ -26,7 +26,7 @@ a.	Update major commands, as follows:
 b.	Developed standard thermostat auto mode emulation.
 c.	Developed methods to track and control the resultant thermostat modes and operating states.
 ==============================================================================*/
-def driverVer() { return "B0.2" }
+def driverVer() { return "B0.5" }
 metadata {
 	definition (name: "Samsung HVAC",
 				namespace: "davegut",
@@ -63,7 +63,7 @@ metadata {
 			type: "ENUM"]]
 		attribute "lightStatus", "string"
 
-//		command "setTemperature", ["number"]
+		command "setTemperature", ["number"]
 	}
 	preferences {
 		input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
@@ -132,7 +132,6 @@ def sendModeCommand(thermostatMode) {
 	cmdStatus = deviceCommand(cmdData)
 	return cmdStatus
 }
-	
 
 def fanAuto() { setThermostatFanMode("auto") }
 def fanCirculate() { setThermostatFanMode("medium") }
@@ -245,12 +244,31 @@ def setLight(onOff) {
 		component: "main",
 		capability: "execute",
 		command: "execute",
-		arguments: [["mode/vs/0":[
+		arguments: ["mode/vs/0":[
 			"x.com.samsung.da.options":[
 				onOff
-			]]]]]
+			]]]]
 	def cmdStatus = deviceCommand(cmdData)
 	logInfo("setLight [cmd: ${onOff}, ${cmdStatus}]")
+
+/*{
+  "commands": [
+    {
+      "component": "main",
+      "capability": "execute",
+      "command": "execute",
+      "arguments": [
+        "mode/vs/0",
+          {
+             "x.com.samsung.da.options":[
+                "Light_On"
+             ]
+          }
+       ]
+    }
+  ]
+}*/
+
 }
 
 def distResp(resp, data) {
@@ -354,7 +372,9 @@ def statusParse(parseData) {
 	}
 	
 	try{
-		def lightStatus = parseData.execute.data.value.payload["x.com.samsung.da.options"]
+		def execStatus = parseData.execute.data.value.payload["x.com.samsung.da.options"]
+		def lightStatus = "Light_On"
+		if (execStatus.contains("Light_Off")) { lightStatus = "Light_Off" }
 		if (device.currentValue("lightStatus") != lightStatus) {
 			sendEvent(name: "lightStatus", value: lightStatus)
 			logData << [lightStatus: lightStatus]
