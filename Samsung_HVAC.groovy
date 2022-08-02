@@ -26,7 +26,7 @@ a.	Update major commands, as follows:
 b.	Developed standard thermostat auto mode emulation.
 c.	Developed methods to track and control the resultant thermostat modes and operating states.
 ==============================================================================*/
-def driverVer() { return "B0.5" }
+def driverVer() { return "B0.51" }
 metadata {
 	definition (name: "Samsung HVAC",
 				namespace: "davegut",
@@ -102,10 +102,10 @@ def off() {
 	def cmdData = [
 		component: "main",
 		capability: "switch",
-		command: onOff,
+		command: "off",
 		arguments: []]
 	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setOnOff: [cmd: ${onOff}, ${cmdStatus}]")
+	logInfo("off: [cmd: ${onOff}, ${cmdStatus}]")
 }
 def setThermostatMode(thermostatMode) {
 	def cmdStatus
@@ -385,7 +385,7 @@ def statusParse(parseData) {
 	
 	runIn(2, updateOperation)
 	if (logData != [:]) { logInfo("statusParse: ${logData}") }
-//	runIn(4, listAttributes)
+	runIn(4, listAttributes)
 }
 
 def updateOperation() {
