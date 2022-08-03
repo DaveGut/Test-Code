@@ -26,9 +26,9 @@ a.	Update major commands, as follows:
 b.	Developed standard thermostat auto mode emulation.
 c.	Developed methods to track and control the resultant thermostat modes and operating states.
 ==============================================================================*/
-def driverVer() { return "B0.56" }
+def driverVer() { return "B0.60" }
 metadata {
-	definition (name: "Test Samsung HVAC",
+	definition (name: "Samsung HVAC",
 				namespace: "davegut",
 				author: "David Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungAppliances/Samsung_HVAC.groovy"
@@ -46,8 +46,6 @@ metadata {
 		command "samsungAuto"
 		command "wind"
 		command "dry"
-		//	Augmented Thermostat Fan Mode Control.  Commands added to
-		//	matain capability interface paradigm.
 		command "setThermostatFanMode", [[
 			name: "Thermostat Fan Mode",
 			constraints: ["auto", "low", "medium", "high"],
@@ -58,10 +56,6 @@ metadata {
 		command "setSamsungAutoSetpoint", ["number"]
 		attribute "samsungAutoSetpoint", "number"
 		//	Set the light on the remote control.
-//		command "setLight", [[
-//			name: "Display On/Off",
-//			constraints: ["Light_On", "Light_Off"],
-//			type: "ENUM"]]
 		command "togglePanelLight"
 		attribute "lightStatus", "string"
 
@@ -100,14 +94,15 @@ def wind() { setThermostatMode("wind") }
 def dry() { setThermostatMode("dry") }
 def samsungAuto() { setThermostatMode("samsungAuto") }
 def emergencyHeat() { logInfo("emergencyHeat: Not Available on this device") }
-def off() {
+def off() { setThermostatMode("off") }
+def setOff() {
 	def cmdData = [
 		component: "main",
 		capability: "switch",
 		command: "off",
 		arguments: []]
 	def cmdStatus = deviceCommand(cmdData)
-	logInfo("off: [cmd: off, ${cmdStatus}]")
+	return cmdStatus
 }
 def setThermostatMode(thermostatMode) {
 	def cmdStatus
@@ -116,6 +111,9 @@ def setThermostatMode(thermostatMode) {
 		state.autoMode = true
 		cmdStatus = [status: "OK", mode: "Auto Emulation"]
 		poll()
+	} else if (thermostatMode == "off") {
+		state.autoMode = false
+		cmdStatus = setOff()
 	} else {
 		state.autoMode = false
 		if (thermostatMode == "samsungAuto") {
@@ -250,51 +248,17 @@ def togglePanelLight() {
 	if (newOnOff == "off") {
 		lightCmd = "Light_On"
 	}
-	def cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: [["mode/vs/0":[
+	def args = [["mode/vs/0":[
 			"x.com.samsung.da.options":[
 				lightCmd
-			]]]]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setLight [newOnOff: ${newOnOff}, cmd: ${lightCmd}, ${cmdStatus}]")
-
-//log.trace cmdData.arguments
-//def args = [cmdData.arguments]
-//	log.trace args
-//	log.trace args.collect()
-/*{
-  "commands": [
-    {
-      "component": "main",
-      "capability": "execute",
-      "command": "execute",
-      "arguments": [
-        "mode/vs/0",
-          {
-             "x.com.samsung.da.options":[
-                "Light_On"
-             ]
-          }
-       ]
-    }
-  ]
-}*/
-}
-
-def xxxsetLight(onOff) {
+			]]]]
 	def cmdData = [
 		component: "main",
 		capability: "execute",
 		command: "execute",
-		arguments: ["mode/vs/0":[
-			"x.com.samsung.da.options":[
-				onOff
-			]]]]
+		arguments: args.collect()]
 	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setLight [cmd: ${onOff}, ${cmdStatus}]")
+	logInfo("setLight [newOnOff: ${newOnOff}, cmd: ${lightCmd}, ${cmdStatus}]")
 }
 
 def distResp(resp, data) {
@@ -491,7 +455,6 @@ def updateOperation() {
 
 
 def simulate() { return false }
-//def simulate() { return true }
 //#include davegut.Samsung-AC-Sim
 
 // ~~~~~ start include (993) davegut.Logging ~~~~~
