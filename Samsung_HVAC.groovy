@@ -26,7 +26,8 @@ a.	Update major commands, as follows:
 b.	Developed standard thermostat auto mode emulation.
 c.	Developed methods to track and control the resultant thermostat modes and operating states.
 ==============================================================================*/
-def driverVer() { return "B0.60" }
+def driverVer() { return "B0.62" }
+import groovy.json.JsonOutput
 metadata {
 	definition (name: "Samsung HVAC",
 				namespace: "davegut",
@@ -34,7 +35,7 @@ metadata {
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungAppliances/Samsung_HVAC.groovy"
 			   ){
 		capability "Refresh"
-		attribute "switch", "string"
+//		attribute "switch", "string"
 		capability "Thermostat"
 		//	Augmented Thermostat Mode Control.  Commands added to
 		//	maintain capabilty interface paradigm.  Emergency Heat not avail.
@@ -59,6 +60,7 @@ metadata {
 		command "togglePanelLight"
 		attribute "lightStatus", "string"
 
+		command "aLightTest"
 //		command "setTemperature", ["number"]
 	}
 	preferences {
@@ -256,9 +258,137 @@ def togglePanelLight() {
 		component: "main",
 		capability: "execute",
 		command: "execute",
-		arguments: args.collect()]
+		arguments: [["mode/vs/0":[
+			"x.com.samsung.da.options":[
+				lightCmd
+			]]]]]
 	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setLight [newOnOff: ${newOnOff}, cmd: ${lightCmd}, ${cmdStatus}]")
+	logInfo("togglePanelLight [newOnOff: ${newOnOff}, cmd: ${lightCmd}, ${cmdStatus}]")
+}
+
+def aLightTest() {
+	//	Proc: Turn light ON.  Run this test.  It will take about 1 minute to complete.
+	//	If light turns off or on, notify me.
+	//	Send logs.
+	debugLogOff()
+	def cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: [["mode/vs/0":[
+			"x.com.samsung.da.options":[
+				"Light_Off"
+			]]]]]
+	def cmdStatus = deviceCommand(cmdData)
+	log.trace "AA [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+	
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: [["mode/vs/0":[
+			"x.com.samsung.da.options":[
+				"Light_On"
+			]]]]]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "BB [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+	
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: ["mode/vs/0":[
+			"x.com.samsung.da.options":[
+				"Light_Off"
+			]]]]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "CC [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: ["mode/vs/0":[
+			"x.com.samsung.da.options":[
+				"Light_On"
+			]]]]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "DD [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+	
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: """[mode/vs/0,{x.com.samsung.da.options:[Light_Off]}]"""
+		]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "EE [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: """[mode/vs/0,{x.com.samsung.da.options:[Light_On]}]"""
+		]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "FF [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: JsonOutput.toJson("""[mode/vs/0,{x.com.samsung.da.options:[Light_Off]}]""")
+		]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "GG [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: JsonOutput.toJson("""[mode/vs/0,{x.com.samsung.da.options:[Light_On]}]""")
+		]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "HH [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: ["mode/vs/0",JsonOutput.toJson("""{x.com.samsung.da.options:[Light_Off]}""")]
+		]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "II [cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: ["mode/vs/0",JsonOutput.toJson("""{x.com.samsung.da.options:[Light_On]}""")]
+		]
+	cmdStatus = deviceCommand(cmdData)
+	log.trace "JJ[cmdData: ${cmdData}, ${cmdStatus}]"
+	pauseExecution(7000)
+	log.trace device.currentValue("lightStatus")
 }
 
 def distResp(resp, data) {
@@ -281,13 +411,13 @@ def distResp(resp, data) {
 					errorMsg: resp.errorMessage]
 	}
 	if (respLog != [:]) {
-		logWarn("distResp: ${respLog}")
+//		logWarn("distResp: ${respLog}")
 	}
 }
 
 def deviceSetupParse(parseData) {
 	def logData = [:]
-
+log.trace parseData
 	tempUnit = parseData.temperatureMeasurement.temperature.unit
 	state.tempUnit = "°${tempUnit}"
 	logData << [tempUnit: tempUnit]
@@ -330,10 +460,10 @@ def statusParse(parseData) {
 	def logData = [:]
 
 	def onOff = parseData.switch.switch.value
-	if (device.currentValue("switch") != onOff) {
-		sendEvent(name: "switch", value: onOff)
-		logData << [switch: onOff]
-	}
+//	if (device.currentValue("switch") != onOff) {
+//		sendEvent(name: "switch", value: onOff)
+//		logData << [switch: onOff]
+//	}
 	
 	def temperature = parseData.temperatureMeasurement.temperature.value
 	if (device.currentValue("temperature") != temperature) {
@@ -351,6 +481,8 @@ def statusParse(parseData) {
 	state.rawMode = thermostatMode
 	if (state.autoMode) {
 		thermostatMode = "auto"
+	} else if (onOff == "off") {
+		thermostatMode = "off"
 	} else if (thermostatMode != "cool" && thermostatMode != "heat" &&
 			   thermostatMode != "wind" && thermostatMode != "dry" &&
 			   thermostatMode != "off") {
@@ -477,35 +609,34 @@ def listAttributes(trace = false) { // library marker davegut.Logging, line 10
 	if (trace == true) { // library marker davegut.Logging, line 17
 		logTrace("Attributes: ${attrList}") // library marker davegut.Logging, line 18
 	} else { // library marker davegut.Logging, line 19
-//		logDebug("Attributes: ${attrList}") // library marker davegut.Logging, line 20
-		logInfo("Attributes: ${attrList}") // library marker davegut.Logging, line 21
-	} // library marker davegut.Logging, line 22
-} // library marker davegut.Logging, line 23
+		logDebug("Attributes: ${attrList}") // library marker davegut.Logging, line 20
+	} // library marker davegut.Logging, line 21
+} // library marker davegut.Logging, line 22
 
-def logTrace(msg){ // library marker davegut.Logging, line 25
-	log.trace "${device.displayName} ${getDataValue("driverVersion")}: ${msg}" // library marker davegut.Logging, line 26
-} // library marker davegut.Logging, line 27
+def logTrace(msg){ // library marker davegut.Logging, line 24
+	log.trace "${device.displayName} ${getDataValue("driverVersion")}: ${msg}" // library marker davegut.Logging, line 25
+} // library marker davegut.Logging, line 26
 
-def logInfo(msg) {  // library marker davegut.Logging, line 29
-	log.info "${device.displayName} ${getDataValue("driverVersion")}: ${msg}"  // library marker davegut.Logging, line 30
-} // library marker davegut.Logging, line 31
+def logInfo(msg) {  // library marker davegut.Logging, line 28
+	log.info "${device.displayName} ${getDataValue("driverVersion")}: ${msg}"  // library marker davegut.Logging, line 29
+} // library marker davegut.Logging, line 30
 
-def debugLogOff() { // library marker davegut.Logging, line 33
-	if (debug == true) { // library marker davegut.Logging, line 34
-		device.updateSetting("debug", [type:"bool", value: false]) // library marker davegut.Logging, line 35
-	} else if (debugLog == true) { // library marker davegut.Logging, line 36
-		device.updateSetting("debugLog", [type:"bool", value: false]) // library marker davegut.Logging, line 37
-	} // library marker davegut.Logging, line 38
-	logInfo("Debug logging is false.") // library marker davegut.Logging, line 39
-} // library marker davegut.Logging, line 40
+def debugLogOff() { // library marker davegut.Logging, line 32
+	if (debug == true) { // library marker davegut.Logging, line 33
+		device.updateSetting("debug", [type:"bool", value: false]) // library marker davegut.Logging, line 34
+	} else if (debugLog == true) { // library marker davegut.Logging, line 35
+		device.updateSetting("debugLog", [type:"bool", value: false]) // library marker davegut.Logging, line 36
+	} // library marker davegut.Logging, line 37
+	logInfo("Debug logging is false.") // library marker davegut.Logging, line 38
+} // library marker davegut.Logging, line 39
 
-def logDebug(msg) { // library marker davegut.Logging, line 42
-	if (debug == true || debugLog == true) { // library marker davegut.Logging, line 43
-		log.debug "${device.displayName} ${getDataValue("driverVersion")}: ${msg}" // library marker davegut.Logging, line 44
-	} // library marker davegut.Logging, line 45
-} // library marker davegut.Logging, line 46
+def logDebug(msg) { // library marker davegut.Logging, line 41
+	if (debug == true || debugLog == true) { // library marker davegut.Logging, line 42
+		log.debug "${device.displayName} ${getDataValue("driverVersion")}: ${msg}" // library marker davegut.Logging, line 43
+	} // library marker davegut.Logging, line 44
+} // library marker davegut.Logging, line 45
 
-def logWarn(msg) { log.warn "${device.displayName} ${getDataValue("driverVersion")}: ${msg}" } // library marker davegut.Logging, line 48
+def logWarn(msg) { log.warn "${device.displayName} ${getDataValue("driverVersion")}: ${msg}" } // library marker davegut.Logging, line 47
 
 // ~~~~~ end include (993) davegut.Logging ~~~~~
 
@@ -666,7 +797,7 @@ def deviceCommand(cmdData) { // library marker davegut.ST-Common, line 49
 		] // library marker davegut.ST-Common, line 59
 		respData = syncPost(sendData) // library marker davegut.ST-Common, line 60
 	} // library marker davegut.ST-Common, line 61
-	if (cmdData.capability != "refresh") { // library marker davegut.ST-Common, line 62
+	if (cmdData.capability && cmdData.capability != "refresh") { // library marker davegut.ST-Common, line 62
 		refresh() // library marker davegut.ST-Common, line 63
 	} else { // library marker davegut.ST-Common, line 64
 		poll() // library marker davegut.ST-Common, line 65
