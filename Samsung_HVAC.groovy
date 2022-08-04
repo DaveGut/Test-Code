@@ -26,7 +26,7 @@ a.	Update major commands, as follows:
 b.	Developed standard thermostat auto mode emulation.
 c.	Developed methods to track and control the resultant thermostat modes and operating states.
 ==============================================================================*/
-def driverVer() { return "B0.62" }
+def driverVer() { return "B0.64" }
 import groovy.json.JsonOutput
 metadata {
 	definition (name: "Samsung HVAC",
@@ -266,130 +266,125 @@ def togglePanelLight() {
 	logInfo("togglePanelLight [newOnOff: ${newOnOff}, cmd: ${lightCmd}, ${cmdStatus}]")
 }
 
+def xxxaLightTest() {
+	//	Proc: Turn light ON.  Run this test.  It will take about 1 minute to complete.
+	//	If light turns off or on, notify me.
+	//	Send logs.
+	debugLogOff()
+	def cmdString = tvCmd("30")
+	def respData = testPost(cmdString)
+	if (respData.status == "OK") {
+		log.trace "AA [${cmdString}: ${respData}]"
+		refresh()
+	} else {
+		log.warn "AA [${cmdString}: ${respData}]"
+	}
+	pauseExecution(10000)
+	log.trace device.currentValue("lightStatus")
+	
+	cmdString = tvCmd("22")
+	respData = testPost(cmdString)
+	if (respData.status == "OK") {
+		log.trace "BB [${cmdString}: ${respData}]"
+		refresh()
+	} else {
+		log.warn "BB [${cmdString}: ${respData}]"
+	}
+	pauseExecution(10000)
+	log.trace device.currentValue("lightStatus")
+}
+def xxxtvCmd(onOff) {
+	return """{"commands":[{"component":"main","capability":"audioVolume",""" +
+		""""command":"setVolume","arguments": [${onOff}]}]}"""
+}
+
+
 def aLightTest() {
 	//	Proc: Turn light ON.  Run this test.  It will take about 1 minute to complete.
 	//	If light turns off or on, notify me.
 	//	Send logs.
 	debugLogOff()
-	def cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: [["mode/vs/0":[
-			"x.com.samsung.da.options":[
-				"Light_Off"
-			]]]]]
-	def cmdStatus = deviceCommand(cmdData)
-	log.trace "AA [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
+	def cmdString = lightCmd("Light_Off")
+	def respData = testPost(cmdString)
+	if (respData.status == "OK") {
+		log.trace "AA [${cmdString}: ${respData}]"
+		refresh()
+	} else {
+		log.warn "AA [${cmdString}: ${respData}]"
+	}
+	pauseExecution(10000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdString = lightCmd("Light_On")
+	respData = testPost(cmdString)
+	if (respData.status == "OK") {
+		log.trace "BB [${cmdString}: ${respData}]"
+		refresh()
+	} else {
+		log.warn "BB [${cmdString}: ${respData}]"
+	}
+	pauseExecution(10000)
+	log.trace device.currentValue("lightStatus")
+
+	cmdString = lightCmd1("Light_Off")
+	respData = testPost(cmdString)
+	if (respData.status == "OK") {
+		log.trace "CC [${cmdString}: ${respData}]"
+		refresh()
+	} else {
+		log.warn "CC [${cmdString}: ${respData}]"
+	}
+	pauseExecution(10000)
 	log.trace device.currentValue("lightStatus")
 	
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: [["mode/vs/0":[
-			"x.com.samsung.da.options":[
-				"Light_On"
-			]]]]]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "BB [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-	
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: ["mode/vs/0":[
-			"x.com.samsung.da.options":[
-				"Light_Off"
-			]]]]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "CC [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: ["mode/vs/0":[
-			"x.com.samsung.da.options":[
-				"Light_On"
-			]]]]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "DD [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-	
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: """[mode/vs/0,{x.com.samsung.da.options:[Light_Off]}]"""
-		]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "EE [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: """[mode/vs/0,{x.com.samsung.da.options:[Light_On]}]"""
-		]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "FF [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: JsonOutput.toJson("""[mode/vs/0,{x.com.samsung.da.options:[Light_Off]}]""")
-		]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "GG [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: JsonOutput.toJson("""[mode/vs/0,{x.com.samsung.da.options:[Light_On]}]""")
-		]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "HH [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: ["mode/vs/0",JsonOutput.toJson("""{x.com.samsung.da.options:[Light_Off]}""")]
-		]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "II [cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
-	log.trace device.currentValue("lightStatus")
-
-	cmdData = [
-		component: "main",
-		capability: "execute",
-		command: "execute",
-		arguments: ["mode/vs/0",JsonOutput.toJson("""{x.com.samsung.da.options:[Light_On]}""")]
-		]
-	cmdStatus = deviceCommand(cmdData)
-	log.trace "JJ[cmdData: ${cmdData}, ${cmdStatus}]"
-	pauseExecution(7000)
+	cmdString = lightCmd1("Light_On")
+	respData = testPost(cmdString)
+	if (respData.status == "OK") {
+		log.trace "DD [${cmdString}: ${respData}]"
+		refresh()
+	} else {
+		log.warn "DD [${cmdString}: ${respData}]"
+	}
+	pauseExecution(10000)
 	log.trace device.currentValue("lightStatus")
 }
+def lightCmd(onOff) {
+	return """{"commands":[{"component": "main","capability": "execute",""" +
+		   """"command": "execute","arguments": ["mode/vs/0",{"x.com.samsung.da.options":""" +
+		"""["${onOff}"}]}]}"""
+}
+def lightCmd1(onOff) {
+	return """{"commands":[{"component": "main","capability": "execute",""" +
+		   """"command": "execute","arguments": ["mode/vs/0",{"x.com.samsung.da.options":""" +
+		"""[${onOff}}]}]}"""
+}
+def testPost(lightCmd) {
+	def respData = [:]
+	def sendCmdParams = [
+			uri: "https://api.smartthings.com/v1",
+			path: "/devices/${stDeviceId.trim()}/commands",
+			headers: ['Authorization': 'Bearer ' + stApiKey.trim()],
+//			body : new groovy.json.JsonBuilder(lightCmd).toString()
+			body : lightCmd
+		]
+	try {
+		httpPost(sendCmdParams) {resp ->
+			if (resp.status == 200 && resp.data != null) {
+				respData << [status: "OK", results: resp.data.results]
+			} else {
+				respData << [status: "FAILED",
+							 httpCode: resp.status,
+							 errorMsg: resp.errorMessage]
+			}
+		}
+	} catch (error) {
+		respData << [status: "FAILED",
+					 httpCode: "Timeout",
+					 errorMsg: error]
+	}
+	return respData
+}
+
 
 def distResp(resp, data) {
 	def respLog = [:]
@@ -714,24 +709,25 @@ private syncPost(sendData){ // library marker davegut.ST-Communications, line 59
 			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 71
 			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 72
 		] // library marker davegut.ST-Communications, line 73
-		try { // library marker davegut.ST-Communications, line 74
-			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 75
-				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 76
-					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 77
-				} else { // library marker davegut.ST-Communications, line 78
-					respData << [status: "FAILED", // library marker davegut.ST-Communications, line 79
-								 httpCode: resp.status, // library marker davegut.ST-Communications, line 80
-								 errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 81
-				} // library marker davegut.ST-Communications, line 82
-			} // library marker davegut.ST-Communications, line 83
-		} catch (error) { // library marker davegut.ST-Communications, line 84
-			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 85
-						 httpCode: "Timeout", // library marker davegut.ST-Communications, line 86
-						 errorMsg: error] // library marker davegut.ST-Communications, line 87
-		} // library marker davegut.ST-Communications, line 88
-	} // library marker davegut.ST-Communications, line 89
-	return respData // library marker davegut.ST-Communications, line 90
-} // library marker davegut.ST-Communications, line 91
+log.trace sendCmdParams // library marker davegut.ST-Communications, line 74
+		try { // library marker davegut.ST-Communications, line 75
+			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 76
+				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 77
+					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 78
+				} else { // library marker davegut.ST-Communications, line 79
+					respData << [status: "FAILED", // library marker davegut.ST-Communications, line 80
+								 httpCode: resp.status, // library marker davegut.ST-Communications, line 81
+								 errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 82
+				} // library marker davegut.ST-Communications, line 83
+			} // library marker davegut.ST-Communications, line 84
+		} catch (error) { // library marker davegut.ST-Communications, line 85
+			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 86
+						 httpCode: "Timeout", // library marker davegut.ST-Communications, line 87
+						 errorMsg: error] // library marker davegut.ST-Communications, line 88
+		} // library marker davegut.ST-Communications, line 89
+	} // library marker davegut.ST-Communications, line 90
+	return respData // library marker davegut.ST-Communications, line 91
+} // library marker davegut.ST-Communications, line 92
 
 // ~~~~~ end include (1001) davegut.ST-Communications ~~~~~
 
