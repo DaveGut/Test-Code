@@ -26,7 +26,7 @@ a.	Update major commands, as follows:
 b.	Developed standard thermostat auto mode emulation.
 c.	Developed methods to track and control the resultant thermostat modes and operating states.
 ==============================================================================*/
-def driverVer() { return "B0.64" }
+def driverVer() { return "B0.66" }
 import groovy.json.JsonOutput
 metadata {
 	definition (name: "Samsung HVAC",
@@ -266,7 +266,7 @@ def togglePanelLight() {
 	logInfo("togglePanelLight [newOnOff: ${newOnOff}, cmd: ${lightCmd}, ${cmdStatus}]")
 }
 
-def xxxaLightTest() {
+def xxaLightTest() {
 	//	Proc: Turn light ON.  Run this test.  It will take about 1 minute to complete.
 	//	If light turns off or on, notify me.
 	//	Send logs.
@@ -293,7 +293,7 @@ def xxxaLightTest() {
 	pauseExecution(10000)
 	log.trace device.currentValue("lightStatus")
 }
-def xxxtvCmd(onOff) {
+def tvCmd(onOff) {
 	return """{"commands":[{"component":"main","capability":"audioVolume",""" +
 		""""command":"setVolume","arguments": [${onOff}]}]}"""
 }
@@ -351,12 +351,12 @@ def aLightTest() {
 def lightCmd(onOff) {
 	return """{"commands":[{"component": "main","capability": "execute",""" +
 		   """"command": "execute","arguments": ["mode/vs/0",{"x.com.samsung.da.options":""" +
-		"""["${onOff}"}]}]}"""
+		"""["${onOff}"]}]}]}"""
 }
 def lightCmd1(onOff) {
 	return """{"commands":[{"component": "main","capability": "execute",""" +
 		   """"command": "execute","arguments": ["mode/vs/0",{"x.com.samsung.da.options":""" +
-		"""[${onOff}}]}]}"""
+		"""[${onOff}]}]}]}"""
 }
 def testPost(lightCmd) {
 	def respData = [:]
