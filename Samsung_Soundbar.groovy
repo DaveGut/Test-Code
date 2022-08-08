@@ -18,9 +18,10 @@ b.	Changed validateResp to distResp and added processing for init (as req.)
 c.	Removed try statements from data parsing.
 d.	Automatically send refresh with any command (reducing timeline and number of comms).
 ===== B0.3
-Updated to support newer soundbars with more commands.
+Updated to support newer soundbars with more commands
+B0.31.  Corrections to account for format differences between Soundbars.
 ==============================================================================*/
-def driverVer() { return "B0.3" }
+def driverVer() { return "B0.31" }
 
 metadata {
 	definition (name: "Samsung Soundbar",
@@ -29,12 +30,14 @@ metadata {
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungAppliances/Samsung_Soundbar.groovy"
 			   ){
 		capability "Switch"
+		command "toggleOnOff"
 		capability "MediaInputSource"
 		command "toggleInputSource"
 		capability "MediaTransport"
 		capability "AudioVolume"
 		command "toggleMute"
 		capability "Refresh"
+		attribute "trackData", "JSON_OBJECT"
 	}
 	preferences {
 		input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
@@ -70,12 +73,22 @@ def updated() {
 	} else {
 		logWarn("updated: ${commonStatus}")
 	}
+	if (volIncrement == null || !volIncrement) {
+		device.updateSetting("volIncrement", [type:"number", value: 1])
+	}
 	deviceSetup()
 }
 
 //	===== Switch =====
 def on() { setSwitch("on") }
 def off() { setSwitch("off") }
+def toggleOnOff() {
+	def onOff = "on"
+	if (device.currentValue("switch") == "on") {
+		onOff = "off"
+	}
+	setSwitch(onOff)
+}
 def setSwitch(onOff) {
 	def cmdData = [
 		component: "main",
@@ -88,28 +101,32 @@ def setSwitch(onOff) {
 
 //	===== Media Input Source =====
 def toggleInputSource() {
-	def inputSources = state.supportedInputs
-	def totalSources = inputSources.size()
-	def currentSource = device.currentValue("mediaInputSource")
-	def sourceNo = inputSources.indexOf(currentSource)
-	def newSourceNo = sourceNo + 1
-	if (newSourceNo == totalSources) { newSourceNo = 0 }
-	def inputSource = inputSources[newSourceNo]
-	setInputSource(inputSource)
+	if (state.supportedInputs) {
+		def inputSources = state.supportedInputs
+		def totalSources = inputSources.size()
+		def currentSource = device.currentValue("mediaInputSource")
+		def sourceNo = inputSources.indexOf(currentSource)
+		def newSourceNo = sourceNo + 1
+		if (newSourceNo == totalSources) { newSourceNo = 0 }
+		def inputSource = inputSources[newSourceNo]
+		setInputSource(inputSource)
+	} else { logWarn("toggleInputSource: NOT SUPPORTED") }
 }
 def setInputSource(inputSource) {
-	def inputSources = state.supportedInputs
-	if (inputSources.contains(inputSource)) {
-	def cmdData = [
-		component: "main",
-		capability: "mediaInputSource",
-		command: "setInputSource",
-		arguments: [inputSource]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setInputSource: [cmd: ${inputSource}, ${cmdStatus}]")
-	} else {
-		logWarn("setInputSource: Invalid input source")
-	}
+	if (state.supportedInputs) {
+		def inputSources = state.supportedInputs
+		if (inputSources.contains(inputSource)) {
+		def cmdData = [
+			component: "main",
+			capability: "mediaInputSource",
+			command: "setInputSource",
+			arguments: [inputSource]]
+		def cmdStatus = deviceCommand(cmdData)
+		logInfo("setInputSource: [cmd: ${inputSource}, ${cmdStatus}]")
+		} else {
+			logWarn("setInputSource: Invalid input source")
+		}
+	} else { logWarn("setInputSource: NOT SUPPORTED") } 
 }
 
 //	===== Media Transport =====
@@ -150,12 +167,12 @@ def setVolume(volume) {
 	logInfo("setVolume: [cmd: ${volume}, ${cmdStatus}]")
 }
 
-def mute() { setMute("mute") }
-def unmute() { setMute("unmute") }
+def mute() { setMute("muted") }
+def unmute() { setMute("unmuted") }
 def toggleMute() {
-	def muteValue = "mute"
+	def muteValue = "muted"
 	if(device.currentValue("mute") == "muted") {
-		muteValue = "unmute"
+		muteValue = "unmuted"
 	}
 	setMute(muteValue)
 }
@@ -163,8 +180,8 @@ def setMute(muteValue) {
 	def cmdData = [
 		component: "main",
 		capability: "audioMute",
-		command: muteValue,
-		arguments: []]
+		command: "setMute",
+		arguments: [muteValue]]
 	def cmdStatus = deviceCommand(cmdData)
 	logInfo("setMute: [cmd: ${muteValue}, ${cmdStatus}]")
 }
@@ -195,10 +212,14 @@ def distResp(resp, data) {
 
 def deviceSetupParse(mainData) {
 	def setupData = [:]
-	def supportedInputs =  mainData.mediaInputSource.supportedInputSources.value
-	sendEvent(name: "supportedInputs", value: supportedInputs)	
-	state.supportedInputs = supportedInputs
-	setupData << [supportedInputs: supportedInputs]
+	if (mainData.mediaInputSource != null) {
+		def supportedInputs =  mainData.mediaInputSource.supportedInputSources.value
+		sendEvent(name: "supportedInputs", value: supportedInputs)	
+		state.supportedInputs = supportedInputs
+		setupData << [supportedInputs: supportedInputs]
+	} else {
+		state.remove("supportedInputs")
+	}
 	if (setupData != [:]) {
 		logInfo("deviceSetupParse: ${setupData}")
 	}
@@ -230,24 +251,35 @@ def statusParse(mainData) {
 		stData << [transportStatus: transportStatus]
 	}
 	
-	def mediaInputSource = mainData.mediaInputSource.inputSource.value
-	if (device.currentValue("mediaInputSource") != mediaInputSource) {
-		sendEvent(name: "mediaInputSource", value: mediaInputSource)
-		stData << [mediaInputSource: mediaInputSource]
+	if (mainData.mediaInputSource != null) {
+		def mediaInputSource = mainData.mediaInputSource.inputSource.value
+		if (device.currentValue("mediaInputSource") != mediaInputSource) {
+			sendEvent(name: "mediaInputSource", value: mediaInputSource)
+			stData << [mediaInputSource: mediaInputSource]
+		}
+	}
+	
+	if (mainData.audioTrackData != null) {
+		def audioTrackData = mainData.audioTrackData.audioTrackData.value
+		if (device.currentValue("audioTrackData") != audioTrackData) {
+			sendEvent(name: "trackData", value: audioTrackData)
+			stData << [trackData: audioTrackData]
+		}
 	}
 
 	if (stData != [:] && stData != null) {
 		logInfo("statusParse: ${stData}")
 	}	
-	listAttributes(true)
+	runIn(3, traceAttributes)
 }
+def traceAttributes() { listAttributes(true) }
 
 //	===== Library Integration =====
 
 
 
 def simulate() { return false }
-
+//#include davegut.Samsung-Soundbar-Sim
 
 // ~~~~~ start include (993) davegut.Logging ~~~~~
 library ( // library marker davegut.Logging, line 1
@@ -374,25 +406,24 @@ private syncPost(sendData){ // library marker davegut.ST-Communications, line 59
 			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 71
 			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 72
 		] // library marker davegut.ST-Communications, line 73
-log.trace sendCmdParams // library marker davegut.ST-Communications, line 74
-		try { // library marker davegut.ST-Communications, line 75
-			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 76
-				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 77
-					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 78
-				} else { // library marker davegut.ST-Communications, line 79
-					respData << [status: "FAILED", // library marker davegut.ST-Communications, line 80
-								 httpCode: resp.status, // library marker davegut.ST-Communications, line 81
-								 errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 82
-				} // library marker davegut.ST-Communications, line 83
-			} // library marker davegut.ST-Communications, line 84
-		} catch (error) { // library marker davegut.ST-Communications, line 85
-			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 86
-						 httpCode: "Timeout", // library marker davegut.ST-Communications, line 87
-						 errorMsg: error] // library marker davegut.ST-Communications, line 88
-		} // library marker davegut.ST-Communications, line 89
-	} // library marker davegut.ST-Communications, line 90
-	return respData // library marker davegut.ST-Communications, line 91
-} // library marker davegut.ST-Communications, line 92
+		try { // library marker davegut.ST-Communications, line 74
+			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 75
+				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 76
+					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 77
+				} else { // library marker davegut.ST-Communications, line 78
+					respData << [status: "FAILED", // library marker davegut.ST-Communications, line 79
+								 httpCode: resp.status, // library marker davegut.ST-Communications, line 80
+								 errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 81
+				} // library marker davegut.ST-Communications, line 82
+			} // library marker davegut.ST-Communications, line 83
+		} catch (error) { // library marker davegut.ST-Communications, line 84
+			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 85
+						 httpCode: "Timeout", // library marker davegut.ST-Communications, line 86
+						 errorMsg: error] // library marker davegut.ST-Communications, line 87
+		} // library marker davegut.ST-Communications, line 88
+	} // library marker davegut.ST-Communications, line 89
+	return respData // library marker davegut.ST-Communications, line 90
+} // library marker davegut.ST-Communications, line 91
 
 // ~~~~~ end include (1001) davegut.ST-Communications ~~~~~
 
@@ -565,128 +596,3 @@ def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, lin
 } // library marker davegut.ST-Common, line 166
 
 // ~~~~~ end include (1000) davegut.ST-Common ~~~~~
-
-// ~~~~~ start include (998) davegut.Samsung-Soundbar-Sim ~~~~~
-library ( // library marker davegut.Samsung-Soundbar-Sim, line 1
-	name: "Samsung-Soundbar-Sim", // library marker davegut.Samsung-Soundbar-Sim, line 2
-	namespace: "davegut", // library marker davegut.Samsung-Soundbar-Sim, line 3
-	author: "Dave Gutheinz", // library marker davegut.Samsung-Soundbar-Sim, line 4
-	description: "Simulator - Samsung Soundbar", // library marker davegut.Samsung-Soundbar-Sim, line 5
-	category: "utilities", // library marker davegut.Samsung-Soundbar-Sim, line 6
-	documentationLink: "" // library marker davegut.Samsung-Soundbar-Sim, line 7
-) // library marker davegut.Samsung-Soundbar-Sim, line 8
-
-def testData() { // library marker davegut.Samsung-Soundbar-Sim, line 10
-	def supportedSources = ["digital", "HDMI1", "bluetooth", "HDMI2", "wifi"] // library marker davegut.Samsung-Soundbar-Sim, line 11
-	def trackTime = 280 // library marker davegut.Samsung-Soundbar-Sim, line 12
-	def trackRemain = 122 // library marker davegut.Samsung-Soundbar-Sim, line 13
-	def trackData = [title: "a", artist: "b"] // library marker davegut.Samsung-Soundbar-Sim, line 14
-
-	if (!state.onOff) { // library marker davegut.Samsung-Soundbar-Sim, line 16
-		state.onOff = "on" // library marker davegut.Samsung-Soundbar-Sim, line 17
-		state.pbStatus = "playing" // library marker davegut.Samsung-Soundbar-Sim, line 18
-		state.volume = 11 // library marker davegut.Samsung-Soundbar-Sim, line 19
-		state.inputSource = "HDMI2" // library marker davegut.Samsung-Soundbar-Sim, line 20
-		state.mute = "unmuted" // library marker davegut.Samsung-Soundbar-Sim, line 21
-	} // library marker davegut.Samsung-Soundbar-Sim, line 22
-
-	return [ // library marker davegut.Samsung-Soundbar-Sim, line 24
-		mediaPlayback:[ // library marker davegut.Samsung-Soundbar-Sim, line 25
-			playbackStatus: [value: state.pbStatus],	// // library marker davegut.Samsung-Soundbar-Sim, line 26
-			supportedPlaybackCommands:[value:[play, pause, stop]]],	//	not used // library marker davegut.Samsung-Soundbar-Sim, line 27
-		audioVolume:[volume:[value: state.volume]],	// // library marker davegut.Samsung-Soundbar-Sim, line 28
-		mediaInputSource:[ // library marker davegut.Samsung-Soundbar-Sim, line 29
-			supportedInputSources:[value: supportedSources], 	//	devicesetup // library marker davegut.Samsung-Soundbar-Sim, line 30
-			inputSource:[value: state.inputSource]],	// // library marker davegut.Samsung-Soundbar-Sim, line 31
-		audioMute:[mute:[value: state.mute]],	// // library marker davegut.Samsung-Soundbar-Sim, line 32
-		switch:[switch:[value: state.onOff]], // library marker davegut.Samsung-Soundbar-Sim, line 33
-		audioTrackData:[ // library marker davegut.Samsung-Soundbar-Sim, line 34
-			totalTime:[value: trackTime], // library marker davegut.Samsung-Soundbar-Sim, line 35
-			audioTrackData:[value: trackData], // library marker davegut.Samsung-Soundbar-Sim, line 36
-			elapsedTime:[value: trackRemain]] // library marker davegut.Samsung-Soundbar-Sim, line 37
-	] // library marker davegut.Samsung-Soundbar-Sim, line 38
-} // library marker davegut.Samsung-Soundbar-Sim, line 39
-def testResp(cmdData) { // library marker davegut.Samsung-Soundbar-Sim, line 40
-	def cmd = cmdData.command // library marker davegut.Samsung-Soundbar-Sim, line 41
-	def args = cmdData.arguments // library marker davegut.Samsung-Soundbar-Sim, line 42
-	switch(cmd) { // library marker davegut.Samsung-Soundbar-Sim, line 43
-		case "off": // library marker davegut.Samsung-Soundbar-Sim, line 44
-			state.onOff = "off" // library marker davegut.Samsung-Soundbar-Sim, line 45
-			break // library marker davegut.Samsung-Soundbar-Sim, line 46
-		case "on": // library marker davegut.Samsung-Soundbar-Sim, line 47
-			state.onOff = "on" // library marker davegut.Samsung-Soundbar-Sim, line 48
-			break // library marker davegut.Samsung-Soundbar-Sim, line 49
-		case "play": // library marker davegut.Samsung-Soundbar-Sim, line 50
-			state.pbStatus = "playing" // library marker davegut.Samsung-Soundbar-Sim, line 51
-			break // library marker davegut.Samsung-Soundbar-Sim, line 52
-		case "pause": // library marker davegut.Samsung-Soundbar-Sim, line 53
-			state.pbStatus = "paused" // library marker davegut.Samsung-Soundbar-Sim, line 54
-			break // library marker davegut.Samsung-Soundbar-Sim, line 55
-		case "stop": // library marker davegut.Samsung-Soundbar-Sim, line 56
-			state.pbStatus = "stopped" // library marker davegut.Samsung-Soundbar-Sim, line 57
-			break // library marker davegut.Samsung-Soundbar-Sim, line 58
-		case "setVolume": // library marker davegut.Samsung-Soundbar-Sim, line 59
-			state.volume = args[0] // library marker davegut.Samsung-Soundbar-Sim, line 60
-			break // library marker davegut.Samsung-Soundbar-Sim, line 61
-		case "setInputSource": // library marker davegut.Samsung-Soundbar-Sim, line 62
-			state.inputSource = args[0] // library marker davegut.Samsung-Soundbar-Sim, line 63
-			break // library marker davegut.Samsung-Soundbar-Sim, line 64
-		case "mute": // library marker davegut.Samsung-Soundbar-Sim, line 65
-			state.mute = "muted" // library marker davegut.Samsung-Soundbar-Sim, line 66
-			break // library marker davegut.Samsung-Soundbar-Sim, line 67
-		case "unmute": // library marker davegut.Samsung-Soundbar-Sim, line 68
-			state.mute = "unmuted"		 // library marker davegut.Samsung-Soundbar-Sim, line 69
-			break // library marker davegut.Samsung-Soundbar-Sim, line 70
-		case "playTrack": // library marker davegut.Samsung-Soundbar-Sim, line 71
-			break // library marker davegut.Samsung-Soundbar-Sim, line 72
-		case "refresh": // library marker davegut.Samsung-Soundbar-Sim, line 73
-			break // library marker davegut.Samsung-Soundbar-Sim, line 74
-		default: // library marker davegut.Samsung-Soundbar-Sim, line 75
-			logWarn("testResp: [unhandled: ${cmdData}]") // library marker davegut.Samsung-Soundbar-Sim, line 76
-	} // library marker davegut.Samsung-Soundbar-Sim, line 77
-
-	return [ // library marker davegut.Samsung-Soundbar-Sim, line 79
-		cmdData: cmdData, // library marker davegut.Samsung-Soundbar-Sim, line 80
-		status: [status: "OK", // library marker davegut.Samsung-Soundbar-Sim, line 81
-				 results:[[id: "e9585885-3848-4fea-b0db-ece30ff1701e", status: "ACCEPTED"]]]] // library marker davegut.Samsung-Soundbar-Sim, line 82
-} // library marker davegut.Samsung-Soundbar-Sim, line 83
-def xxtestData() { // library marker davegut.Samsung-Soundbar-Sim, line 84
-	def pbStatus = "playing" // library marker davegut.Samsung-Soundbar-Sim, line 85
-	def sfMode = 3 // library marker davegut.Samsung-Soundbar-Sim, line 86
-	def sfDetail = "External Device" // library marker davegut.Samsung-Soundbar-Sim, line 87
-	def volume = 15 // library marker davegut.Samsung-Soundbar-Sim, line 88
-	def inputSource = "HDMI2" // library marker davegut.Samsung-Soundbar-Sim, line 89
-	def supportedSources = ["digital", "HDMI1", "bluetooth", "HDMI2", "wifi"] // library marker davegut.Samsung-Soundbar-Sim, line 90
-	def mute = "unmuted" // library marker davegut.Samsung-Soundbar-Sim, line 91
-	def onOff = "on" // library marker davegut.Samsung-Soundbar-Sim, line 92
-	def trackTime = 280 // library marker davegut.Samsung-Soundbar-Sim, line 93
-	def trackRemain = 122 // library marker davegut.Samsung-Soundbar-Sim, line 94
-	def trackData = [title: "a", artist: "b", album: "c"] // library marker davegut.Samsung-Soundbar-Sim, line 95
-
-
-	return [ // library marker davegut.Samsung-Soundbar-Sim, line 98
-		mediaPlayback:[ // library marker davegut.Samsung-Soundbar-Sim, line 99
-			playbackStatus: [value: pbStatus], // library marker davegut.Samsung-Soundbar-Sim, line 100
-			supportedPlaybackCommands:[value:[play, pause, stop]]], // library marker davegut.Samsung-Soundbar-Sim, line 101
-		"samsungvd.soundFrom":[ // library marker davegut.Samsung-Soundbar-Sim, line 102
-			mode:[value: sfMode], // library marker davegut.Samsung-Soundbar-Sim, line 103
-			detailName:[value: sfDetail]], // library marker davegut.Samsung-Soundbar-Sim, line 104
-		audioVolume:[volume:[value: volume]], // library marker davegut.Samsung-Soundbar-Sim, line 105
-		mediaInputSource:[ // library marker davegut.Samsung-Soundbar-Sim, line 106
-			supportedInputSources:[value: supportedSources],  // library marker davegut.Samsung-Soundbar-Sim, line 107
-			inputSource:[value: inputSource]], // library marker davegut.Samsung-Soundbar-Sim, line 108
-		audioMute:[mute:[value: mute]], // library marker davegut.Samsung-Soundbar-Sim, line 109
-		switch:[switch:[value: onOff]], // library marker davegut.Samsung-Soundbar-Sim, line 110
-		audioTrackData:[ // library marker davegut.Samsung-Soundbar-Sim, line 111
-			totalTime:[value: trackTime], // library marker davegut.Samsung-Soundbar-Sim, line 112
-			audioTrackData:[value: trackData], // library marker davegut.Samsung-Soundbar-Sim, line 113
-			elapsedTime:[value: trackRemain]]] // library marker davegut.Samsung-Soundbar-Sim, line 114
-} // library marker davegut.Samsung-Soundbar-Sim, line 115
-def xxtestResp(cmdData) { // library marker davegut.Samsung-Soundbar-Sim, line 116
-	return [ // library marker davegut.Samsung-Soundbar-Sim, line 117
-		cmdData: cmdData, // library marker davegut.Samsung-Soundbar-Sim, line 118
-		status: [status: "OK", // library marker davegut.Samsung-Soundbar-Sim, line 119
-				 results:[[id: "e9585885-3848-4fea-b0db-ece30ff1701e", status: "ACCEPTED"]]]] // library marker davegut.Samsung-Soundbar-Sim, line 120
-} // library marker davegut.Samsung-Soundbar-Sim, line 121
-
-// ~~~~~ end include (998) davegut.Samsung-Soundbar-Sim ~~~~~
