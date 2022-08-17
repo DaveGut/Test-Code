@@ -114,7 +114,7 @@ metadata {
 	preferences {
 		input ("deviceIp", "text", title: "Samsung TV Ip", defaultValue: "")
 		if (deviceIp) {
-			input ("wolMethod", "enum", title: "Alternate Wol Method", 
+			input ("wolMethod", "enum", title: "Wol Method", 
 				   options: ["1": "Hubitat Magic Packet", "2": "UDP Message", 
 							 "3": "Use Alternate Wol MAC"], defaultValue: "1")
 			input ("pollInterval","enum", title: "Power Polling Interval (seconds)",
@@ -435,6 +435,16 @@ def on() {
 											   hubitat.device.Protocol.LAN,
 											   null)
 		sendHubCommand(wol)
+	}
+}
+
+def off() {
+	logDebug("off: frameTv = ${getDataValue("frameTV")}")
+	if (getDataValue("frameTv") == "false") { sendKey("POWER") }
+	else {
+		sendKey("POWER", "Press")
+		pauseExecution(3000)
+		sendKey("POWER", "Release")
 	}
 }
 
