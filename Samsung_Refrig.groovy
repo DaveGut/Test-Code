@@ -284,7 +284,7 @@ def statusParse(respData) {
 
 
 
-def simulate() { return true }
+def simulate() { return false }
 
 //-DONGLE
 
