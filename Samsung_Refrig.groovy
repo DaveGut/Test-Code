@@ -10,15 +10,14 @@ This driver uses libraries for the functions common to SmartThings devices.
 Library code is at the bottom of the distributed single-file driver.
 ===== Installation Instructions Link =====
 https://github.com/DaveGut/HubitatActive/blob/master/SamsungAppliances/Install_Samsung_Appliance.pdf
-=====	Version B0.5
-Updated to differentiate between a standard wifi and a DONGLE-Based Wifi
-DONGLE based system has very limted functionality within the components.
-==============================================================================*/
-def driverVer() { return "B0.7T" }
+===== Version 1.1 ==============================================================================*/
+//def driverVer() { return "1.1" }
+def driverVer() { return "T1.1" }
+def nameSpace() { return "davegut" }
 
 metadata {
 	definition (name: "Samsung Refrig",
-				namespace: "davegut",
+				namespace: nameSpace(),
 				author: "David Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungAppliances/Samsung_Refrig.groovy"
 			   ){
@@ -54,7 +53,7 @@ metadata {
 		}
 		if (stDeviceId) {
 			input ("pollInterval", "enum", title: "Poll Interval (minutes)",
-				   options: ["1", "5", "10", "30"], defaultValue: "5")
+				   options: ["10sec", "20sec", "30sec", "1", "5", "10", "30"], defaultValue: "10")
 			input ("debugLog", "bool",  
 				   title: "Enable debug logging for 30 minutes", defaultValue: false)
 		}
@@ -104,41 +103,19 @@ def setRefrigeration(command, onOff) {
 
 def toggleSabbathMode() {
 	def currMode = device.currentValue("sabbathMode")
-	def newMode = "Sabbath_Off"
+	def newMode = "Off"
 	if (currMode == newMode) {
-		newMode = "Sabbath_On"
+		newMode = "On"
 	}
-	
-	def cmdString = """{"commands":[{"component": "main","capability": "execute",""" +
-		   """"command": "execute","arguments": ["mode/vs/0",""" +
-		   """{"x.com.samsung.da.options":["${newMode}"]}]}]}"""
-	def respData = stringPostHttp(cmdString)
-	logInfo("toggleSabbathMode [newMode: ${newMode}, respData: ${respData}]")
-}
-def stringPostHttp(cmdString) {
-	def respData = [:]
-	def sendCmdParams = [
-			uri: "https://api.smartthings.com/v1",
-			path: "/devices/${stDeviceId.trim()}/commands",
-			headers: ['Authorization': 'Bearer ' + stApiKey.trim()],
-			body : cmdString]
-	try {
-		httpPost(sendCmdParams) {resp ->
-			if (resp.status == 200 && resp.data != null) {
-				respData << [status: "OK", results: resp.data.results]
-				refresh()
-			} else {
-				respData << [status: "FAILED",
-							 httpCode: resp.status,
-							 errorMsg: resp.errorMessage]
-			}
-		}
-	} catch (error) {
-		respData << [status: "FAILED",
-					 httpCode: "Timeout",
-					 errorMsg: error]
-	}
-	return respData
+	def arguments = [["x.com.samsung.da.sabbathMode":newMode]]
+
+	def cmdData = [
+		component: "main",
+		capability: "execute",
+		command: "execute",
+		arguments: arguments]
+	def cmdStatus = deviceCommand(cmdData)
+	logInfo("toggleSabbathMode: [cmd: ${setpoint}, ${cmdStatus}]")
 }
 
 def distResp(resp, data) {
@@ -253,14 +230,10 @@ def statusParse(respData) {
 		def temperature = parseData.temperatureMeasurement.temperature.value
 		sendEvent(name: "temperature", value: temperature, unit: tempUnit)
 		
-		def execStatus = parseData.execute.data.value.payload["x.com.samsung.da.options"]
-		if (execStatus.contains("Sabbath_On")) {
-			sendEvent(name: "SabbathMode", value: "on")
-		} else if (execStatus.contains("Sabbath_Off")) {
-			sendEvent(name: "SabbathMode", value: "off")
-		}
+		def SabbathMode = parseData.execute.data.value.payload["x.com.samsung.da.sabbathMode"]
+		sendEvent(name: "SabbathMode", value: SabbathMode)
 	}
-	
+
 	def defrost = parseData.refrigeration.defrost.value
 	sendEvent(name: "defrost", value: defrost)
 
@@ -285,8 +258,8 @@ def statusParse(respData) {
 
 
 def simulate() { return false }
-
-//-DONGLE
+//#include davegut.Samsung-Refrig-Sim
+//#include davegut.Samsung-Refrig-Sim-DONGLE
 
 // ~~~~~ start include (1072) davegut.Logging ~~~~~
 library ( // library marker davegut.Logging, line 1
@@ -476,259 +449,137 @@ def setPollInterval(pollInterval) { // library marker davegut.ST-Common, line 37
 	logDebug("setPollInterval: ${pollInterval}") // library marker davegut.ST-Common, line 38
 	state.pollInterval = pollInterval // library marker davegut.ST-Common, line 39
 	switch(pollInterval) { // library marker davegut.ST-Common, line 40
-		case "1" : runEvery1Minute(poll); break // library marker davegut.ST-Common, line 41
-		case "5" : runEvery5Minutes(poll); break // library marker davegut.ST-Common, line 42
-		case "10" : runEvery10Minutes(poll); break // library marker davegut.ST-Common, line 43
-		case "30" : runEvery30Minutes(poll); break // library marker davegut.ST-Common, line 44
-		default: runEvery10Minutes(poll) // library marker davegut.ST-Common, line 45
-	} // library marker davegut.ST-Common, line 46
-} // library marker davegut.ST-Common, line 47
+		case "10sec":  // library marker davegut.ST-Common, line 41
+			schedule("*/10 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 42
+			break // library marker davegut.ST-Common, line 43
+		case "20sec": // library marker davegut.ST-Common, line 44
+			schedule("*/20 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 45
+			break // library marker davegut.ST-Common, line 46
+		case "30sec": // library marker davegut.ST-Common, line 47
+			schedule("*/30 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 48
+			break // library marker davegut.ST-Common, line 49
+		case "1" : runEvery1Minute(poll); break // library marker davegut.ST-Common, line 50
+		case "5" : runEvery5Minutes(poll); break // library marker davegut.ST-Common, line 51
+		case "10" : runEvery10Minutes(poll); break // library marker davegut.ST-Common, line 52
+		case "30" : runEvery30Minutes(poll); break // library marker davegut.ST-Common, line 53
+		default: runEvery10Minutes(poll) // library marker davegut.ST-Common, line 54
+	} // library marker davegut.ST-Common, line 55
+} // library marker davegut.ST-Common, line 56
 
-def deviceCommand(cmdData) { // library marker davegut.ST-Common, line 49
-	def respData = [:] // library marker davegut.ST-Common, line 50
-	if (simulate() == true) { // library marker davegut.ST-Common, line 51
-		respData = testResp(cmdData) // library marker davegut.ST-Common, line 52
-	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 53
-		respData << [status: "FAILED", data: "no stDeviceId"] // library marker davegut.ST-Common, line 54
-	} else { // library marker davegut.ST-Common, line 55
-		def sendData = [ // library marker davegut.ST-Common, line 56
-			path: "/devices/${stDeviceId.trim()}/commands", // library marker davegut.ST-Common, line 57
-			cmdData: cmdData // library marker davegut.ST-Common, line 58
-		] // library marker davegut.ST-Common, line 59
-		respData = syncPost(sendData) // library marker davegut.ST-Common, line 60
-	} // library marker davegut.ST-Common, line 61
-	if (cmdData.capability && cmdData.capability != "refresh") { // library marker davegut.ST-Common, line 62
-		refresh() // library marker davegut.ST-Common, line 63
+def deviceCommand(cmdData) { // library marker davegut.ST-Common, line 58
+	def respData = [:] // library marker davegut.ST-Common, line 59
+	if (simulate() == true) { // library marker davegut.ST-Common, line 60
+		respData = testResp(cmdData) // library marker davegut.ST-Common, line 61
+	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 62
+		respData << [status: "FAILED", data: "no stDeviceId"] // library marker davegut.ST-Common, line 63
 	} else { // library marker davegut.ST-Common, line 64
-		poll() // library marker davegut.ST-Common, line 65
-	} // library marker davegut.ST-Common, line 66
-	return respData // library marker davegut.ST-Common, line 67
-} // library marker davegut.ST-Common, line 68
+		def sendData = [ // library marker davegut.ST-Common, line 65
+			path: "/devices/${stDeviceId.trim()}/commands", // library marker davegut.ST-Common, line 66
+			cmdData: cmdData // library marker davegut.ST-Common, line 67
+		] // library marker davegut.ST-Common, line 68
+		respData = syncPost(sendData) // library marker davegut.ST-Common, line 69
+	} // library marker davegut.ST-Common, line 70
+	if (cmdData.capability && cmdData.capability != "refresh") { // library marker davegut.ST-Common, line 71
+		refresh() // library marker davegut.ST-Common, line 72
+	} else { // library marker davegut.ST-Common, line 73
+		poll() // library marker davegut.ST-Common, line 74
+	} // library marker davegut.ST-Common, line 75
+	return respData // library marker davegut.ST-Common, line 76
+} // library marker davegut.ST-Common, line 77
 
-def refresh() { // library marker davegut.ST-Common, line 70
-	if (stApiKey!= null) { // library marker davegut.ST-Common, line 71
-		def cmdData = [ // library marker davegut.ST-Common, line 72
-			component: "main", // library marker davegut.ST-Common, line 73
-			capability: "refresh", // library marker davegut.ST-Common, line 74
-			command: "refresh", // library marker davegut.ST-Common, line 75
-			arguments: []] // library marker davegut.ST-Common, line 76
-		deviceCommand(cmdData) // library marker davegut.ST-Common, line 77
-	} // library marker davegut.ST-Common, line 78
-} // library marker davegut.ST-Common, line 79
+def refresh() { // library marker davegut.ST-Common, line 79
+	if (stApiKey!= null) { // library marker davegut.ST-Common, line 80
+		def cmdData = [ // library marker davegut.ST-Common, line 81
+			component: "main", // library marker davegut.ST-Common, line 82
+			capability: "refresh", // library marker davegut.ST-Common, line 83
+			command: "refresh", // library marker davegut.ST-Common, line 84
+			arguments: []] // library marker davegut.ST-Common, line 85
+		deviceCommand(cmdData) // library marker davegut.ST-Common, line 86
+	} // library marker davegut.ST-Common, line 87
+} // library marker davegut.ST-Common, line 88
 
-def poll() { // library marker davegut.ST-Common, line 81
-	if (simulate() == true) { // library marker davegut.ST-Common, line 82
-		def children = getChildDevices() // library marker davegut.ST-Common, line 83
-		if (children) { // library marker davegut.ST-Common, line 84
-			children.each { // library marker davegut.ST-Common, line 85
-				it.statusParse(testData()) // library marker davegut.ST-Common, line 86
-			} // library marker davegut.ST-Common, line 87
-		} // library marker davegut.ST-Common, line 88
-		statusParse(testData()) // library marker davegut.ST-Common, line 89
-	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 90
-		respData = "[status: FAILED, data: no stDeviceId]" // library marker davegut.ST-Common, line 91
-		logWarn("poll: [status: ERROR, errorMsg: no stDeviceId]") // library marker davegut.ST-Common, line 92
-	} else { // library marker davegut.ST-Common, line 93
-		def sendData = [ // library marker davegut.ST-Common, line 94
-			path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 95
-			parse: "distResp" // library marker davegut.ST-Common, line 96
-			] // library marker davegut.ST-Common, line 97
-		asyncGet(sendData, "statusParse") // library marker davegut.ST-Common, line 98
-	} // library marker davegut.ST-Common, line 99
-} // library marker davegut.ST-Common, line 100
+def poll() { // library marker davegut.ST-Common, line 90
+	if (simulate() == true) { // library marker davegut.ST-Common, line 91
+		def children = getChildDevices() // library marker davegut.ST-Common, line 92
+		if (children) { // library marker davegut.ST-Common, line 93
+			children.each { // library marker davegut.ST-Common, line 94
+				it.statusParse(testData()) // library marker davegut.ST-Common, line 95
+			} // library marker davegut.ST-Common, line 96
+		} // library marker davegut.ST-Common, line 97
+		statusParse(testData()) // library marker davegut.ST-Common, line 98
+	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 99
+		respData = "[status: FAILED, data: no stDeviceId]" // library marker davegut.ST-Common, line 100
+		logWarn("poll: [status: ERROR, errorMsg: no stDeviceId]") // library marker davegut.ST-Common, line 101
+	} else { // library marker davegut.ST-Common, line 102
+		def sendData = [ // library marker davegut.ST-Common, line 103
+			path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 104
+			parse: "distResp" // library marker davegut.ST-Common, line 105
+			] // library marker davegut.ST-Common, line 106
+		asyncGet(sendData, "statusParse") // library marker davegut.ST-Common, line 107
+	} // library marker davegut.ST-Common, line 108
+} // library marker davegut.ST-Common, line 109
 
-def deviceSetup() { // library marker davegut.ST-Common, line 102
-	if (simulate() == true) { // library marker davegut.ST-Common, line 103
-		def children = getChildDevices() // library marker davegut.ST-Common, line 104
-		deviceSetupParse(testData()) // library marker davegut.ST-Common, line 105
-	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 106
-		respData = "[status: FAILED, data: no stDeviceId]" // library marker davegut.ST-Common, line 107
-		logWarn("poll: [status: ERROR, errorMsg: no stDeviceId]") // library marker davegut.ST-Common, line 108
-	} else { // library marker davegut.ST-Common, line 109
-		def sendData = [ // library marker davegut.ST-Common, line 110
-			path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 111
-			parse: "distResp" // library marker davegut.ST-Common, line 112
-			] // library marker davegut.ST-Common, line 113
-		asyncGet(sendData, "deviceSetup") // library marker davegut.ST-Common, line 114
-	} // library marker davegut.ST-Common, line 115
-} // library marker davegut.ST-Common, line 116
+def deviceSetup() { // library marker davegut.ST-Common, line 111
+	if (simulate() == true) { // library marker davegut.ST-Common, line 112
+		def children = getChildDevices() // library marker davegut.ST-Common, line 113
+		deviceSetupParse(testData()) // library marker davegut.ST-Common, line 114
+	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 115
+		respData = "[status: FAILED, data: no stDeviceId]" // library marker davegut.ST-Common, line 116
+		logWarn("poll: [status: ERROR, errorMsg: no stDeviceId]") // library marker davegut.ST-Common, line 117
+	} else { // library marker davegut.ST-Common, line 118
+		def sendData = [ // library marker davegut.ST-Common, line 119
+			path: "/devices/${stDeviceId.trim()}/status", // library marker davegut.ST-Common, line 120
+			parse: "distResp" // library marker davegut.ST-Common, line 121
+			] // library marker davegut.ST-Common, line 122
+		asyncGet(sendData, "deviceSetup") // library marker davegut.ST-Common, line 123
+	} // library marker davegut.ST-Common, line 124
+} // library marker davegut.ST-Common, line 125
 
-def getDeviceList() { // library marker davegut.ST-Common, line 118
-	def sendData = [ // library marker davegut.ST-Common, line 119
-		path: "/devices", // library marker davegut.ST-Common, line 120
-		parse: "getDeviceListParse" // library marker davegut.ST-Common, line 121
-		] // library marker davegut.ST-Common, line 122
-	asyncGet(sendData) // library marker davegut.ST-Common, line 123
-} // library marker davegut.ST-Common, line 124
+def getDeviceList() { // library marker davegut.ST-Common, line 127
+	def sendData = [ // library marker davegut.ST-Common, line 128
+		path: "/devices", // library marker davegut.ST-Common, line 129
+		parse: "getDeviceListParse" // library marker davegut.ST-Common, line 130
+		] // library marker davegut.ST-Common, line 131
+	asyncGet(sendData) // library marker davegut.ST-Common, line 132
+} // library marker davegut.ST-Common, line 133
 
-def getDeviceListParse(resp, data) { // library marker davegut.ST-Common, line 126
-	def respData // library marker davegut.ST-Common, line 127
-	if (resp.status != 200) { // library marker davegut.ST-Common, line 128
-		respData = [status: "ERROR", // library marker davegut.ST-Common, line 129
-					httpCode: resp.status, // library marker davegut.ST-Common, line 130
-					errorMsg: resp.errorMessage] // library marker davegut.ST-Common, line 131
-	} else { // library marker davegut.ST-Common, line 132
-		try { // library marker davegut.ST-Common, line 133
-			respData = new JsonSlurper().parseText(resp.data) // library marker davegut.ST-Common, line 134
-		} catch (err) { // library marker davegut.ST-Common, line 135
-			respData = [status: "ERROR", // library marker davegut.ST-Common, line 136
-						errorMsg: err, // library marker davegut.ST-Common, line 137
-						respData: resp.data] // library marker davegut.ST-Common, line 138
-		} // library marker davegut.ST-Common, line 139
-	} // library marker davegut.ST-Common, line 140
-	if (respData.status == "ERROR") { // library marker davegut.ST-Common, line 141
-		logWarn("getDeviceListParse: ${respData}") // library marker davegut.ST-Common, line 142
-	} else { // library marker davegut.ST-Common, line 143
-		log.info "" // library marker davegut.ST-Common, line 144
-		respData.items.each { // library marker davegut.ST-Common, line 145
-			log.trace "${it.label}:   ${it.deviceId}" // library marker davegut.ST-Common, line 146
-		} // library marker davegut.ST-Common, line 147
-		log.trace "<b>Copy your device's deviceId value and enter into the device Preferences.</b>" // library marker davegut.ST-Common, line 148
+def getDeviceListParse(resp, data) { // library marker davegut.ST-Common, line 135
+	def respData // library marker davegut.ST-Common, line 136
+	if (resp.status != 200) { // library marker davegut.ST-Common, line 137
+		respData = [status: "ERROR", // library marker davegut.ST-Common, line 138
+					httpCode: resp.status, // library marker davegut.ST-Common, line 139
+					errorMsg: resp.errorMessage] // library marker davegut.ST-Common, line 140
+	} else { // library marker davegut.ST-Common, line 141
+		try { // library marker davegut.ST-Common, line 142
+			respData = new JsonSlurper().parseText(resp.data) // library marker davegut.ST-Common, line 143
+		} catch (err) { // library marker davegut.ST-Common, line 144
+			respData = [status: "ERROR", // library marker davegut.ST-Common, line 145
+						errorMsg: err, // library marker davegut.ST-Common, line 146
+						respData: resp.data] // library marker davegut.ST-Common, line 147
+		} // library marker davegut.ST-Common, line 148
 	} // library marker davegut.ST-Common, line 149
-} // library marker davegut.ST-Common, line 150
+	if (respData.status == "ERROR") { // library marker davegut.ST-Common, line 150
+		logWarn("getDeviceListParse: ${respData}") // library marker davegut.ST-Common, line 151
+	} else { // library marker davegut.ST-Common, line 152
+		log.info "" // library marker davegut.ST-Common, line 153
+		respData.items.each { // library marker davegut.ST-Common, line 154
+			log.trace "${it.label}:   ${it.deviceId}" // library marker davegut.ST-Common, line 155
+		} // library marker davegut.ST-Common, line 156
+		log.trace "<b>Copy your device's deviceId value and enter into the device Preferences.</b>" // library marker davegut.ST-Common, line 157
+	} // library marker davegut.ST-Common, line 158
+} // library marker davegut.ST-Common, line 159
 
-def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, line 152
-	Integer currTime = now() // library marker davegut.ST-Common, line 153
-	Integer compTime // library marker davegut.ST-Common, line 154
-	try { // library marker davegut.ST-Common, line 155
-		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 156
-	} catch (e) { // library marker davegut.ST-Common, line 157
-		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 158
-	} // library marker davegut.ST-Common, line 159
-	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 160
-	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 161
-	return timeRemaining // library marker davegut.ST-Common, line 162
-} // library marker davegut.ST-Common, line 163
+def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, line 161
+	Integer currTime = now() // library marker davegut.ST-Common, line 162
+	Integer compTime // library marker davegut.ST-Common, line 163
+	try { // library marker davegut.ST-Common, line 164
+		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 165
+	} catch (e) { // library marker davegut.ST-Common, line 166
+		compTime = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", completionTime,TimeZone.getTimeZone('UTC')).getTime() // library marker davegut.ST-Common, line 167
+	} // library marker davegut.ST-Common, line 168
+	Integer timeRemaining = ((compTime-currTime) /1000).toInteger() // library marker davegut.ST-Common, line 169
+	if (timeRemaining < 0) { timeRemaining = 0 } // library marker davegut.ST-Common, line 170
+	return timeRemaining // library marker davegut.ST-Common, line 171
+} // library marker davegut.ST-Common, line 172
 
 // ~~~~~ end include (1090) davegut.ST-Common ~~~~~
-
-// ~~~~~ start include (1121) davegut.Samsung-Refrig-Sim ~~~~~
-library ( // library marker davegut.Samsung-Refrig-Sim, line 1
-	name: "Samsung-Refrig-Sim", // library marker davegut.Samsung-Refrig-Sim, line 2
-	namespace: "davegut", // library marker davegut.Samsung-Refrig-Sim, line 3
-	author: "Dave Gutheinz", // library marker davegut.Samsung-Refrig-Sim, line 4
-	description: "Simulator - Samsung Refrigerator", // library marker davegut.Samsung-Refrig-Sim, line 5
-	category: "utilities", // library marker davegut.Samsung-Refrig-Sim, line 6
-	documentationLink: "" // library marker davegut.Samsung-Refrig-Sim, line 7
-) // library marker davegut.Samsung-Refrig-Sim, line 8
-
-def testData() { // library marker davegut.Samsung-Refrig-Sim, line 10
-/* // library marker davegut.Samsung-Refrig-Sim, line 11
-//	main // library marker davegut.Samsung-Refrig-Sim, line 12
-	def mainContact = "closed" // library marker davegut.Samsung-Refrig-Sim, line 13
-	def defrost = "off" // library marker davegut.Samsung-Refrig-Sim, line 14
-	def rapidCooling = "off" // library marker davegut.Samsung-Refrig-Sim, line 15
-	def rapidFreezing = "off" // library marker davegut.Samsung-Refrig-Sim, line 16
-	def filterReplace = "replace" // library marker davegut.Samsung-Refrig-Sim, line 17
-	def SabbathMode = "Sabbath_On" // library marker davegut.Samsung-Refrig-Sim, line 18
-
-//	cooler // library marker davegut.Samsung-Refrig-Sim, line 20
-	def tempUnit = "C" // library marker davegut.Samsung-Refrig-Sim, line 21
-	def coolerContact = "closed" // library marker davegut.Samsung-Refrig-Sim, line 22
-	def coolerTemperature = 35 // library marker davegut.Samsung-Refrig-Sim, line 23
-	def coolerSetpoint = 30 // library marker davegut.Samsung-Refrig-Sim, line 24
-//	freezer // library marker davegut.Samsung-Refrig-Sim, line 25
-	def freezerContact = "closed" // library marker davegut.Samsung-Refrig-Sim, line 26
-	def freezerTemperature = 36 // library marker davegut.Samsung-Refrig-Sim, line 27
-	def freezerSetpoint = 31 // library marker davegut.Samsung-Refrig-Sim, line 28
-//	cvroom // library marker davegut.Samsung-Refrig-Sim, line 29
-	def drawerMode = "CV_FDR_MEAT" // library marker davegut.Samsung-Refrig-Sim, line 30
-	def drawerContact = "closed" // library marker davegut.Samsung-Refrig-Sim, line 31
-//	icemaker // library marker davegut.Samsung-Refrig-Sim, line 32
-	def onOff = "on" // library marker davegut.Samsung-Refrig-Sim, line 33
-*/ // library marker davegut.Samsung-Refrig-Sim, line 34
-
-//	main // library marker davegut.Samsung-Refrig-Sim, line 36
-	def mainContact = "open" // library marker davegut.Samsung-Refrig-Sim, line 37
-	def defrost = "on" // library marker davegut.Samsung-Refrig-Sim, line 38
-	def rapidCooling = "on" // library marker davegut.Samsung-Refrig-Sim, line 39
-	def rapidFreezing = "on" // library marker davegut.Samsung-Refrig-Sim, line 40
-	def filterReplace = "ok" // library marker davegut.Samsung-Refrig-Sim, line 41
-	def SabbathMode = "Sabbath_On" // library marker davegut.Samsung-Refrig-Sim, line 42
-//	cooler // library marker davegut.Samsung-Refrig-Sim, line 43
-	def tempUnit = "F" // library marker davegut.Samsung-Refrig-Sim, line 44
-	def coolerContact = "open" // library marker davegut.Samsung-Refrig-Sim, line 45
-	def coolerTemperature = 32 // library marker davegut.Samsung-Refrig-Sim, line 46
-	def coolerSetpoint = 32 // library marker davegut.Samsung-Refrig-Sim, line 47
-//	freezer // library marker davegut.Samsung-Refrig-Sim, line 48
-	def freezerContact = "open" // library marker davegut.Samsung-Refrig-Sim, line 49
-	def freezerTemperature = 33 // library marker davegut.Samsung-Refrig-Sim, line 50
-	def freezerSetpoint = 33 // library marker davegut.Samsung-Refrig-Sim, line 51
-//	cvroom // library marker davegut.Samsung-Refrig-Sim, line 52
-	def drawerMode = "CV_FDR_VEG" // library marker davegut.Samsung-Refrig-Sim, line 53
-	def drawerContact = "open" // library marker davegut.Samsung-Refrig-Sim, line 54
-//	icemaker // library marker davegut.Samsung-Refrig-Sim, line 55
-	def onOff = "off" // library marker davegut.Samsung-Refrig-Sim, line 56
-
-/* // library marker davegut.Samsung-Refrig-Sim, line 58
-//	main // library marker davegut.Samsung-Refrig-Sim, line 59
-	def mainContact = null // library marker davegut.Samsung-Refrig-Sim, line 60
-	def defrost = null // library marker davegut.Samsung-Refrig-Sim, line 61
-	def rapidCooling = null // library marker davegut.Samsung-Refrig-Sim, line 62
-	def rapidFreezing = null // library marker davegut.Samsung-Refrig-Sim, line 63
-	def filterReplace = null // library marker davegut.Samsung-Refrig-Sim, line 64
-	def SabbathMode = "Sabbath_Off" // library marker davegut.Samsung-Refrig-Sim, line 65
-//	cooler // library marker davegut.Samsung-Refrig-Sim, line 66
-	def tempUnit = null // library marker davegut.Samsung-Refrig-Sim, line 67
-	def coolerContact = null // library marker davegut.Samsung-Refrig-Sim, line 68
-	def coolerTemperature = null // library marker davegut.Samsung-Refrig-Sim, line 69
-	def coolerSetpoint = null // library marker davegut.Samsung-Refrig-Sim, line 70
-//	freezer // library marker davegut.Samsung-Refrig-Sim, line 71
-	def freezerContact = null // library marker davegut.Samsung-Refrig-Sim, line 72
-	def freezerTemperature = null // library marker davegut.Samsung-Refrig-Sim, line 73
-	def freezerSetpoint = null // library marker davegut.Samsung-Refrig-Sim, line 74
-//	cvroom // library marker davegut.Samsung-Refrig-Sim, line 75
-	def drawerMode = null // library marker davegut.Samsung-Refrig-Sim, line 76
-	def drawerContact = null // library marker davegut.Samsung-Refrig-Sim, line 77
-//	icemaker // library marker davegut.Samsung-Refrig-Sim, line 78
-	def onOff = null // library marker davegut.Samsung-Refrig-Sim, line 79
-*/	 // library marker davegut.Samsung-Refrig-Sim, line 80
-
-
-	return [components:[ // library marker davegut.Samsung-Refrig-Sim, line 83
-		icemaker:[ // library marker davegut.Samsung-Refrig-Sim, line 84
-			switch:[switch:[value: onOff]]], // library marker davegut.Samsung-Refrig-Sim, line 85
-		cooler:[ // library marker davegut.Samsung-Refrig-Sim, line 86
-			contactSensor:[contact:[value: coolerContact]], // library marker davegut.Samsung-Refrig-Sim, line 87
-			temperatureMeasurement:[temperature:[value: coolerTemperature, unit: tempUnit]],  // library marker davegut.Samsung-Refrig-Sim, line 88
-			thermostatCoolingSetpoint:[coolingSetpoint:[value: coolerSetpoint, unit: tempUnit]]], // library marker davegut.Samsung-Refrig-Sim, line 89
-		freezer:[ // library marker davegut.Samsung-Refrig-Sim, line 90
-			contactSensor:[contact:[value: freezerContact]], // library marker davegut.Samsung-Refrig-Sim, line 91
-			temperatureMeasurement:[temperature:[value: freezerTemperature, unit: tempUnit]],  // library marker davegut.Samsung-Refrig-Sim, line 92
-			thermostatCoolingSetpoint:[coolingSetpoint:[value: freezerSetpoint, unit: tempUnit]]], // library marker davegut.Samsung-Refrig-Sim, line 93
-		main:[ // library marker davegut.Samsung-Refrig-Sim, line 94
-			ocf:[ // library marker davegut.Samsung-Refrig-Sim, line 95
-				mnmo:[value:"TP2X_REF_20K|00144441|0002023E011511200103000030000000"]],  // library marker davegut.Samsung-Refrig-Sim, line 96
-			"custom.disabledComponents":[disabledComponents:[value:["icemaker-02", "pantry-01", "pantry-02"]]],  // library marker davegut.Samsung-Refrig-Sim, line 97
-			temperatureMeasurement:[temperature:[value: coolerTemperature, unit: tempUnit]],  // library marker davegut.Samsung-Refrig-Sim, line 98
-			thermostatCoolingSetpoint:[coolingSetpoint:[value: coolerSetpoint, unit: tempUnit]], // library marker davegut.Samsung-Refrig-Sim, line 99
-			contactSensor:[contact:[value: mainContact]],  // library marker davegut.Samsung-Refrig-Sim, line 100
-			refrigeration:[ // library marker davegut.Samsung-Refrig-Sim, line 101
-				defrost:[value: defrost],  // library marker davegut.Samsung-Refrig-Sim, line 102
-				rapidCooling:[value: rapidCooling],  // library marker davegut.Samsung-Refrig-Sim, line 103
-				rapidFreezing:[value: rapidFreezing]],  // library marker davegut.Samsung-Refrig-Sim, line 104
-			"custom.waterFilter":[waterFilterStatus:[value: filterReplace]], // library marker davegut.Samsung-Refrig-Sim, line 105
-			execute:[data:[value:[payload:["x.com.samsung.da.options": SabbathMode]]]]],  // library marker davegut.Samsung-Refrig-Sim, line 106
-		cvroom:[ // library marker davegut.Samsung-Refrig-Sim, line 107
-			"custom.fridgeMode":[fridgeMode:[value: drawerMode]],  // library marker davegut.Samsung-Refrig-Sim, line 108
-			contactSensor:[contact:[value: drawerContact]], // library marker davegut.Samsung-Refrig-Sim, line 109
-			temperatureMeasurement:[temperature:[value: coolerTemperature, unit: tempUnit]],  // library marker davegut.Samsung-Refrig-Sim, line 110
-			thermostatCoolingSetpoint:[coolingSetpoint:[value: coolerSetpoint, unit: tempUnit]]], // library marker davegut.Samsung-Refrig-Sim, line 111
-		onedoor:[ // library marker davegut.Samsung-Refrig-Sim, line 112
-			contactSensor:[contact:[value:drawerContact]], // library marker davegut.Samsung-Refrig-Sim, line 113
-			temperatureMeasurement:[temperature:[value: coolerTemperature, unit: tempUnit]],  // library marker davegut.Samsung-Refrig-Sim, line 114
-			thermostatCoolingSetpoint:[coolingSetpoint:[value:coolerSetpoint, unit: tempUnit]]],  // library marker davegut.Samsung-Refrig-Sim, line 115
-		"pantry-01":[],  // library marker davegut.Samsung-Refrig-Sim, line 116
-		"pantry-02":[],  // library marker davegut.Samsung-Refrig-Sim, line 117
-		"icemaker-02":[] // library marker davegut.Samsung-Refrig-Sim, line 118
-	]] // library marker davegut.Samsung-Refrig-Sim, line 119
-} // library marker davegut.Samsung-Refrig-Sim, line 120
-
-def testResp(cmdData) { // library marker davegut.Samsung-Refrig-Sim, line 122
-	return [ // library marker davegut.Samsung-Refrig-Sim, line 123
-		cmdData: cmdData, // library marker davegut.Samsung-Refrig-Sim, line 124
-		status: [status: "OK", // library marker davegut.Samsung-Refrig-Sim, line 125
-				 results:[[id: "e9585885-3848-4fea-b0db-ece30ff1701e", status: "ACCEPTED"]]]] // library marker davegut.Samsung-Refrig-Sim, line 126
-} // library marker davegut.Samsung-Refrig-Sim, line 127
-
-// ~~~~~ end include (1121) davegut.Samsung-Refrig-Sim ~~~~~
