@@ -21,7 +21,7 @@ d.	Automatically send refresh with any command (reducing timeline and number of 
 Updated to support newer soundbars with more commands
 B0.31.  Corrections to account for format differences between Soundbars.
 ==============================================================================*/
-def driverVer() { return "1.2" }
+def driverVer() { return "1.2T" }
 
 metadata {
 	definition (name: "Samsung Soundbar",
