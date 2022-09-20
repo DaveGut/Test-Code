@@ -7,7 +7,7 @@ License:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/Licen
 Known Issue:	for newer TV's, Samsung has removed the remote Key to control artMode.
 				Expect art mode functions to be intermittent until I find a true fix.
 ===========================================================================================*/
-def driverVer() { return "3.1.2" }
+def driverVer() { return "3.1.2T" }
 import groovy.json.JsonOutput
 
 metadata {
