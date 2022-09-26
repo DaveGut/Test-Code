@@ -99,7 +99,7 @@ metadata {
 			input ("volIncrement", "number", title: "Volume Up/Down Increment", defaultValue: 1)
 			input ("pollInterval", "enum", title: "Poll Interval (minutes)",
 				   options: ["1", "5", "10", "30"], defaultValue: "5")
-			input ("useVoicesRss", "bool",  title: "Use Voices RSS for TTS generation", defaultValue: false)
+			input ("useVoices", "bool",  title: "Use Voices RSS for TTS generation", defaultValue: false)
 			if (useVoices) {
 				def ttsLanguages = ["en-au":"English (Australia)","en-ca":"English (Canada)", "en-gb":"English (Great Britain)",
 									"en-us":"English (United States)", "en-in":"English (India)","ca-es":"Catalan",
