@@ -2,26 +2,57 @@
 		Copyright Dave Gutheinz
 License Information:
 	https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
-===== Description
-This driver is for SmartThings-installed Samsung Soundbars for import of control
-and status of defined functions into Hubitat Environment.
-=====	Library Use
-This driver uses libraries for the functions common to SmartThings devices. 
-Library code is at the bottom of the distributed single-file driver.
-===== Installation Instructions Link =====
-https://github.com/DaveGut/HubitatActive/blob/master/SamsungAppliances/Install_Samsung_Appliance.pdf
-=====	Version B0.2
-Second Beta Release of the driver set.  All functions tested and validated on 
-a Q900 as well as a MS-650.
-a.	Removed preferences simulate and infoLog.  added function simulate()
-b.	Changed validateResp to distResp and added processing for init (as req.)
-c.	Removed try statements from data parsing.
-d.	Automatically send refresh with any command (reducing timeline and number of comms).
-===== B0.3
-Updated to support newer soundbars with more commands
-B0.31.  Corrections to account for format differences between Soundbars.
+
+===== Notification Sounds	=====
+[title: "Bell 1", uri: "http://s3.amazonaws.com/smartapp-media/sonos/bell1.mp3", duration: "10"]
+[title: "Dogs Barking", uri: "http://s3.amazonaws.com/smartapp-media/sonos/dogs.mp3", duration: "10"]
+[title: "Fire Alarm", uri: "http://s3.amazonaws.com/smartapp-media/sonos/alarm.mp3", duration: "17"]
+[title: "The mail has arrived",uri: "http://s3.amazonaws.com/smartapp-media/sonos/the+mail+has+arrived.mp3", duration: "1"]
+[title: "A door opened", uri: "http://s3.amazonaws.com/smartapp-media/sonos/a+door+opened.mp3", duration: "1"]
+[title: "There is motion", uri: "http://s3.amazonaws.com/smartapp-media/sonos/there+is+motion.mp3", duration: "1"]
+[title: "Someone is arriving", uri: "http://s3.amazonaws.com/smartapp-media/sonos/someone+is+arriving.mp3", duration: "1"]
+=====	Some working Streaming Stations =====
+[title:"Cafe del Mar", uri:"https://streams.radio.co/se1a320b47/listen", duration: 0]
+[title:"UT-KUTX", uri: "https://kut.streamguys1.com/kutx-web", duration: 0]
+[title:"89.7 FM Perth", uri: "https://ice8.securenetsystems.net/897FM", duration: 0]
+[title:"Euro1", uri:"https://streams.radio.co/se1a320b47/listen", duration: 0]
+[title:"Easy Hits Florida", uri:"http://airspectrum.cdnstream1.com:8114/1648_128", duration: 0]
+[title:"Austin Blues", uri:"http://158.69.131.71:8036/stream/1/", duration: 0]
+
+===== Valid Track Entry Examples =====
+[title:"Cafe del Mar", uri:"https://streams.radio.co/se1a320b47/listen", duration: 0]
+[uri:"https://streams.radio.co/se1a320b47/listen", duration: 0]
+[uri:"https://streams.radio.co/se1a320b47/listen"]
+https://streams.radio.co/se1a320b47/listen
+===== Method Descriptions =====
+playText: sends the test to playTextAndResume for processing
+
+playTextAndRestore / Resume: converts the text to an audio stream and sends the trackData to associated playTextAnd(Resume/Restore) methods.
+
+playTrack:  Plays the track immediately.  This track becomes the MASTER used in recoverying from the playTrackAnd(Resume/Restore) methods.
+
+playTrackAnd(Resume/Restore).  Sends the audio track to the play queue with a switch for Resume.  If resume is true, the Master Track (see playTrack) will begin playing when the queue empties.
+
+Queue:  The queue is a firstIn/firstOut function that actually controls the play of Audio Notifications.  Queue can hang.
+	a.	kickStartQueue:  forces the queue to start again.  This is also scheduled to run every 30 minutes to keep the queue clear.
+	b.	clearQueue: Zeroes out the queue and associated states.
+	c.	resumePlayer: When the queue is empty, the system will be reset to the MASTER TRACK, volume is set to the original volume, the input source is set to the one at the start of playing.  If play is set, the MASTER TRACK will play - so if you do not want this, use the playTrackAndRestore.
+
+URI Presets.  There are 8 presets that can be used for quick play used for quick playing of regular channels.  These also work well in dashboards using the capability PushableButton push method.
+	a.	Uri Preset Create: This creates a URI from the current Master URI.  To create:
+		1.	Enter the track data into the Play Track function and wait for the uri to be playing.
+		2.	Enter a number (1-8) and your name for the URI in the command box.
+		3.	The preset name will appear in the Attributes field on the Device's edit page (for your reference).
+	b.	URI Preset Play:  When selected, it will play the preset and become the MASTER TRACK.
+
+
 ==============================================================================*/
-def driverVer() { return "1.2T" }
+import org.json.JSONObject
+import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
+import groovy.util.XmlSlurper
+import groovy.util.XmlParser
+def driverVer() { return "1.2" }
 
 metadata {
 	definition (name: "Samsung Soundbar",
@@ -30,23 +61,31 @@ metadata {
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungAppliances/Samsung_Soundbar.groovy"
 			   ){
 		capability "Switch"
-		command "toggleOnOff"
 		capability "MediaInputSource"
+		capability "AudioNotification"
+		capability "AudioVolume"
+		capability "MusicPlayer"
+		attribute "currentUri", "string"
+		capability "Refresh"
+		capability "PushableButton"
+		attribute "urlPreset_1", "string"
+		attribute "urlPreset_2", "string"
+		attribute "urlPreset_3", "string"
+		attribute "urlPreset_4", "string"
+		attribute "urlPreset_5", "string"
+		attribute "urlPreset_6", "string"
+		attribute "urlPreset_7", "string"
+		attribute "urlPreset_8", "string"
+		command "urlPresetCreate", [[name: "Url Preset Number", type: "NUMBER"],[name: "URL Preset Name", type: "STRING"]]
+		command "urlPresetPlay", [[name: "Url Preset Number", type: "NUMBER"]]
+		command "urlPresetDelete", [[name: "Url Preset Number", type: "NUMBER"]]
+		command "kickStartQueue"
+		command "clearQueue"
 		command "setInputSource", [[
 			name: "Soundbar Input",
 			constraints: ["digital", "HDMI1", "bluetooth", "HDMI2", "wifi"],
 			type: "ENUM"]]
 		command "toggleInputSource"
-		capability "MediaTransport"
-		capability "AudioVolume"
-		command "toggleMute"
-		capability "Refresh"
-		attribute "trackData", "JSON_OBJECT"
-//	Audio Notification Testing
-		capability "AudioNotification"
-		command "playText", [[name: "NOT IMPLEMENTED"]]
-		command "playTextAndRestore", [[name: "NOT IMPLEMENTED"]]
-		command "playTextAndResume", [[name: "NOT IMPLEMENTED"]]
 	}
 	preferences {
 		input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
@@ -54,12 +93,25 @@ metadata {
 			input ("stDeviceId", "string", title: "SmartThings Device ID", defaultValue: "")
 		}
 		if (stDeviceId) {
-			input ("deviceIp", "string", title: "Device IP for UPnP Notifications")
-			input ("upnpNotify", "bool",
-				   title: "Use UPnP for audio notifications", defaultValue: false)
+			input ("deviceIp", "string", title: "deviceIp")
+//			input ("upnpNotify", "bool",
+//				   title: "Use UPnP for audio notifications", defaultValue: false)
 			input ("volIncrement", "number", title: "Volume Up/Down Increment", defaultValue: 1)
 			input ("pollInterval", "enum", title: "Poll Interval (minutes)",
 				   options: ["1", "5", "10", "30"], defaultValue: "5")
+			input ("useVoicesRss", "bool",  title: "Use Voices RSS for TTS generation", defaultValue: false)
+			if (useVoices) {
+				def ttsLanguages = ["en-au":"English (Australia)","en-ca":"English (Canada)", "en-gb":"English (Great Britain)",
+									"en-us":"English (United States)", "en-in":"English (India)","ca-es":"Catalan",
+									"zh-cn":"Chinese (China)", "zh-hk":"Chinese (Hong Kong)","zh-tw":"Chinese (Taiwan)",
+									"da-dk":"Danish", "nl-nl":"Dutch","fi-fi":"Finnish","fr-ca":"French (Canada)",
+									"fr-fr":"French (France)","de-de":"German","it-it":"Italian","ja-jp":"Japanese",
+									"ko-kr":"Korean","nb-no":"Norwegian","pl-pl":"Polish","pt-br":"Portuguese (Brazil)",
+									"pt-pt":"Portuguese (Portugal)","ru-ru":"Russian","es-mx":"Spanish (Mexico)",
+									"es-es":"Spanish (Spain)","sv-se":"Swedish (Sweden)"]
+				input ("ttsApiKey", "string", title: "TTS Site Key", description: "From http://www.voicerss.org/registration.aspx")
+				input ("ttsLang", "enum", title: "TTS Language", options: ttsLanguages, defaultValue: "en-us")
+			}
 			input ("infoLog", "bool",  
 				   title: "Info logging", defaultValue: true)
 			input ("debugLog", "bool",  
@@ -72,34 +124,35 @@ def installed() {
 	sendEvent(name: "switch", value: "on")
 	sendEvent(name: "volume", value: 0)
 	sendEvent(name: "mute", value: "unmuted")
-	sendEvent(name: "transportStatus", value: "stopped")
+	sendEvent(name: "status", value: "stopped")
 	sendEvent(name: "mediaInputSource", value: "wifi")
+	state.urlPresetData = [:]
 	runIn(1, updated)
 }
 
 def updated() {
 	def commonStatus = commonUpdate()
+	if (volIncrement == null || !volIncrement) {
+		device.updateSetting("volIncrement", [type:"number", value: 1])
+	}
+	sendEvent(name: "numberOfButtons", value: "29")
+	state.remove("playQueue")
+	state.playingNotification = false
+	state.playQueue = []
+	clearQueue()
+	state.triggered = false
+	runEvery30Minutes(kickStartQueue)
 	if (commonStatus.status == "OK") {
 		logInfo("updated: ${commonStatus}")
 	} else {
 		logWarn("updated: ${commonStatus}")
 	}
-	if (volIncrement == null || !volIncrement) {
-		device.updateSetting("volIncrement", [type:"number", value: 1])
-	}
 	deviceSetup()
 }
 
-//	===== Switch =====
+//	===== capability "Switch" =====
 def on() { setSwitch("on") }
 def off() { setSwitch("off") }
-def toggleOnOff() {
-	def onOff = "on"
-	if (device.currentValue("switch") == "on") {
-		onOff = "off"
-	}
-	setSwitch(onOff)
-}
 def setSwitch(onOff) {
 	def cmdData = [
 		component: "main",
@@ -110,7 +163,7 @@ def setSwitch(onOff) {
 	logInfo("setSwitch: [cmd: ${onOff}, ${cmdStatus}]")
 }
 
-//	===== Media Input Source =====
+//	===== capability "MediaInputSource" =====
 def toggleInputSource() {
 	if (state.supportedInputs) {
 		def inputSources = state.supportedInputs
@@ -140,10 +193,22 @@ def setInputSource(inputSource) {
 	} else { logWarn("setInputSource: NOT SUPPORTED") } 
 }
 
+//	=====	capability "MusicPlayer" =====
+def setLevel(level) { setVolume(level) }
+
 //	===== Media Transport =====
-def play() { setMediaPlayback("play") }
-def pause() { setMediaPlayback("pause") }
-def stop() { setMediaPlayback("stop") }
+def play() { 
+	upnpPlay()
+//	setMediaPlayback("play")
+}
+def pause() { 
+	upnpPause()
+//	setMediaPlayback("pause") 
+}
+def stop() { 
+	upnpStop()
+//	setMediaPlayback("stop") 
+}
 def setMediaPlayback(pbMode) {
 	def cmdData = [
 		component: "main",
@@ -154,7 +219,91 @@ def setMediaPlayback(pbMode) {
 	logInfo("setMediaPlayback: [cmd: ${pbMode}, ${cmdStatus}]")
 }
 
-//	===== Audio Volume =====
+def mute() { setMute("muted") }
+def unmute() { setMute("unmuted") }
+def toggleMute() {
+	def muteValue = "muted"
+	if(device.currentValue("mute") == "muted") {
+		muteValue = "unmuted"
+	}
+	setMute(muteValue)
+}
+def setMute(muteValue) {
+	def cmdData = [
+		component: "main",
+		capability: "audioMute",
+		command: "setMute",
+		arguments: [muteValue]]
+	def cmdStatus = deviceCommand(cmdData)
+	logInfo("setMute: [cmd: ${muteValue}, ${cmdStatus}]")
+}
+
+//	===== UPnP Media Transport Methods =====
+def previousTrack() {
+	sendUpnpCmd("AVTransport",
+				"Previous",
+				["InstanceID" :0])
+}
+def nextTrack() {
+	sendUpnpCmd("AVTransport",
+				"Next",
+				["InstanceID" :0])
+}
+def setTrack(trackData) {
+logTrace("setTrack: $trackData")
+	def uri
+	def title = "unknown"
+	def duration = 0
+	if (trackData.class == String) {
+		if(trackData.startsWith("htt")) {
+			uri = trackData
+		} else {
+			try{
+				trackData = parseJson(trackData)
+				uri = trackData.uri
+				title = trackData.title
+				duration = trackData.duration
+			} catch (e) {
+				logWarn("setTrack: [error: uri is not properly formatted]")
+				return
+			}
+		}
+	} else {
+		uri = trackData.uri
+		title = trackData.title
+		duration = trackData.duration
+	}
+
+	def metadata = """<DIDL-Lite"""
+	metadata += """ xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" """
+	metadata += """xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" """
+	metadata += """xmlns:dc="http://purl.org/dc/elements/1.1/" """
+	metadata += """xmlns:dlna="urn:schemas-dlna-org:metadata-1-0/">"""
+	metadata += """<item>"""
+	metadata += """<title>${title}</title>"""
+	metadata += """<duration>${duration}</duration>"""
+	metadata += """<upnp:class>object.item.audioItem</upnp:class>"""
+	metadata += """<res>${uri}</res>"""
+	metadata += """</item></DIDL-Lite>"""
+
+	sendUpnpCmd("AVTransport",
+				"SetAVTransportURI",
+				 [InstanceID: 0,
+				  CurrentURI: uri,
+				  CurrentURIMetaData: metadata])
+}
+def restoreTrack(uri) {
+	state.play = false
+	setTrack(uri)
+}
+def resumeTrack(uri) {
+	setTrack(uri)
+}
+//	playText(text) see AudioNotificaton playText
+//	playTrack(trackUri) see AudioNotification playTrack
+
+//	===== capability "AudioVolume" =====
+//	mute/unmute in capability Music Player
 def volumeUp() { 
 	def curVol = device.currentValue("volume")
 	def newVol = curVol + volIncrement.toInteger()
@@ -178,113 +327,244 @@ def setVolume(volume) {
 	logInfo("setVolume: [cmd: ${volume}, ${cmdStatus}]")
 }
 
-def mute() { setMute("muted") }
-def unmute() { setMute("unmuted") }
-def toggleMute() {
-	def muteValue = "muted"
-	if(device.currentValue("mute") == "muted") {
-		muteValue = "unmuted"
-	}
-	setMute(muteValue)
+//	===== Play Text Methods =====
+def playText(text, volume = null) { playTextAndResume(text) }
+def playTextAndRestore(text, volume = null) {
+	logDebug("playTextAndRestore: [text: ${text}, Volume: ${volume}]")
+logTrace("playTextAndRestore: [text: ${text}, Volume: ${volume}]")
+	def trackData = convertToTrack("text")
+	playTrackAndRestore(trackData, volume)
 }
-def setMute(muteValue) {
-	def cmdData = [
-		component: "main",
-		capability: "audioMute",
-		command: "setMute",
-		arguments: [muteValue]]
-	def cmdStatus = deviceCommand(cmdData)
-	logInfo("setMute: [cmd: ${muteValue}, ${cmdStatus}]")
+def playTextAndResume(text, volume = null) {
+	logDebug("playTextAndResume: [text: ${text}, Volume: ${volume}]")
+logTrace("playTextAndResume: [text: ${text}, Volume: ${volume}]")
+	def trackData = convertToTrack("text")
+	playTrackAndResume(trackData, volume)
+}
+def convertToTrack(text) {
+	def track
+	if (!useVoices) {
+		track = textToSpeech(text)
+	} else {										//	Soundbar
+		def uriText = URLEncoder.encode(text, "UTF-8").replaceAll(/\+/, "%20")
+		uri = "http://api.voicerss.org/?" +
+			"key=${ttsApiKey.trim()}" +
+			"&f=48khz_16bit_mono" +
+			"&c=MP3" +
+			"&hl=${ttsLang}" +
+			"&src=${uriText}"
+		def duration = (1 + text.length() / 10).toInteger()
+		track =  [uri: uri, name: "TTS", duration: duration]
+	}
+	return track
 }
 
-//	Audio Notification Test
-/*
-"Bell 1": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/bell1.mp3", duration: "10"]
-"Bell 2": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/bell2.mp3", duration: "10"]
-"Dogs Barking": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/dogs.mp3", duration: "10"]
-"Fire Alarm": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/alarm.mp3", duration: "17"]
-"The mail has arrived": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/the+mail+has+arrived.mp3", duration: "1"]
-"A door opened": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/a+door+opened.mp3", duration: "1"]
-"There is motion": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/there+is+motion.mp3", duration: "1"]
-"Someone is arriving": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/someone+is+arriving.mp3", duration: "1"]
-"Piano": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/piano2.mp3", duration: "10"]
-"Lightsaber": [uri: "http://s3.amazonaws.com/smartapp-media/sonos/lightsaber.mp3", duration: "10"]
-*/
-def playText(text = "This is a test", volume = null) {
-	logWarn("playText: NOT CURRENTLY IMPLEMENTED")
-	return
-	logDebug("playText: [text: ${text}, Volume: ${volume}]")
-	playNotification("playTrack", textToSpeech(text), volume)
+//	===== Play Track Methods =====
+def playTrack(trackData, volume = null) {
+	//	Immediate command.  Will stop all other playing, and empty the playQueue.
+	logDebug("playTrack: [trackData: ${trackData}, volume: ${volume}]")
+logTrace("playTrack: [trackData: ${trackData}, volume: ${volume}]")
+	try {
+		duration = trackData.duration.toInteger()
+		uri = trackData.uri
+	} catch (e) {
+logTrace("playTrack: alternate track data method")
+		trackData = genTrackData(trackData, "playTrackAndRestore")
+			duration = trackData.duration.toInteger()
+			uri = trackData.uri
+	}
+		
+	if (trackData != "error") {
+		state.masterTrack = true
+		state.play = true
+		stop()
+		if (volume == null) {
+			volume = device.currentValue("volume")
+		}
+		setVolume(volume.toInteger())
+		setTrack(trackData)
+	}
 }
-def playTrack(uri, volume = null) {
-	logDebug("playText: [uri: ${uri}, volume: ${volume}]")
-	playNotification("playTrack", uri, volume)
+def playTrackAndRestore(trackData, volume= null) {
+	logDebug("playTrackAndRestore: [trackData: ${trackData}, Volume: ${volume}]")
+logTrace("playTrackAndRestore: [trackData: ${trackData}, volume: ${volume}]")
+	def duration
+	def uri
+	try {
+		duration = trackData.duration.toInteger()
+		uri = trackData.uri
+	} catch (e) {
+logTrace("playTrackAndRestore: alternate track data method")
+		trackData = genTrackData(trackData, "playTrackAndRestore")
+			duration = trackData.duration.toInteger()
+			uri = trackData.uri
+	}
+		
+	if (trackData != "error") {
+		if (volume == null) {
+			volume = device.currentValue("volume").toInteger()
+		}
+		def addQueueData = [uri: uri,
+							duration: duration,
+							volume: volume,
+							resume: false]
+		addToQueue(addQueueData)
+	}
 }
-def playTextAndRestore(text = "This is a test", volume = null) {
-	logWarn("playText: NOT CURRENTLY IMPLEMENTED")
-	return
-	logDebug("playTextAndRestore: [text: ${text}, Volume: ${volume}]")
-	playNotification("playTrackAndRestore", textToSpeech(text), volume)
+def playTrackAndResume(trackData, volume=null) {
+	logDebug("playTrackAndResume: [trackData: ${trackData}, Volume: ${volume}]")
+logTrace("playTrackAndResume: [trackData: ${trackData}, Volume: ${volume}]")
+	try {
+		duration = trackData.duration.toInteger()
+		uri = trackData.uri
+	} catch (e) {
+logTrace("playTrackAndRestore: alternate track data method")
+		trackData = genTrackData(trackData, "playTrackAndRestore")
+			duration = trackData.duration.toInteger()
+			uri = trackData.uri
+	}
+		
+	if (trackData != "error") {
+		if (volume == null) {
+			volume = device.currentValue("volume").toInteger()
+		}
+		def addQueueData = [uri: uri,
+							duration: duration,
+							volume: volume,
+							resume: false]
+		addToQueue(addQueueData)
+	}
 }
-def playTrackAndRestore(uri, volume= null) {
-	logDebug("playTrackAndRestore: [uri: ${uri}, Volume: ${volume}]")
-	playNotification("playTrackAndRestore", uri, volume)
+def genTrackData(trackData, meth) {
+	if (trackData.class == String) {
+		if (trackData.startsWith("http")) {
+			trackData = """{duration:0,title:"${trackData}",uri:"${trackData}"}"""
+		}
+		try {
+			trackData = trackData.replace("[","{").replaceAll("]","}")
+			trackData = new JSONObject(trackData)
+		} catch (error) {
+			logWarn("genTrackData: [method: ${meth}, trackData: ${trackData}, errorCode: 101, error: trackData malformed]")
+			return "error"
+		}
+		return trackData
+	} else {
+		logWarn("genTrackData: [method: ${meth}, trackData: ${trackData}, errorCode: 101, error: trackData malformed]")
+		return "error"
+	}
 }
-def playTextAndResume(text = "This is a test", volume = null) {
-	logWarn("playText: NOT CURRENTLY IMPLEMENTED")
-	return
-	logDebug("playTextAndRResume: [text: ${text}, Volume: ${volume}]")
-	playNotification("playTrackAndResume", textToSpeech(text), volume)
+
+//	===== Custom Implemenation "PlayQueue" =====
+def addToQueue(addData){
+	logDebug("addToQueue: ${addData}")
+logTrace("addToQueue: ${addData}")
+	def playData = ["uri": addData.uri,
+					"duration": addData.duration,
+					"requestVolume": addData.volume]
+	state.playQueue.add(playData)
+
+	if (state.playingNotification == false) {
+		state.playingNotification = true
+		runIn(1, startPlayViaQueue, [data: addData])
+	} else {
+		runIn(30, kickStartQueue)
+	}
 }
-def playTrackAndResume(uri, volume=null) {
-	logDebug("playTrackAndResume: [uri: ${uri}, Volume: ${volume}]")
-	playNotification("playTrackAndResume", uri, volume)
+def startPlayViaQueue(addData) {
+	logDebug("startPlayViaQueue: ${addData}")
+logTrace("startPlayViaQueue: ${addData}")
+	if (state.playQueue.size() == 0) { return }
+	state.resetData = [volume: device.currentValue("volume"),
+					   inputSource: device.currentValue("inputSource"),
+					   resume: addData.resume]
+	runIn(1, playViaQueue)
 }
-def playNotification(cmd, uri, volume) {
-	if (volume == null) { volume = device.currentValue("volume") }
-	def currStates = [:]
-	currStates << [volume: device.currentValue("volume")]
-	currStates << [source: device.currentValue("mediaInputSource")]
-	currStates << [transport: device.currentValue("transportStatus")]
-	runIn(20, resetSpeaker, [data: currStates])
-						 
-//	upnpSetVolume(volume)
-	setVolume(volume)
-	pauseExecution(200)
-	playUri(uri)
+def playViaQueue() {
+	logDebug("playViaQueue: queueSize = ${state.playQueue.size()}")
+logTrace("playViaQueue: queueSize = ${state.playQueue.size()}")
+	if (state.playQueue.size() == 0) {
+		resumePlayer()
+	} else {
+		if (device.currentValue("status") != "stopped") {
+			stop()
+		}
+		def playData = state.playQueue.get(0)
+		state.play = true
+		setVolume(playData.requestVolume.toInteger())
+		setTrack(playData.uri)
+		
+		state.playQueue.remove(0)
+		def duration = playData.duration.toInteger()
+		if (duration > 0) {
+			runIn(duration + 4, playViaQueue)
+		}
+		runIn(30, kickStartQueue)
+	}
 }
-def upnpSetVolume(volume) {
-	volume = volume.toInteger()
-	if (volume <= 0 || volume >= 100) { return }
-	sendUpnpCmd("RenderingControl",
-			"SetVolume",
-			["InstanceID" :0,
-			 "Channel": "Master",
-			 "DesiredVolume": volume])
+def resumePlayer() {
+	if (state.playQueue.size() > 0) {
+		playViaQueue()
+	} else {
+		state.playingNotification = false
+		def resetData = state.resetData
+		state.resetData = []
+		logDebug("resumePlayer: resetData = ${resetData}")
+logTrace("resumePlayer: resetData = ${resetData}")
+
+		if (resetData.resume == true) { state.play = true } 
+		else { state.play = falase }
+		setVolume(resetData.volume.toInteger())
+		if (resetData.inputSource != null) {
+			setInputSource(respData.inputSource)
+		}
+		if (device.currentValue("status") != "stopped") {
+			stop()
+		}
+		def trackData = parseJson(device.currentValue("trackData"))
+		setTrack(trackData)
+	}
 }
-def playUri(uri) {
-log.trace uri
-	sendUpnpCmd("AVTransport",
-				"SetAVTransportURI",
-				 [InstanceID: 0,
-				  CurrentURI: uri,
-				  CurrentURIMetaData: ""])
-	pauseExecution(200)
+def kickStartQueue() {
+	logInfo("kickStartQueue: playQueue: ${state.playQueue}")
+	if (state.playQueue.size() > 0) {
+		playViaQueue()
+	}
+}
+def clearQueue() {
+	logDebug("clearQueue")
+	state.playQueue = []
+	state.playingNotification = false
+	state.play = false
+	state.masterTrack = false
+}
+
+//	===== UPnP Interface =====
+def upnpPlay() {
+logTrace "upnpPlay"
 	sendUpnpCmd("AVTransport",
 				"Play",
-				 ["InstanceID" :0,
-				  "Speed": "1"])
+				["InstanceID" :0,
+				 "Speed": "1"])
 }
-def resetSpeaker(currStates) {
-return
-//	upnpSetVolume(currStates.volume)
-	setVolume(volume)
-	pauseExecution(100)
-	setInputSource(currStates.source)
-	pauseExecution(500)
-	if (currStates.transport == "playing") {
-		setMediaPlayback("play")
-	}
+def upnpPause() {
+	sendUpnpCmd("AVTransport",
+				"Pause",
+				["InstanceID" :0])
+}
+def upnpStop() { 
+	sendUpnpCmd("AVTransport",
+				"Stop",
+				["InstanceID" :0])
+}
+def getTransportInfo() {
+	sendUpnpCmd("AVTransport",
+				"GetTransportInfo",
+				 [InstanceID: 0])
+}
+def getMediaInfo() {
+	sendUpnpCmd("AVTransport",
+				"GetMediaInfo",
+				 [InstanceID: 0])
 }
 
 private sendUpnpCmd(type, action, body = []){
@@ -299,17 +579,180 @@ private sendUpnpCmd(type, action, body = []){
 	)
 	sendHubCommand(hubCmd)
 }
-
 def parse(resp) {
-	//	Parse the Soap Action return.
-	def respData =  parseLanMessage(resp)
-log.trace respData
-	if (respData.status == 200) {
-		logDebug("parse: [upnpCmdStatus: success]")
-	} else {
-		logWarn("parse: [upnpCmdStatus: failed, data: ${respData.body}, headers: ${respData.headers}]")
+	resp = parseLanMessage(resp)
+//	log.trace groovy.xml.XmlUtil.escapeXml(resp.body)
+	def body = resp.xml.Body
+	if (!body.size()) {
+		logWarn("parse: No XML Body in resp: ${resp}")
+	}
+	else if (body.GetTransportInfoResponse.size()) { updatePlayStatus(body.GetTransportInfoResponse) }
+	else if (body.GetMediaInfoResponse.size()) { parseMediaInfo(body.GetMediaInfoResponse) }
+	else if (body.SetAVTransportURIResponse.size()) { parseAVTransport(body.SetAVTransportURIResponse) }
+	else if (body.PlayResponse.size()) { runIn(2,getTransportInfo) }
+	else if (body.PauseResponse.size()) { runIn(2,getTransportInfo) }
+	else if (body.StopResponse.size()) { runIn(2,getTransportInfo) }
+	else if (body.Fault.size()) { parseFault(body.Fault) }
+	//	===== Fault Code =====
+	else {
+		logWarn("parse: [unhandledResponse: ${groovy.xml.XmlUtil.escapeXml(resp.body)}]")
 	}
 }
+
+def parseAVTransport(data) {
+	logDebug("parseAVTransport: [play: ${state.play}]")
+logTrace("parseAVTransport: [play: ${state.play}]")
+	if (state.play) {
+		state.play = false
+		upnpPlay()
+	}
+	runIn(2, getMediaInfo)
+}
+def parseMediaInfo(data) {
+logTrace("parseMediaInfo: [masterTrack: ${state.masterTrack}, data: ${data}]")
+	def currentUri =  data.CurrentURI.text()
+	if (currentUri == "") { currentUri = "none" }
+	sendEvent(name: "currentUri", value: currentUri)
+	def logData = [currentUri: currentUri]
+	if (state.masterTrack) {
+		state.masterTrack = false
+		def uriMetadata = groovy.xml.XmlUtil.escapeXml(data.CurrentURIMetaData.toString())
+		uriMetadata = uriMetadata.toString().replaceAll("&lt;", "<").replaceAll("&gt;", ">")
+		uriMetadata = uriMetadata.replaceAll("&quot;","\"")
+		uriMetadata = new XmlSlurper().parseText(uriMetadata)
+		def trackData = """{title: "${uriMetadata.item.title}", """ +
+			"""uri: "${uri: currentUri}", duration: ${uriMetadata.item.duration}}"""
+		trackData = new JSONObject(trackData)
+		
+		sendEvent(name: "trackDescription", value: trackData.title)
+		sendEvent(name: "trackData", value: trackData)
+		logData << [trackData: trackData]
+		logData << [trackDescription: trackData.title]
+	}
+	logDebug("parseMediaInfo: ${logData}")
+}
+def updatePlayStatus(data) {
+	def status = data.CurrentTransportState.text()
+	def transStatus = device.currentValue("status")
+	switch(status) {
+		case "PLAYING":
+			transStatus = "playing"
+			break
+		case "PAUSED_PLAYBACK":
+			transStatus = "paused"
+			break
+		case "STOPPED":
+			transStatus = "stopped"
+			break
+		case "TRANSITIONING":
+			runIn(15,getTransportInfo)
+			break
+		case "NO_MEDIA_PRESENT": 
+			transStatus = "stopped"
+			logWarn("updatePlayStatus: [status: ${status}]")
+			break
+		default:
+			logWarn("updatePlayStatus: [unhandled: ${status}]")
+	}
+	sendEvent(name: "status", value: transStatus)
+}
+def parseFault(data) {
+	def faultData = data.detail.UPnPError.errorDescription.text()
+	def code = data.faultstring.text()
+	state.play = false
+	state.masterTrack = false
+	logWarn("parseFault: [errorDescription: ${code}, ${faultData}]")
+}
+
+//	===== Custom Implementation "UrlStreamPreset" =====
+def urlPresetCreate(preset, name = "Not Set") {
+	if (preset < 1 || preset > 8) {
+		logWarn("urlPresetCreate: Preset Number out of range (1-8)!")
+		return
+	}
+	def trackData = parseJson(device.currentValue("trackData").toString())
+	def urlData = [:]
+	urlData["title"] = name
+	urlData["uri"] = trackData.uri
+	urlData["duration"] = trackData.duration
+	state.urlPresetData << ["${preset}":[urlData]]
+	sendEvent(name: "urlPreset_${preset}", value: urlData.title)
+	logInfo("urlPresetCreate: created preset ${preset}, data = ${urlData}")
+}
+def urlPresetPlay(preset) {
+	if (preset < 1 || preset > 8) {
+		logWarn("urlPresetPlay: Preset Number out of range (1-8)!")
+		return
+	} 
+	def urlData = state.urlPresetData."${preset}"
+	if (urlData == null || urlData == [:]) {
+		logWarn("urlPresetPlay: Preset Not Set!")
+	} else {
+		playTrack(urlData[0])
+		logDebug("urlPresetPlay: ${urlData}")
+	}
+}
+def urlPresetDelete(preset) {
+	def urlPresetData = state.urlPresetData
+	if (preset < 1 || preset > 8) {
+		logWarn("urlPresetDelete: Preset Number ${preset} out of range (1-8)!")
+	} else if (urlPresetData."${preset}" == null || urlPresetData."${preset}" == [:]) {
+		logWarn("urlPresetDelete: Preset Not Set!")
+	} else {
+		urlPresetData << ["${preset}":[]]
+		sendEvent(name: "urlPreset_${preset}", value: " ")
+		logInfo("urlPresetDelete: [preset: ${preset}]")
+	}
+}
+
+//	===== capability "PushableButton" =====
+def push(pushed) {
+	logDebug("push: [button: ${pushed}, trigger: ${state.triggered}]")
+	if (pushed == null) {
+		logWarn("push: pushed is null.  Input ignored")
+		return
+	}
+	sendEvent(name: "pushed", value: pushed)
+	pushed = pushed.toInteger()
+	switch(pushed) {
+		case 0 :
+			if (state.triggered == true) {
+				state.triggered = false
+				logDebug("push: Trigger is NOT ARMED")
+			} else {
+				state.triggered = true
+				logDebug("push: Trigger is ARMED")
+				runIn(15, unTrigger)
+			}
+			break
+		case 1 :		//	Preset 1
+		case 2 :		//	Preset 2
+		case 3 :		//	Preset 3
+		case 4 :		//	Preset 4
+		case 5 :		//	Preset 5
+		case 6 :		//	Preset 6
+		case 7 :		//	Preset 7
+		case 8 :		//	Preset 8
+			if (state.triggered == false) {
+				urlPresetPlay(pushed)
+			} else {
+				urlPresetCreate(pushed)
+				sendEvent(name: "Trigger", value: "notArmed")
+			}
+			break
+		case 10: refresh(); break
+		case 11: toggleInputSource(); break
+		case 12: volumeUp(); break
+		case 13: volumeDown(); break
+		
+		case 20: clearQueue(); break
+		case 21: kickStartQueue(); break
+		default:
+			logWarn("${device.label}: Invalid Preset Number (must be 0 thru 29)!")
+			break
+	}
+}
+def unTrigger() { state.triggered = false }
 
 def distResp(resp, data) {
 	def respLog = [:]
@@ -334,22 +777,19 @@ def distResp(resp, data) {
 		logWarn("distResp: ${respLog}")
 	}
 }
-
 def deviceSetupParse(mainData) {
-	def setupData = [:]
 	if (mainData.mediaInputSource != null) {
 		def supportedInputs =  mainData.mediaInputSource.supportedInputSources.value
 		sendEvent(name: "supportedInputs", value: supportedInputs)	
 		state.supportedInputs = supportedInputs
-		setupData << [supportedInputs: supportedInputs]
 	} else {
 		state.remove("supportedInputs")
 	}
 	if (setupData != [:]) {
 		logInfo("deviceSetupParse: ${setupData}")
 	}
+	listAttributes(true)
 }
-
 def statusParse(mainData) {
 	def onOff = mainData.switch.switch.value
 	if (device.currentValue("switch") != onOff) {
@@ -362,8 +802,8 @@ def statusParse(mainData) {
 	def mute = mainData.audioMute.mute.value
 	sendEvent(name: "mute", value: mute)
 
-	def transportStatus = mainData.mediaPlayback.playbackStatus.value
-	sendEvent(name: "transportStatus", value: transportStatus)
+	def status = mainData.mediaPlayback.playbackStatus.value
+	sendEvent(name: "status", value: status)
 	
 	if (mainData.mediaInputSource != null) {
 		def mediaInputSource = mainData.mediaInputSource.inputSource.value
@@ -371,8 +811,8 @@ def statusParse(mainData) {
 	}
 	
 	if (mainData.audioTrackData != null) {
-		def audioTrackData = mainData.audioTrackData.audioTrackData.value
-		sendEvent(name: "trackData", value: audioTrackData)
+		def trackData = mainData.audioTrackData.audioTrackData.value
+		sendEvent(name: "trackData", value: trackData)
 	}
 
 	if (simulate() == true) {
@@ -408,7 +848,7 @@ def listAttributes(trace = false) { // library marker davegut.Logging, line 11
 		attrList << ["${it}": val] // library marker davegut.Logging, line 16
 	} // library marker davegut.Logging, line 17
 	if (trace == true) { // library marker davegut.Logging, line 18
-		logTrace("Attributes: ${attrList}") // library marker davegut.Logging, line 19
+		logInfo("Attributes: ${attrList}") // library marker davegut.Logging, line 19
 	} else { // library marker davegut.Logging, line 20
 		logDebug("Attributes: ${attrList}") // library marker davegut.Logging, line 21
 	} // library marker davegut.Logging, line 22
