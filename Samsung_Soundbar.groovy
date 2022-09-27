@@ -27,22 +27,35 @@ https://streams.radio.co/se1a320b47/listen
 ===== Method Descriptions =====
 playText: sends the test to playTextAndResume for processing
 
-playTextAndRestore / Resume: converts the text to an audio stream and sends the trackData to associated playTextAnd(Resume/Restore) methods.
+playTextAndRestore / Resume: converts the text to an audio stream and sends the trackData to
+associated playTextAnd(Resume/Restore) methods.
 
-playTrack:  Plays the track immediately.  This track becomes the MASTER used in recoverying from the playTrackAnd(Resume/Restore) methods.
+playTrack:  Plays the track immediately.  This track becomes the MASTER used in recoverying
+from the playTrackAnd(Resume/Restore) methods.
 
-playTrackAnd(Resume/Restore).  Sends the audio track to the play queue with a switch for Resume.  If resume is true, the Master Track (see playTrack) will begin playing when the queue empties.
+playTrackAnd(Resume/Restore).  Sends the audio track to the play queue with a switch for
+Resume.  If resume is true, the Master Track (see playTrack) will begin playing when the
+queue empties.
 
-Queue:  The queue is a firstIn/firstOut function that actually controls the play of Audio Notifications.  Queue can hang.
-	a.	kickStartQueue:  forces the queue to start again.  This is also scheduled to run every 30 minutes to keep the queue clear.
+Queue:  The queue is a firstIn/firstOut function that actually controls the play of Audio
+Notifications.  Queue can hang.
+	a.	kickStartQueue:  forces the queue to start again.  This is also scheduled to run every
+		30 minutes to keep the queue clear.
 	b.	clearQueue: Zeroes out the queue and associated states.
-	c.	resumePlayer: When the queue is empty, the system will be reset to the MASTER TRACK, volume is set to the original volume, the input source is set to the one at the start of playing.  If play is set, the MASTER TRACK will play - so if you do not want this, use the playTrackAndRestore.
+	c.	resumePlayer: When the queue is empty, the system will be reset to the MASTER TRACK,
+		volume is set to the original volume, the input source is set to the one at the start
+		of playing.  If play is set, the MASTER TRACK will play - so if you do not want this,
+		use the playTrackAndRestore.
 
-URI Presets.  There are 8 presets that can be used for quick play used for quick playing of regular channels.  These also work well in dashboards using the capability PushableButton push method.
+URI Presets.  There are 8 presets that can be used for quick play used for quick playing of
+regular channels.  These also work well in dashboards using the capability PushableButton
+push method.
 	a.	Uri Preset Create: This creates a URI from the current Master URI.  To create:
-		1.	Enter the track data into the Play Track function and wait for the uri to be playing.
+		1.	Enter the track data into the Play Track function and wait for the uri to be
+		playing.
 		2.	Enter a number (1-8) and your name for the URI in the command box.
-		3.	The preset name will appear in the Attributes field on the Device's edit page (for your reference).
+		3.	State variable urlPresetData contains a list of defined url's.  Remember to
+			refresh your browser after adding a preset.
 	b.	URI Preset Play:  When selected, it will play the preset and become the MASTER TRACK.
 
 
@@ -68,14 +81,6 @@ metadata {
 		attribute "currentUri", "string"
 		capability "Refresh"
 		capability "PushableButton"
-		attribute "urlPreset_1", "string"
-		attribute "urlPreset_2", "string"
-		attribute "urlPreset_3", "string"
-		attribute "urlPreset_4", "string"
-		attribute "urlPreset_5", "string"
-		attribute "urlPreset_6", "string"
-		attribute "urlPreset_7", "string"
-		attribute "urlPreset_8", "string"
 		command "urlPresetCreate", [[name: "Url Preset Number", type: "NUMBER"],[name: "URL Preset Name", type: "STRING"]]
 		command "urlPresetPlay", [[name: "Url Preset Number", type: "NUMBER"]]
 		command "urlPresetDelete", [[name: "Url Preset Number", type: "NUMBER"]]
@@ -94,8 +99,6 @@ metadata {
 		}
 		if (stDeviceId) {
 			input ("deviceIp", "string", title: "deviceIp")
-//			input ("upnpNotify", "bool",
-//				   title: "Use UPnP for audio notifications", defaultValue: false)
 			input ("volIncrement", "number", title: "Volume Up/Down Increment", defaultValue: 1)
 			input ("pollInterval", "enum", title: "Poll Interval (minutes)",
 				   options: ["1", "5", "10", "30"], defaultValue: "5")
@@ -303,7 +306,6 @@ def resumeTrack(uri) {
 //	playTrack(trackUri) see AudioNotification playTrack
 
 //	===== capability "AudioVolume" =====
-//	mute/unmute in capability Music Player
 def volumeUp() { 
 	def curVol = device.currentValue("volume")
 	def newVol = curVol + volIncrement.toInteger()
@@ -331,14 +333,12 @@ def setVolume(volume) {
 def playText(text, volume = null) { playTextAndResume(text) }
 def playTextAndRestore(text, volume = null) {
 	logDebug("playTextAndRestore: [text: ${text}, Volume: ${volume}]")
-logTrace("playTextAndRestore: [text: ${text}, Volume: ${volume}]")
-	def trackData = convertToTrack("text")
+	def trackData = convertToTrack(text)
 	playTrackAndRestore(trackData, volume)
 }
 def playTextAndResume(text, volume = null) {
 	logDebug("playTextAndResume: [text: ${text}, Volume: ${volume}]")
-logTrace("playTextAndResume: [text: ${text}, Volume: ${volume}]")
-	def trackData = convertToTrack("text")
+	def trackData = convertToTrack(text)
 	playTrackAndResume(trackData, volume)
 }
 def convertToTrack(text) {
@@ -363,12 +363,10 @@ def convertToTrack(text) {
 def playTrack(trackData, volume = null) {
 	//	Immediate command.  Will stop all other playing, and empty the playQueue.
 	logDebug("playTrack: [trackData: ${trackData}, volume: ${volume}]")
-logTrace("playTrack: [trackData: ${trackData}, volume: ${volume}]")
 	try {
 		duration = trackData.duration.toInteger()
 		uri = trackData.uri
 	} catch (e) {
-logTrace("playTrack: alternate track data method")
 		trackData = genTrackData(trackData, "playTrackAndRestore")
 			duration = trackData.duration.toInteger()
 			uri = trackData.uri
@@ -413,12 +411,10 @@ logTrace("playTrackAndRestore: alternate track data method")
 }
 def playTrackAndResume(trackData, volume=null) {
 	logDebug("playTrackAndResume: [trackData: ${trackData}, Volume: ${volume}]")
-logTrace("playTrackAndResume: [trackData: ${trackData}, Volume: ${volume}]")
 	try {
 		duration = trackData.duration.toInteger()
 		uri = trackData.uri
 	} catch (e) {
-logTrace("playTrackAndRestore: alternate track data method")
 		trackData = genTrackData(trackData, "playTrackAndRestore")
 			duration = trackData.duration.toInteger()
 			uri = trackData.uri
@@ -457,7 +453,6 @@ def genTrackData(trackData, meth) {
 //	===== Custom Implemenation "PlayQueue" =====
 def addToQueue(addData){
 	logDebug("addToQueue: ${addData}")
-logTrace("addToQueue: ${addData}")
 	def playData = ["uri": addData.uri,
 					"duration": addData.duration,
 					"requestVolume": addData.volume]
@@ -472,7 +467,6 @@ logTrace("addToQueue: ${addData}")
 }
 def startPlayViaQueue(addData) {
 	logDebug("startPlayViaQueue: ${addData}")
-logTrace("startPlayViaQueue: ${addData}")
 	if (state.playQueue.size() == 0) { return }
 	state.resetData = [volume: device.currentValue("volume"),
 					   inputSource: device.currentValue("inputSource"),
@@ -481,7 +475,6 @@ logTrace("startPlayViaQueue: ${addData}")
 }
 def playViaQueue() {
 	logDebug("playViaQueue: queueSize = ${state.playQueue.size()}")
-logTrace("playViaQueue: queueSize = ${state.playQueue.size()}")
 	if (state.playQueue.size() == 0) {
 		resumePlayer()
 	} else {
@@ -491,8 +484,11 @@ logTrace("playViaQueue: queueSize = ${state.playQueue.size()}")
 		def playData = state.playQueue.get(0)
 		state.play = true
 		setVolume(playData.requestVolume.toInteger())
-		setTrack(playData.uri)
-		
+
+		sendUpnpCmd("AVTransport", "SetAVTransportURI",
+					[InstanceID: 0, CurrentURI: playData.uri,
+					 CurrentURIMetaData: ""])
+
 		state.playQueue.remove(0)
 		def duration = playData.duration.toInteger()
 		if (duration > 0) {
@@ -509,7 +505,6 @@ def resumePlayer() {
 		def resetData = state.resetData
 		state.resetData = []
 		logDebug("resumePlayer: resetData = ${resetData}")
-logTrace("resumePlayer: resetData = ${resetData}")
 
 		if (resetData.resume == true) { state.play = true } 
 		else { state.play = falase }
@@ -525,7 +520,7 @@ logTrace("resumePlayer: resetData = ${resetData}")
 	}
 }
 def kickStartQueue() {
-	logInfo("kickStartQueue: playQueue: ${state.playQueue}")
+	logDebug("kickStartQueue: playQueue: ${state.playQueue}")
 	if (state.playQueue.size() > 0) {
 		playViaQueue()
 	}
@@ -540,7 +535,6 @@ def clearQueue() {
 
 //	===== UPnP Interface =====
 def upnpPlay() {
-logTrace "upnpPlay"
 	sendUpnpCmd("AVTransport",
 				"Play",
 				["InstanceID" :0,
@@ -601,7 +595,6 @@ def parse(resp) {
 
 def parseAVTransport(data) {
 	logDebug("parseAVTransport: [play: ${state.play}]")
-logTrace("parseAVTransport: [play: ${state.play}]")
 	if (state.play) {
 		state.play = false
 		upnpPlay()
@@ -609,7 +602,7 @@ logTrace("parseAVTransport: [play: ${state.play}]")
 	runIn(2, getMediaInfo)
 }
 def parseMediaInfo(data) {
-logTrace("parseMediaInfo: [masterTrack: ${state.masterTrack}, data: ${data}]")
+	logDebug("parseMediaInfo: [masterTrack: ${state.masterTrack}, data: ${data}]")
 	def currentUri =  data.CurrentURI.text()
 	if (currentUri == "") { currentUri = "none" }
 	sendEvent(name: "currentUri", value: currentUri)
@@ -676,8 +669,7 @@ def urlPresetCreate(preset, name = "Not Set") {
 	urlData["uri"] = trackData.uri
 	urlData["duration"] = trackData.duration
 	state.urlPresetData << ["${preset}":[urlData]]
-	sendEvent(name: "urlPreset_${preset}", value: urlData.title)
-	logInfo("urlPresetCreate: created preset ${preset}, data = ${urlData}")
+	logDebug("urlPresetCreate: created preset ${preset}, data = ${urlData}")
 }
 def urlPresetPlay(preset) {
 	if (preset < 1 || preset > 8) {
@@ -700,7 +692,6 @@ def urlPresetDelete(preset) {
 		logWarn("urlPresetDelete: Preset Not Set!")
 	} else {
 		urlPresetData << ["${preset}":[]]
-		sendEvent(name: "urlPreset_${preset}", value: " ")
 		logInfo("urlPresetDelete: [preset: ${preset}]")
 	}
 }
