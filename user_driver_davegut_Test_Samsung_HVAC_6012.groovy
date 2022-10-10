@@ -24,10 +24,10 @@ metadata {
 		capability "Refresh"
 		capability "ThermostatSetpoint"
 		command "setThermostatSetpoint", ["NUMBER"]
-		command "setThermostatMode", [[
-			name: "Thermostat Mode",
-			constraints: ["off", "auto", "cool", "heat", "dry", "wind", "samsungAuto"],
-			type: "ENUM"]]
+//		command "setThermostatMode", [[
+//			name: "Thermostat Mode",
+//			constraints: ["off", "auto", "cool", "heat", "dry", "wind", "samsungAuto"],
+//			type: "ENUM"]]
 //	TEST Command
 		capability "RelativeHumidityMeasurement"
 //		command "poll"
