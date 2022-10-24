@@ -62,13 +62,13 @@ metadata {
 		capability "RelativeHumidityMeasurement"
 		attribute "dustFilterStatus", "string"
 
-		//		TEST ONLY
+/*		//		TEST ONLY
 		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
 		command "aSetHVACScale", [
 			[name: "Test Scale", constraints: ["C", "F"],
 			 type: "ENUM"]]
 		command "aSetTemp", ["NUMBER"]	//	Simulate house temp
-
+*/
 	}
 	preferences {
 		input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
@@ -611,9 +611,9 @@ def convertFtoC(temperature) {
 
 
 
-//def simulate() { return false}
-def simulate() { return true}
-
+def simulate() { return false}
+//def simulate() { return true}
+//#include davegut.Samsung-HVAC-Sim
 
 // ~~~~~ start include (1170) davegut.commonLogging ~~~~~
 library ( // library marker davegut.commonLogging, line 1
@@ -938,144 +938,3 @@ def calcTimeRemaining(completionTime) { // library marker davegut.ST-Common, lin
 } // library marker davegut.ST-Common, line 173
 
 // ~~~~~ end include (1090) davegut.ST-Common ~~~~~
-
-// ~~~~~ start include (1197) davegut.Samsung-HVAC-Sim ~~~~~
-library ( // library marker davegut.Samsung-HVAC-Sim, line 1
-	name: "Samsung-HVAC-Sim", // library marker davegut.Samsung-HVAC-Sim, line 2
-	namespace: "davegut", // library marker davegut.Samsung-HVAC-Sim, line 3
-	author: "Dave Gutheinz", // library marker davegut.Samsung-HVAC-Sim, line 4
-	description: "ST Samsung AC Simulator", // library marker davegut.Samsung-HVAC-Sim, line 5
-	category: "utilities", // library marker davegut.Samsung-HVAC-Sim, line 6
-	documentationLink: "" // library marker davegut.Samsung-HVAC-Sim, line 7
-) // library marker davegut.Samsung-HVAC-Sim, line 8
-
-def aSetThermostat(setpoint) { // library marker davegut.Samsung-HVAC-Sim, line 10
-	setThermostatSetpoint(setpoint) // library marker davegut.Samsung-HVAC-Sim, line 11
-} // library marker davegut.Samsung-HVAC-Sim, line 12
-
-def aSetHVACScale(unit) { // library marker davegut.Samsung-HVAC-Sim, line 14
-	//	Modify thermostatSetpoint // library marker davegut.Samsung-HVAC-Sim, line 15
-	def thermSp = device.currentState("thermostatSetpoint") // library marker davegut.Samsung-HVAC-Sim, line 16
-	def unitVal = "°${unit}" // library marker davegut.Samsung-HVAC-Sim, line 17
-	def sp = state.setpoint // library marker davegut.Samsung-HVAC-Sim, line 18
-	def temp = state.temperature // library marker davegut.Samsung-HVAC-Sim, line 19
-	if (getDataValue("tempUnit") != unitVal) { // library marker davegut.Samsung-HVAC-Sim, line 20
-		state.setpoint = convertTemp(sp, getDataValue("tempUnit"), unitVal) // library marker davegut.Samsung-HVAC-Sim, line 21
-		state.temperature = convertTemp(temp, getDataValue("tempUnit"), unitVal) // library marker davegut.Samsung-HVAC-Sim, line 22
-	} // library marker davegut.Samsung-HVAC-Sim, line 23
-	state.scale = unit // library marker davegut.Samsung-HVAC-Sim, line 24
-	runIn(1, poll) // library marker davegut.Samsung-HVAC-Sim, line 25
-} // library marker davegut.Samsung-HVAC-Sim, line 26
-
-def aSetTemp(temperature) { // library marker davegut.Samsung-HVAC-Sim, line 28
-	state.temperature = temperature.toInteger() // library marker davegut.Samsung-HVAC-Sim, line 29
-	runIn(1, poll) // library marker davegut.Samsung-HVAC-Sim, line 30
-} // library marker davegut.Samsung-HVAC-Sim, line 31
-
-def setSimStates() { // library marker davegut.Samsung-HVAC-Sim, line 33
-		setpoint = 25 // library marker davegut.Samsung-HVAC-Sim, line 34
-		temperature = 15 // library marker davegut.Samsung-HVAC-Sim, line 35
-		if (tempUnit == "°F") { // library marker davegut.Samsung-HVAC-Sim, line 36
-			setpoint = 77 // library marker davegut.Samsung-HVAC-Sim, line 37
-			temperature = 59 // library marker davegut.Samsung-HVAC-Sim, line 38
-		} // library marker davegut.Samsung-HVAC-Sim, line 39
-		state.setpoint = setpoint // library marker davegut.Samsung-HVAC-Sim, line 40
-		state.temperature = temperature // library marker davegut.Samsung-HVAC-Sim, line 41
-	logSimStates() // library marker davegut.Samsung-HVAC-Sim, line 42
-} // library marker davegut.Samsung-HVAC-Sim, line 43
-
-def logSimStates() { // library marker davegut.Samsung-HVAC-Sim, line 45
-	def stateData = [tempUnit: getDataValue("tempUnit"), // library marker davegut.Samsung-HVAC-Sim, line 46
-					 tempScale: tempScale, // library marker davegut.Samsung-HVAC-Sim, line 47
-					 setpoint: state.setpoint, // library marker davegut.Samsung-HVAC-Sim, line 48
-					 temperature: state.temperature] // library marker davegut.Samsung-HVAC-Sim, line 49
-	log.trace "logSimStates: $stateData" // library marker davegut.Samsung-HVAC-Sim, line 50
-}	 // library marker davegut.Samsung-HVAC-Sim, line 51
-
-def testData() { // library marker davegut.Samsung-HVAC-Sim, line 53
-	if (!state.fanMode) {  // library marker davegut.Samsung-HVAC-Sim, line 54
-		state.switch = "off" // library marker davegut.Samsung-HVAC-Sim, line 55
-		state.fanMode = "auto" // library marker davegut.Samsung-HVAC-Sim, line 56
-		state.temperature = 15 // library marker davegut.Samsung-HVAC-Sim, line 57
-		state.setpoint = 20 // library marker davegut.Samsung-HVAC-Sim, line 58
-		state.mode = "auto" // library marker davegut.Samsung-HVAC-Sim, line 59
-		state.scale = "C" // library marker davegut.Samsung-HVAC-Sim, line 60
-		state.acOptionalMode = "windFree" // library marker davegut.Samsung-HVAC-Sim, line 61
-		state.oscilMode = "fixed" // library marker davegut.Samsung-HVAC-Sim, line 62
-	} // library marker davegut.Samsung-HVAC-Sim, line 63
-	def minSetpoint = 16 // library marker davegut.Samsung-HVAC-Sim, line 64
-	def maxSetpoint = 30 // library marker davegut.Samsung-HVAC-Sim, line 65
-	if (state.scale == "F") { // library marker davegut.Samsung-HVAC-Sim, line 66
-		minSetpoint = 60 // library marker davegut.Samsung-HVAC-Sim, line 67
-		maxSetpoint = 86 // library marker davegut.Samsung-HVAC-Sim, line 68
-	} // library marker davegut.Samsung-HVAC-Sim, line 69
-
-	return [ // library marker davegut.Samsung-HVAC-Sim, line 71
-		switch:[switch:[value: state.switch]], // library marker davegut.Samsung-HVAC-Sim, line 72
-		relativeHumidityMeasurement:[humidity:[value:67]], // library marker davegut.Samsung-HVAC-Sim, line 73
-		"custom.dustFilter":[dustFilterStatus:[value:"normal"]], // library marker davegut.Samsung-HVAC-Sim, line 74
-		"custom.thermostatSetpointControl":[ // library marker davegut.Samsung-HVAC-Sim, line 75
-			minimumSetpoint:[value: minSetpoint, unit: state.scale], // library marker davegut.Samsung-HVAC-Sim, line 76
-			maximumSetpoint:[value: maxSetpoint, unit: state.scale]], // library marker davegut.Samsung-HVAC-Sim, line 77
-		airConditionerFanMode:[ // library marker davegut.Samsung-HVAC-Sim, line 78
-			supportedAcFanModes:[value:["auto", "low", "medium", "high"]], // library marker davegut.Samsung-HVAC-Sim, line 79
-			fanMode:[value: state.fanMode]], // library marker davegut.Samsung-HVAC-Sim, line 80
-		temperatureMeasurement:[temperature:[value: state.temperature, unit: state.scale]], // library marker davegut.Samsung-HVAC-Sim, line 81
-		thermostatCoolingSetpoint:[coolingSetpoint:[value: state.setpoint, unit: state.scale]], // library marker davegut.Samsung-HVAC-Sim, line 82
-		"custom.airConditionerOptionalMode":[ // library marker davegut.Samsung-HVAC-Sim, line 83
-			supportedAcOptionalMode:[value:["off", "sleep", "quiet", "smart", "speed", "windFree", "windFreeSleep"]], // library marker davegut.Samsung-HVAC-Sim, line 84
-			acOptionalMode:[value: state.acOptionalMode]], // library marker davegut.Samsung-HVAC-Sim, line 85
-		fanOscillationMode:[ // library marker davegut.Samsung-HVAC-Sim, line 86
-			supportedFanOscillationModes:[value:["fixed", "all", "vertical", "horizontal"]],  // library marker davegut.Samsung-HVAC-Sim, line 87
-			fanOscillationMode:[value: state.oscilMode]], // library marker davegut.Samsung-HVAC-Sim, line 88
-		airConditionerMode:[ // library marker davegut.Samsung-HVAC-Sim, line 89
-			supportedAcModes:[value:["auto", "cool", "dry", "wind", "heat"]], // library marker davegut.Samsung-HVAC-Sim, line 90
-			airConditionerMode:[value: state.mode]] // library marker davegut.Samsung-HVAC-Sim, line 91
-		] // library marker davegut.Samsung-HVAC-Sim, line 92
-} // library marker davegut.Samsung-HVAC-Sim, line 93
-
-def testResp(cmdData) { // library marker davegut.Samsung-HVAC-Sim, line 95
-	def cmd = cmdData.command // library marker davegut.Samsung-HVAC-Sim, line 96
-	def args = cmdData.arguments // library marker davegut.Samsung-HVAC-Sim, line 97
-	switch(cmd) { // library marker davegut.Samsung-HVAC-Sim, line 98
-		case "off": // library marker davegut.Samsung-HVAC-Sim, line 99
-			state.switch = "off" // library marker davegut.Samsung-HVAC-Sim, line 100
-			state.mode = "off" // library marker davegut.Samsung-HVAC-Sim, line 101
-			break // library marker davegut.Samsung-HVAC-Sim, line 102
-		case "on": // library marker davegut.Samsung-HVAC-Sim, line 103
-			state.switch = "on" // library marker davegut.Samsung-HVAC-Sim, line 104
-			state.mode = "samsungAuto" // library marker davegut.Samsung-HVAC-Sim, line 105
-			break // library marker davegut.Samsung-HVAC-Sim, line 106
-		case "setAirConditionerMode": // library marker davegut.Samsung-HVAC-Sim, line 107
-			state.switch = "on" // library marker davegut.Samsung-HVAC-Sim, line 108
-			state.mode = args[0] // library marker davegut.Samsung-HVAC-Sim, line 109
-			break // library marker davegut.Samsung-HVAC-Sim, line 110
-		case "setFanMode": // library marker davegut.Samsung-HVAC-Sim, line 111
-			state.fanMode = args[0] // library marker davegut.Samsung-HVAC-Sim, line 112
-			break // library marker davegut.Samsung-HVAC-Sim, line 113
-		case "setCoolingSetpoint": // library marker davegut.Samsung-HVAC-Sim, line 114
-			state.setpoint = args[0] // library marker davegut.Samsung-HVAC-Sim, line 115
-			break // library marker davegut.Samsung-HVAC-Sim, line 116
-		case "execute": // library marker davegut.Samsung-HVAC-Sim, line 117
-			def onOff = args[1]["x.com.samsung.da.options"][0] // library marker davegut.Samsung-HVAC-Sim, line 118
-			state.light = ["Sleep_0", onOff, "Volume_Mute"] // library marker davegut.Samsung-HVAC-Sim, line 119
-			break // library marker davegut.Samsung-HVAC-Sim, line 120
-		case "setAcOptionalMode": // library marker davegut.Samsung-HVAC-Sim, line 121
-			state.acOptionalMode = args[0] // library marker davegut.Samsung-HVAC-Sim, line 122
-			break // library marker davegut.Samsung-HVAC-Sim, line 123
-		case "setFanOscillationMode": // library marker davegut.Samsung-HVAC-Sim, line 124
-			state.oscilMode = args[0] // library marker davegut.Samsung-HVAC-Sim, line 125
-			break // library marker davegut.Samsung-HVAC-Sim, line 126
-		case "refresh": // library marker davegut.Samsung-HVAC-Sim, line 127
-			break // library marker davegut.Samsung-HVAC-Sim, line 128
-		default: // library marker davegut.Samsung-HVAC-Sim, line 129
-			logWarn("testResp: [unhandled: ${cmdData}]") // library marker davegut.Samsung-HVAC-Sim, line 130
-	} // library marker davegut.Samsung-HVAC-Sim, line 131
-
-	return [ // library marker davegut.Samsung-HVAC-Sim, line 133
-		cmdData: cmdData, // library marker davegut.Samsung-HVAC-Sim, line 134
-		status: [status: "OK", // library marker davegut.Samsung-HVAC-Sim, line 135
-				 results:[[id: "e9585885-3848-4fea-b0db-ece30ff1701e", status: "ACCEPTED"]]]] // library marker davegut.Samsung-HVAC-Sim, line 136
-} // library marker davegut.Samsung-HVAC-Sim, line 137
-
-// ~~~~~ end include (1197) davegut.Samsung-HVAC-Sim ~~~~~
