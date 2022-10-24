@@ -12,7 +12,7 @@ Library code is at the bottom of the distributed single-file driver.
 https://github.com/DaveGut/HubitatActive/blob/master/SamsungAppliances/Install_Samsung_Appliance.pdf
 1.2.1 = MX release to fix US version.
 ==============================================================================*/
-def driverVer() { return "1.2.5" }
+def driverVer() { return "1.2.6" }
 
 metadata {
 	definition (name: "Samsung HVAC",
