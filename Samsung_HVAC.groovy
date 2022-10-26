@@ -69,13 +69,13 @@ metadata {
 		attribute "dustFilterStatus", "string"
 
 		//		TEST ONLY
-		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
+/*		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
 		command "aSetHVACScale", [
 			[name: "Test Scale", constraints: ["C", "F"],
 			 type: "ENUM"]]
 		command "aSetTemp", ["NUMBER"]	//	Simulate house temp
 		command "aSetHVACSetpoint", ["NUMBER"]	//	Simulate change in HVAC setpoint from remote.
-
+*/
 	}
 	preferences {
 		input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
