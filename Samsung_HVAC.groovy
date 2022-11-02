@@ -11,13 +11,17 @@ Library code is at the bottom of the distributed single-file driver.
 ===== Installation Instructions Link =====
 https://github.com/DaveGut/HubitatActive/blob/master/SamsungAppliances/Install_Samsung_Appliance.pdf
 1.2.7 = MX release
-a.	convertTemp isolated to run only when the temperature scale has changed.
-b.	convertTemp message changed to log info.  Will be reduced to rare by change a.
-c.	Added processing for HVAC setpoint change.  When the setpoint changes, 
-	1)	Determine if mode is cool, heat, or samsungAuto.
-	2)	if associated setpoint has changed, update.
+a.	Use Hubitat built-in methods for converting temperatures.
+b.	When setting one of the Hubitat setpoints, run updateOperations vice refresh.
+	Note that this called is delayed to avoid multiple commanding as use changes temp on
+	interface.
+c.	update method updateOperations to streamline and use runIn to slow down process 
+	slightly and avoid excessive comms..
+d.	Method deviceCommand: if Failed response, do not refresh nor poll the device.
+e.	Preference setPollInterval: Change to add 5 minutes.  Default 1 minute.
+
 ==============================================================================*/
-def driverVer() { return "1.2.7" }
+def driverVer() { return "1.2.8" }
 
 metadata {
 	definition (name: "Samsung HVAC",
@@ -69,13 +73,14 @@ metadata {
 		attribute "dustFilterStatus", "string"
 
 		//		TEST ONLY
-/*		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
+//		command "testTemp", ["NUMBER"]
+		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
 		command "aSetHVACScale", [
 			[name: "Test Scale", constraints: ["C", "F"],
 			 type: "ENUM"]]
 		command "aSetTemp", ["NUMBER"]	//	Simulate house temp
 		command "aSetHVACSetpoint", ["NUMBER"]	//	Simulate change in HVAC setpoint from remote.
-*/
+
 	}
 	preferences {
 		input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
@@ -126,6 +131,17 @@ def changeScale() {
 		setSimStates()
 	}
 	logInfo("changeScale: ${logData}")
+}
+def modSetpointAttr(attr, toScale) {
+	def attrData = device.currentState(attr)
+	def setpoint = attrData.value.toFloat()
+	if (attrData.unit != toScale) {
+		setpoint = convertTemp(setpoint, attrData.unit, toScale)
+		sendEvent(name: attr, value: setpoint, unit: toScale)
+	} else {
+		setpoint = "noChange"
+	}
+	return setpoint
 }
 
 //	===== Thermostat Mode Control =====
@@ -185,6 +201,7 @@ def sendModeCommand(thermostatMode) {
 		arguments: [thermostatMode]]
 	cmdStatus = deviceCommand(cmdData)
 	return cmdStatus
+	logInfo("setModeCommand: [cmd: ${thermostatMode}, ${cmdStatus}]")
 }
 
 //	===== Thermostat Fan Control =====
@@ -263,7 +280,7 @@ def setHeatingSetpoint(setpoint) {
 	} else {
 		logData << [checkSetpoint: check]
 	}
-	runIn(10, refresh)
+	runIn(10, updateOperation)
 	logInfo("setHeatingSetpoint: ${logData}")
 }
 def setCoolingSetpoint(setpoint) {
@@ -283,7 +300,7 @@ def setCoolingSetpoint(setpoint) {
 	} else {
 		logData << [checkSetpoint: check]
 	}
-	runIn(10, refresh)
+	runIn(10, updateOperation)
 	logInfo("setCoolingSetpoint: ${logData}")
 }
 def setSamsungAutoSetpoint(setpoint) {
@@ -301,7 +318,7 @@ def setSamsungAutoSetpoint(setpoint) {
 	}
 	sendEvent(name: "thermostatSetpoint", value: thermostatSetpoint, unit: tempScale)
 	sendEvent(name: "level", value: thermostatSetpoint, unit: tempScale)
-	runIn(10, refresh)
+	runIn(10, updateOperation)
 	logInfo("setSamsungAutoSetpoint: ${logData}")
 }
 def setLevel(setpoint) { 
@@ -313,7 +330,6 @@ def setLevel(setpoint) {
 
 //	===== Control Device Setpoint =====
 def setThermostatSetpoint(setpoint) {
-	log.trace setpoint
 	def logData = [:]
 	def tempUnit = getDataValue("tempUnit")
 	if (tempScale != tempUnit) {
@@ -337,8 +353,6 @@ def updateOperation() {
 	def heatPoint = device.currentValue("heatingSetpoint")
 	def coolPoint = device.currentValue("coolingSetpoint")
 	def mode = device.currentValue("thermostatMode")
-//log.trace "UPDATEOPS: [setpoint: $setpoint, temp: $temperature, heatSp: $heatPoint, " +
-//	"coolSp: $coolPoint, mode: $mode, hvac_mode: $state.hvac_mode]"
 
 	def newHvacSetpoint = setpoint
 	def opState = "idle"
@@ -366,8 +380,6 @@ def updateOperation() {
 			newHvacSetpoint = heatPoint
 			break
 		case "auto":
-		//	opMode is hub-determined mode.  If not equal to hvac_mode, will reset hvac_mode
-		//	between cool-heat setpoints, no changes are made.
 			def opMode
 			if (temperature < heatPoint) {
 				opMode = "heat"
@@ -382,7 +394,6 @@ def updateOperation() {
 				//	set hvac to hub-determined opMode
 				def hvacMode = sendModeCommand(opMode)
 				respData << [sendModeCommand: opMode, cmdStatus: hvacMode]
-				logInfo("updateOperation: ${respData}")
 			}
 			break
 		default:
@@ -391,11 +402,12 @@ def updateOperation() {
 	if (device.currentValue("thermostatOperatingState") != opState) {
 		sendEvent(name: "thermostatOperatingState", value: opState)
 		respData << [thermostatOperatingState: opState]
-		logInfo("updateOperation: ${respData}")
 	}
 	if (setpoint != newHvacSetpoint) {
-		setThermostatSetpoint(newHvacSetpoint)
+		respData << [newHvacSetpoint: newHvacSetpoint]
+		runIn(10, setThermostatSetpoint, [data: newHvacSetpoint])
 	}
+	if (respData != [:]) { logInfo("updateOperations: ${respData}") }
 }
 
 //	===== Panel Light =====
@@ -427,9 +439,8 @@ def distResp(resp, data) {
 				statusParse(respData.components.main)
 			}
 		} catch (err) {
-			respLog << [status: "ERROR",
-						errorMsg: err,
-						respData: resp.data]
+			respLog << [status: "ERROR", 
+						errorMsg: err]
 		}
 	} else {
 		respLog << [status: "ERROR",
@@ -461,7 +472,6 @@ def deviceSetupParse(parseData) {
 	def supportedOscillationModes = parseData.fanOscillationMode.supportedFanOscillationModes.value
 	sendEvent(name: "supportedOscillationModes", value: supportedOscillationModes)
 	logData << [supportedOscillationModes: supportedOscillationModes]
-
 
 	def tempUnit = "°${parseData["custom.thermostatSetpointControl"].minimumSetpoint.unit}"
 
@@ -499,7 +509,7 @@ def statusParse(parseData) {
 	def tempUnit = parseData.temperatureMeasurement.temperature.unit
 	tempUnit = "°${tempUnit}"
 	if (tempUnit != getDataValue("tempUnit")) {
-		//	devices tempUnit has changed.  Will need to update min/max setpoint data and states.
+		logWarn("statusParse: updating tempUnit from ${getDataValue("tempUnit")} to ${tempUnit}")
 		updateDataValue("tempUnit", tempUnit)
 		logData << [tempUnit: tempUnit]
 		def minSetpoint = parseData["custom.thermostatSetpointControl"].minimumSetpoint.value.toInteger()
@@ -533,10 +543,9 @@ def statusParse(parseData) {
 			   thermostatMode != "off") {
 		thermostatMode = "samsungAuto"
 	}
-	if (device.currentValue("thermostatMode") != thermostatMode) {
-		sendEvent(name: "thermostatMode", value: thermostatMode)
-		logData << [thermostatMode: thermostatMode]
-	}
+	def humidity = parseData.relativeHumidityMeasurement.humidity.value
+
+//	===== detect thermostat setpoint change, then update attributes =====
 	if (device.currentValue("thermostatSetpoint") != thermostatSetpoint) {
 		//	Update hub-setpoints because if thermostat setpoint changes
 		logData << [updateSetpoints: updateSetpoints(thermostatMode, thermostatSetpoint)]
@@ -545,6 +554,17 @@ def statusParse(parseData) {
 		logData << [thermostatSetpoint: thermostatSetpoint, level: thermostatSetpoint]
 	}
 
+	if (device.currentValue("humidity") != humidity) {
+		sendEvent(name: "humidity", value: humidity, unit: "%")
+		logData << [humidity: humidity]
+	}
+
+//	===== Mode changes =====
+	if (device.currentValue("thermostatMode") != thermostatMode) {
+		sendEvent(name: "thermostatMode", value: thermostatMode)
+		logData << [thermostatMode: thermostatMode]
+	}
+	
 	def thermostatFanMode = parseData.airConditionerFanMode.fanMode.value
 	if (device.currentValue("thermostatFanMode") != thermostatFanMode) {
 		sendEvent(name: "thermostatFanMode", value: thermostatFanMode)
@@ -557,35 +577,29 @@ def statusParse(parseData) {
 		logData << [acOptionalMode: acOptionalMode]
 	}
 
-	def dustFilterStatus = parseData["custom.dustFilter"].dustFilterStatus.value
-	if (device.currentValue("dustFilterStatus") != dustFilterStatus) {
-		sendEvent(name: "dustFilterStatus", value: dustFilterStatus)
-		logData << [dustFilterStatus: dustFilterStatus]
-	}
-
-	def humidity = parseData.relativeHumidityMeasurement.humidity.value
-	if (device.currentValue("humidity") != humidity) {
-		sendEvent(name: "humidity", value: humidity, unit: "%")
-		logData << [humidity: humidity]
-	}
-
 	def fanOscillationMode = parseData.fanOscillationMode.fanOscillationMode.value
 	if (device.currentValue("fanOscillationMode") != fanOscillationMode) {
 		sendEvent(name: "fanOscillationMode", value: fanOscillationMode)
 		logData << [fanOscillationMode: fanOscillationMode]
 	}
 
+	def dustFilterStatus = parseData["custom.dustFilter"].dustFilterStatus.value
+	if (device.currentValue("dustFilterStatus") != dustFilterStatus) {
+		sendEvent(name: "dustFilterStatus", value: dustFilterStatus)
+		logData << [dustFilterStatus: dustFilterStatus]
+	}
+
 	if (logData != [:]) {
 		logInfo("statusParse: ${logData}")
 	}
-	
-	runIn(1, updateOperation)
+
+	updateOperation()
 	if (simulate()) {
 		runIn(2, listAttributes, [data: true])
 	}
 }
 
-def updateSetpoints(mode,setpoint) {
+def updateSetpoints(mode, setpoint) {
 	def coolSp = device.currentValue("coolingSetpoint")
 	def heatSp = device.currentValue("heatingSetpoint")
 	def samsungSp = device.currentValue("samsungAutoSetpoint")
@@ -614,24 +628,12 @@ def updateSetpoints(mode,setpoint) {
 	}
 }
 
-//	===== Driver Utilities =====
-def modSetpointAttr(attr, toScale) {
-	def attrData = device.currentState(attr)
-	def setpoint = attrData.value.toFloat()
-	if (attrData.unit != toScale) {
-		setpoint = convertTemp(setpoint, attrData.unit, toScale)
-		sendEvent(name: attr, value: setpoint, unit: toScale)
-	} else {
-		setpoint = "noChange"
-	}
-	return setpoint
-}
 def convertTemp(temperature, fromScale, toScale) {
 	def newTemp = temperature
 	if (fromScale == "°C" && toScale == "°F") {
-		newTemp = (temperature * (9.0 / 5.0) + 32.0).toInteger()
+		newTemp = Math.round(celsiusToFahrenheit(temperature))
 	} else if (fromScale == "°F" && toScale == "°C") {
-		newTemp = (0.9 + 2 * (temperature - 32.0) * (5.0 / 9.0)).toInteger() / 2
+		newTemp = Math.round(2 * fahrenheitToCelsius(temperature))/2
 	}
 	logDebug("convertTemp: [origTemp: ${temperature} ${fromScale}, newTemp, ${newTemp} ${toScale}]")
 	return newTemp
@@ -750,45 +752,43 @@ private syncGet(path){ // library marker davegut.ST-Communications, line 28
 			} // library marker davegut.ST-Communications, line 49
 		} catch (error) { // library marker davegut.ST-Communications, line 50
 			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 51
-						 httpCode: "Timeout", // library marker davegut.ST-Communications, line 52
-						 errorMsg: error] // library marker davegut.ST-Communications, line 53
-		} // library marker davegut.ST-Communications, line 54
-	} // library marker davegut.ST-Communications, line 55
-	return respData // library marker davegut.ST-Communications, line 56
-} // library marker davegut.ST-Communications, line 57
+						 errorMsg: error] // library marker davegut.ST-Communications, line 52
+		} // library marker davegut.ST-Communications, line 53
+	} // library marker davegut.ST-Communications, line 54
+	return respData // library marker davegut.ST-Communications, line 55
+} // library marker davegut.ST-Communications, line 56
 
-private syncPost(sendData){ // library marker davegut.ST-Communications, line 59
-	def respData = [:] // library marker davegut.ST-Communications, line 60
-	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 61
-		respData << [status: "FAILED", // library marker davegut.ST-Communications, line 62
-					 errorMsg: "No stApiKey"] // library marker davegut.ST-Communications, line 63
-	} else { // library marker davegut.ST-Communications, line 64
-		logDebug("syncPost: ${sendData}") // library marker davegut.ST-Communications, line 65
-		def cmdBody = [commands: [sendData.cmdData]] // library marker davegut.ST-Communications, line 66
-		def sendCmdParams = [ // library marker davegut.ST-Communications, line 67
-			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 68
-			path: sendData.path, // library marker davegut.ST-Communications, line 69
-			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 70
-			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 71
-		] // library marker davegut.ST-Communications, line 72
-		try { // library marker davegut.ST-Communications, line 73
-			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 74
-				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 75
-					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 76
-				} else { // library marker davegut.ST-Communications, line 77
-					respData << [status: "FAILED", // library marker davegut.ST-Communications, line 78
-								 httpCode: resp.status, // library marker davegut.ST-Communications, line 79
-								 errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 80
-				} // library marker davegut.ST-Communications, line 81
-			} // library marker davegut.ST-Communications, line 82
-		} catch (error) { // library marker davegut.ST-Communications, line 83
-			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 84
-						 httpCode: "Timeout", // library marker davegut.ST-Communications, line 85
-						 errorMsg: error] // library marker davegut.ST-Communications, line 86
-		} // library marker davegut.ST-Communications, line 87
-	} // library marker davegut.ST-Communications, line 88
-	return respData // library marker davegut.ST-Communications, line 89
-} // library marker davegut.ST-Communications, line 90
+private syncPost(sendData){ // library marker davegut.ST-Communications, line 58
+	def respData = [:] // library marker davegut.ST-Communications, line 59
+	if (!stApiKey || stApiKey.trim() == "") { // library marker davegut.ST-Communications, line 60
+		respData << [status: "FAILED", // library marker davegut.ST-Communications, line 61
+					 errorMsg: "No stApiKey"] // library marker davegut.ST-Communications, line 62
+	} else { // library marker davegut.ST-Communications, line 63
+		logDebug("syncPost: ${sendData}") // library marker davegut.ST-Communications, line 64
+		def cmdBody = [commands: [sendData.cmdData]] // library marker davegut.ST-Communications, line 65
+		def sendCmdParams = [ // library marker davegut.ST-Communications, line 66
+			uri: "https://api.smartthings.com/v1", // library marker davegut.ST-Communications, line 67
+			path: sendData.path, // library marker davegut.ST-Communications, line 68
+			headers: ['Authorization': 'Bearer ' + stApiKey.trim()], // library marker davegut.ST-Communications, line 69
+			body : new groovy.json.JsonBuilder(cmdBody).toString() // library marker davegut.ST-Communications, line 70
+		] // library marker davegut.ST-Communications, line 71
+		try { // library marker davegut.ST-Communications, line 72
+			httpPost(sendCmdParams) {resp -> // library marker davegut.ST-Communications, line 73
+				if (resp.status == 200 && resp.data != null) { // library marker davegut.ST-Communications, line 74
+					respData << [status: "OK", results: resp.data.results] // library marker davegut.ST-Communications, line 75
+				} else { // library marker davegut.ST-Communications, line 76
+					respData << [status: "FAILED", // library marker davegut.ST-Communications, line 77
+								 httpCode: resp.status, // library marker davegut.ST-Communications, line 78
+								 errorMsg: resp.errorMessage] // library marker davegut.ST-Communications, line 79
+				} // library marker davegut.ST-Communications, line 80
+			} // library marker davegut.ST-Communications, line 81
+		} catch (error) { // library marker davegut.ST-Communications, line 82
+			respData << [status: "FAILED", // library marker davegut.ST-Communications, line 83
+						 errorMsg: error] // library marker davegut.ST-Communications, line 84
+		} // library marker davegut.ST-Communications, line 85
+	} // library marker davegut.ST-Communications, line 86
+	return respData // library marker davegut.ST-Communications, line 87
+} // library marker davegut.ST-Communications, line 88
 
 // ~~~~~ end include (1091) davegut.ST-Communications ~~~~~
 
@@ -816,78 +816,78 @@ def commonUpdate() { // library marker davegut.ST-Common, line 10
 	updateData << [status: "OK"] // library marker davegut.ST-Common, line 21
 	if (debugLog) { runIn(1800, debugLogOff) } // library marker davegut.ST-Common, line 22
 	updateData << [stDeviceId: stDeviceId] // library marker davegut.ST-Common, line 23
-//	updateData << [debugLog: debugLog, infoLog: infoLog] // library marker davegut.ST-Common, line 24
-	updateData << [textEnable: textEnable, logEnable: logEnable] // library marker davegut.ST-Common, line 25
-	if (!getDataValue("driverVersion") ||  // library marker davegut.ST-Common, line 26
-		getDataValue("driverVersion") != driverVer()) { // library marker davegut.ST-Common, line 27
-		updateDataValue("driverVersion", driverVer()) // library marker davegut.ST-Common, line 28
-		updateData << [driverVer: driverVer()] // library marker davegut.ST-Common, line 29
-	} // library marker davegut.ST-Common, line 30
-	setPollInterval(pollInterval) // library marker davegut.ST-Common, line 31
-	updateData << [pollInterval: pollInterval] // library marker davegut.ST-Common, line 32
+	updateData << [textEnable: textEnable, logEnable: logEnable] // library marker davegut.ST-Common, line 24
+	if (!getDataValue("driverVersion") ||  // library marker davegut.ST-Common, line 25
+		getDataValue("driverVersion") != driverVer()) { // library marker davegut.ST-Common, line 26
+		updateDataValue("driverVersion", driverVer()) // library marker davegut.ST-Common, line 27
+		updateData << [driverVer: driverVer()] // library marker davegut.ST-Common, line 28
+	} // library marker davegut.ST-Common, line 29
+	setPollInterval(pollInterval) // library marker davegut.ST-Common, line 30
+	updateData << [pollInterval: pollInterval] // library marker davegut.ST-Common, line 31
 
-	runIn(5, refresh) // library marker davegut.ST-Common, line 34
-	return updateData // library marker davegut.ST-Common, line 35
-} // library marker davegut.ST-Common, line 36
+	runIn(5, refresh) // library marker davegut.ST-Common, line 33
+	return updateData // library marker davegut.ST-Common, line 34
+} // library marker davegut.ST-Common, line 35
 
-def setPollInterval(pollInterval) { // library marker davegut.ST-Common, line 38
-	logDebug("setPollInterval: ${pollInterval}") // library marker davegut.ST-Common, line 39
-	state.pollInterval = pollInterval // library marker davegut.ST-Common, line 40
-	switch(pollInterval) { // library marker davegut.ST-Common, line 41
-		case "10sec":  // library marker davegut.ST-Common, line 42
-			schedule("*/10 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 43
-			break // library marker davegut.ST-Common, line 44
-		case "20sec": // library marker davegut.ST-Common, line 45
-			schedule("*/20 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 46
-			break // library marker davegut.ST-Common, line 47
-		case "30sec": // library marker davegut.ST-Common, line 48
-			schedule("*/30 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 49
-			break // library marker davegut.ST-Common, line 50
-		case "1" : // library marker davegut.ST-Common, line 51
-		case "1min": // library marker davegut.ST-Common, line 52
-			runEvery1Minute(poll) // library marker davegut.ST-Common, line 53
-			break // library marker davegut.ST-Common, line 54
-		case "5" : runEvery5Minutes(poll); break // library marker davegut.ST-Common, line 55
-		case "10" : runEvery10Minutes(poll); break // library marker davegut.ST-Common, line 56
-		case "30" : runEvery30Minutes(poll); break // library marker davegut.ST-Common, line 57
-		default: runEvery10Minutes(poll) // library marker davegut.ST-Common, line 58
-	} // library marker davegut.ST-Common, line 59
-} // library marker davegut.ST-Common, line 60
+def setPollInterval(pollInterval) { // library marker davegut.ST-Common, line 37
+	logDebug("setPollInterval: ${pollInterval}") // library marker davegut.ST-Common, line 38
+	state.pollInterval = pollInterval // library marker davegut.ST-Common, line 39
+	switch(pollInterval) { // library marker davegut.ST-Common, line 40
+		case "10sec":  // library marker davegut.ST-Common, line 41
+			schedule("*/10 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 42
+			break // library marker davegut.ST-Common, line 43
+		case "20sec": // library marker davegut.ST-Common, line 44
+			schedule("*/20 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 45
+			break // library marker davegut.ST-Common, line 46
+		case "30sec": // library marker davegut.ST-Common, line 47
+			schedule("*/30 * * * * ?", "poll")		 // library marker davegut.ST-Common, line 48
+			break // library marker davegut.ST-Common, line 49
+		case "1" : // library marker davegut.ST-Common, line 50
+		case "1min": runEvery1Minute(poll); break // library marker davegut.ST-Common, line 51
+		case "5" : runEvery5Minutes(poll); break // library marker davegut.ST-Common, line 52
+		case "10" : runEvery10Minutes(poll); break // library marker davegut.ST-Common, line 53
+		case "30" : runEvery30Minutes(poll); break // library marker davegut.ST-Common, line 54
+		default: runEvery10Minutes(poll) // library marker davegut.ST-Common, line 55
+	} // library marker davegut.ST-Common, line 56
+} // library marker davegut.ST-Common, line 57
 
-def deviceCommand(cmdData) { // library marker davegut.ST-Common, line 62
-	def respData = [:] // library marker davegut.ST-Common, line 63
-	if (simulate() == true) { // library marker davegut.ST-Common, line 64
-		respData = testResp(cmdData) // library marker davegut.ST-Common, line 65
-	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 66
-		respData << [status: "FAILED", data: "no stDeviceId"] // library marker davegut.ST-Common, line 67
-	} else { // library marker davegut.ST-Common, line 68
-		def sendData = [ // library marker davegut.ST-Common, line 69
-			path: "/devices/${stDeviceId.trim()}/commands", // library marker davegut.ST-Common, line 70
-			cmdData: cmdData // library marker davegut.ST-Common, line 71
-		] // library marker davegut.ST-Common, line 72
-		respData = syncPost(sendData) // library marker davegut.ST-Common, line 73
-	} // library marker davegut.ST-Common, line 74
-	if (cmdData.capability && cmdData.capability != "refresh") { // library marker davegut.ST-Common, line 75
-		refresh() // library marker davegut.ST-Common, line 76
-	} else { // library marker davegut.ST-Common, line 77
-		poll() // library marker davegut.ST-Common, line 78
-		} // library marker davegut.ST-Common, line 79
-	return respData // library marker davegut.ST-Common, line 80
-} // library marker davegut.ST-Common, line 81
+def deviceCommand(cmdData) { // library marker davegut.ST-Common, line 59
+	def respData = [:] // library marker davegut.ST-Common, line 60
+	if (simulate() == true) { // library marker davegut.ST-Common, line 61
+		respData = testResp(cmdData) // library marker davegut.ST-Common, line 62
+	} else if (!stDeviceId || stDeviceId.trim() == "") { // library marker davegut.ST-Common, line 63
+		respData << [status: "FAILED", data: "no stDeviceId"] // library marker davegut.ST-Common, line 64
+	} else { // library marker davegut.ST-Common, line 65
+		def sendData = [ // library marker davegut.ST-Common, line 66
+			path: "/devices/${stDeviceId.trim()}/commands", // library marker davegut.ST-Common, line 67
+			cmdData: cmdData // library marker davegut.ST-Common, line 68
+		] // library marker davegut.ST-Common, line 69
+		respData = syncPost(sendData) // library marker davegut.ST-Common, line 70
+	} // library marker davegut.ST-Common, line 71
+	if (respData.results.status[0] != "FAILED") { // library marker davegut.ST-Common, line 72
+		if (cmdData.capability && cmdData.capability != "refresh") { // library marker davegut.ST-Common, line 73
+			refresh() // library marker davegut.ST-Common, line 74
+		} else { // library marker davegut.ST-Common, line 75
+			poll() // library marker davegut.ST-Common, line 76
+		} // library marker davegut.ST-Common, line 77
+	} // library marker davegut.ST-Common, line 78
+	return respData // library marker davegut.ST-Common, line 79
+} // library marker davegut.ST-Common, line 80
 
-def refresh() { // library marker davegut.ST-Common, line 83
-	if (stApiKey!= null) { // library marker davegut.ST-Common, line 84
-		def cmdData = [ // library marker davegut.ST-Common, line 85
-			component: "main", // library marker davegut.ST-Common, line 86
-			capability: "refresh", // library marker davegut.ST-Common, line 87
-			command: "refresh", // library marker davegut.ST-Common, line 88
-			arguments: []] // library marker davegut.ST-Common, line 89
-		deviceCommand(cmdData) // library marker davegut.ST-Common, line 90
-	} // library marker davegut.ST-Common, line 91
-} // library marker davegut.ST-Common, line 92
+def refresh() { // library marker davegut.ST-Common, line 82
+	if (stApiKey!= null) { // library marker davegut.ST-Common, line 83
+		def cmdData = [ // library marker davegut.ST-Common, line 84
+			component: "main", // library marker davegut.ST-Common, line 85
+			capability: "refresh", // library marker davegut.ST-Common, line 86
+			command: "refresh", // library marker davegut.ST-Common, line 87
+			arguments: []] // library marker davegut.ST-Common, line 88
+		deviceCommand(cmdData) // library marker davegut.ST-Common, line 89
+	} // library marker davegut.ST-Common, line 90
+} // library marker davegut.ST-Common, line 91
 
-def poll() { // library marker davegut.ST-Common, line 94
-	if (simulate() == true) { // library marker davegut.ST-Common, line 95
+def poll() { // library marker davegut.ST-Common, line 93
+	if (simulate() == true) { // library marker davegut.ST-Common, line 94
+		pauseExecution(200) // library marker davegut.ST-Common, line 95
 		def children = getChildDevices() // library marker davegut.ST-Common, line 96
 		if (children) { // library marker davegut.ST-Common, line 97
 			children.each { // library marker davegut.ST-Common, line 98
