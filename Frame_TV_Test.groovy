@@ -18,6 +18,12 @@ metadata {
 		command "artModeOn"
 		command "artModeOff"
 		
+		command "home"
+		command "menu"
+		command "channelUp"
+		command "channelDown"
+		command "ambientMode"
+
 		
 	}
 	preferences {
@@ -92,7 +98,7 @@ def getDeviceData() {
 }
 
 def on() {
-	logDebug("on")
+	logInfo("on")
 	onCmd()
 	pauseExecution(3000)
 	onCmd()
@@ -118,7 +124,7 @@ def setPowerOnMode() {
 }	
 		  
 def off() {
-	logDebug("off")
+	logInfo("off")
 	if (getDataValue("frameTv") == "false") { sendKey("POWER") }
 	else {
 		sendKey("POWER", "Press")
@@ -128,25 +134,25 @@ def off() {
 }
 
 def tvToArtMode() {
-	logDebug("tvToArtMode")
+	logInfo("TV_TO_ART_MODE")
 	sendKey("POWER")
 	runIn(3, getArtModeStatus)
 }
 
 def artModeToMediaHome() {
-	logDebug("artModeToMediaHome")
+	logInfo("ART_MODE_TO_MEDIA_HOME")
 	sendKey("POWER")
 	runIn(3, getArtModeStatus)
 }
 
 def artModeOn() {
-	logDebug("artModeOn")
+	logInfo("ART_MODE_ON")
 	artMode("on")
 	runIn(3, getArtModeStatus)
 }
 
 def artModeOff() {
-	logDebug("artModeOff")
+	logInfo("aART_MODE_OFF")
 	artMode("off")
 	runIn(3, getArtModeStatus)
 }
@@ -176,8 +182,14 @@ def getArtModeStatus() {
 }
 
 def ambientMode() {
+	logInfo("AMBIENT_MODE")
 	sendKey("AMBIENT")
 }
+
+def home() { sendKey("HOME") }
+def menu() { sendKey("MENU") }
+def channelUp() { sendKey("CHUP") }
+def channelDown() { sendKey("CHDOWN") }
 
 def sendKey(key, cmd = "Click") {
 	key = "KEY_${key.toUpperCase()}"
@@ -189,7 +201,7 @@ def sendKey(key, cmd = "Click") {
 }
 
 def connect(funct) {
-	logInfo("connect: function = ${funct}")
+	logInfo("CONNECT: [FUNCTION: ${funct}]")
 	def url
 	def name = "SHViaXRhdCBTYW1zdW5nIFJlbW90ZQ=="
 	if (getDataValue("tokenSupport") == "true") {
@@ -218,7 +230,7 @@ def connect(funct) {
 }
 
 def sendMessage(funct, data) {
-	logInfo("sendMessage: [function = ${funct}, data = ${data}, connectType = ${state.currentFunction}]")
+	logDebug("sendMessage: [function = ${funct}, data = ${data}, connectType = ${state.currentFunction}]")
 	if (state.wsDeviceStatus != "open" || state.currentFunction != funct) {
 		connect(funct)
 		pauseExecution(300)
@@ -241,41 +253,46 @@ def webSocketStatus(message) {
 		state.currentFunction = "close"
 		interfaces.webSocket.close()
 	}
-	logInfo("webSocketStatus: [status: ${status}, message: ${message}]")
+	logDebug("webSocketStatus: [status: ${status}, message: ${message}]")
 }
 
 def parse(resp) {
+//	Special test logging.
+	def logData = [:]
 	try {
-		def logData = [:]
 		resp = parseJson(resp)
 		def event = resp.event
+		logData << [EVENT: event]
 		if (event == "ms.channel.connect") {
 			def newToken = resp.data.token
 			if (newToken != null && newToken != state.token) {
-				logData << [newToken: newToken]
 				state.token = newToken
+				logData << [TOKEN: "updated"]
+			} else {
+				logData << [TOKEN: "noChange"]
 			}
 		} else if (event == "d2d_service_message") {
 			def data = parseJson(resp.data)
+			logData << [SUB_EVENT: data.event, DATA: data]
 			if (data.event == "artmode_status" ||
 				data.event == "art_mode_changed") {
 				def status = data.value
 				if (status == null) { status = data.status }
 				sendEvent(name: "artModeStatus", value: status)
-				logData << [artModeStatus: data.value]
+				logData << [ART_MODE_STATUS: data.value]
+				logTrace("parse: [ART_MODE_STATUS: ${data.value}]")
 			}
 		} else if (event == "ms.channel.ready") {
-			logData << [event: event, status: "WS Connected"]
+			logData << [DATA: resp.data, STATUS: "WS Connected"]
 		} else if (event == "ms.error") {
-			logData << [event: event, status: "Error, Closing WS"]
+			logData << [DATA: resp.data, STATUS: "Error, Closing WS"]
 			close{}
 		} else {
-			logData << [status: "Not Parsed"]
+			logData << [DATA: resp.data, STATUS: "Not Parsed"]
 		}
-		logData << [resp:resp]
-		logInfo("parse: ${logData}")
+		logTrace("parse: ${logData}")
 	} catch (e) {
-		logWarn("parse: [status: unhandled, error: ${e}]")
+		logWarn("parse: [STATUS: unhandled, ERROR: ${e}]")
 	}
 }
 
@@ -287,6 +304,6 @@ def logInfo(msg) {
 	log.info "${device.displayName} ${driverVer()}: ${msg}"
 }
 def logDebug(msg) {
-	log.debug "${device.displayName} ${driverVer()}: ${msg}"
+//	log.debug "${device.displayName} ${driverVer()}: ${msg}"
 }
 def logWarn(msg) { log.warn "${device.displayName} ${driverVer()}: ${msg}" }
