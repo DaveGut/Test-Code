@@ -15,14 +15,15 @@ metadata {
 		capability "Switch"
 		command "tvToArtMode"
 		command "artModeToMediaHome"
-		command "artModeOn"
-		command "artModeOff"
+//		command "artModeOn"
+//		command "artModeOff"
 		
 		command "home"
 		command "menu"
 		command "channelUp"
 		command "channelDown"
 		command "ambientMode"
+		command "ambientModeExit"
 
 		
 	}
@@ -30,7 +31,7 @@ metadata {
 		input ("deviceIp", "text", title: "Samsung TV Ip", defaultValue: "")
 		if (deviceIp) {
 			input ("tvPwrOnMode", "enum", title: "TV Startup Display", 
-				   options: ["ART_MODE", "none"], defaultValue: "ART_MODE")
+				   options: ["ART_MODE", "Ambient", "none"], defaultValue: "ART_MODE")
 		}
 	}
 }
@@ -62,9 +63,9 @@ def updated() {
 						
 def getDeviceData() {
 	def respData = [:]
-	if (getDataValue("uuid")) {
-		respData << [status: "already run"]
-	} else {
+//	if (getDataValue("uuid")) {
+//		respData << [status: "already run"]
+//	} else {
 		try{
 			httpGet([uri: "http://${deviceIp}:8001/api/v2/", timeout: 5]) { resp ->
 				def wifiMac = resp.data.device.wifiMac
@@ -85,6 +86,9 @@ def getDeviceData() {
 					tokenSupport = resp.data.device.TokenAuthSupport
 					updateDataValue("tokenSupport", tokenSupport)
 				}
+				def os = "${resp.data.device.OS} V${resp.data.version}"
+				updateDataValue("osVersion", os)
+				
 				def uuid = resp.data.device.duid.substring(5)
 				updateDataValue("uuid", uuid)
 				respData << [status: "OK", dni: alternateWolMac, modelYear: modelYear,
@@ -93,7 +97,7 @@ def getDeviceData() {
 		} catch (error) {
 			respData << [status: "ERROR", reason: error]
 		}
-	}
+//	}
 	return respData
 }
 
@@ -102,7 +106,7 @@ def on() {
 	onCmd()
 	pauseExecution(3000)
 	onCmd()
-	runIn(5, setPowerOnMode)
+	setPowerOnMode()
 }
 def onCmd() {
 	def wolMac = getDataValue("alternateWolMac")
@@ -115,16 +119,22 @@ def onCmd() {
 	sendHubCommand(wol)
 }
 def setPowerOnMode() {
+	connect("remote")
 	if(tvPwrOnMode == "ART_MODE" && getDataValue("frameTv") == "true") {
-		artMode("on")
+		sendKey("TV")
+		tvToArtMode()
 	} else if (tvPwrOnMode == "Ambient") {
+		sendKey("TV")
+		pauseExecution(1000)
 		ambientMode()
 	}
-	connect("remote")
-}	
-		  
+}
+	  
 def off() {
 	logInfo("off")
+//	if (tvPwrOnMode = "ART_MODE" || tvPwrOnMode == "Ambient") {
+//		sendKey("TV")
+//	}
 	if (getDataValue("frameTv") == "false") { sendKey("POWER") }
 	else {
 		sendKey("POWER", "Press")
@@ -184,6 +194,11 @@ def getArtModeStatus() {
 def ambientMode() {
 	logInfo("AMBIENT_MODE")
 	sendKey("AMBIENT")
+}
+def ambientModeExit() {
+	sendKey("HOME")
+	pauseExecution(2000)
+	sendKey("HOME")
 }
 
 def home() { sendKey("HOME") }
@@ -307,3 +322,33 @@ def logDebug(msg) {
 //	log.debug "${device.displayName} ${driverVer()}: ${msg}"
 }
 def logWarn(msg) { log.warn "${device.displayName} ${driverVer()}: ${msg}" }
+
+/*{"device":{
+	"FrameTVSupport":"true",
+		"GamePadSupport":"true","ImeSyncedSupport":"true","Language":"en_US",
+			"OS":"Tizen",
+				"PowerState":"on","TokenAuthSupport":"true","VoiceSupport":"true",
+"WallScreenRatio":"-1","WallService":"false","countryCode":"US","description":"Samsung DTV RCR",
+"developerIP":"0.0.0.0","developerMode":"0","duid":"uuid:be2f6712-6642-4688-9f5b-89910bae667b",
+"firmwareVersion":"Unknown","id":"uuid:be2f6712-6642-4688-9f5b-89910bae667b","ip":"192.168.1.10",
+"model":"22_PONTUSM_FTV","modelName":"QN50LS03BAFXZA","name":"Master Bedroom TV",
+"networkType":"wireless","resolution":"3840x2160","smartHubAgreement":"true","ssid":"78:d2:94:30:4c:ee",
+"type":"Samsung SmartTV","udn":"uuid:be2f6712-6642-4688-9f5b-89910bae667b",
+"wifiMac":"80:8A:BD:5A:1D:06"},"id":"uuid:be2f6712-6642-4688-9f5b-89910bae667b",
+"isSupport":"{"DMP_DRM_PLAYREADY":"false","DMP_DRM_WIDEVINE":"false","DMP_available":"true",
+"EDEN_available":"true","FrameTVSupport":"true","ImeSyncedSupport":"true","TokenAuthSupport":"true",
+"remote_available":"true","remote_fourDirections":"true","remote_touchPad":"true","remote_voiceControl":"true"}\n"
+,"name":"Master Bedroom TV","remote":"1.0","type":"Samsung SmartTV",
+"uri":"http://192.168.1.10:8001/api/v2/","version":"2.0.25"}*/
+
+
+
+
+
+
+
+
+
+
+
+
