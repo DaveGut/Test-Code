@@ -161,8 +161,8 @@ def setOnPollInterval() {
 	}
 	if (pollInterval == "60") {
 		runEvery1Minute(onPoll)
-	} else if (interval != "off") {
-		schedule("0/${interval} * * * * ?",  onPoll)
+	} else if (pollInterval != "off") {
+		schedule("0/${pollInterval} * * * * ?",  onPoll)
 	}
 	return interval
 }
@@ -227,7 +227,7 @@ def stUpdate() {
 
 //	===== Polling/Refresh Capability =====
 def onPoll() {
-	logDebug("asyncGet: ${sendData}, ${passData}")
+	logDebug("onPoll: ${sendData}, ${passData}")
 	def sendCmdParams = [
 		uri: "http://${deviceIp}:8001/api/v2/",
 		timeout: 2
