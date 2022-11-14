@@ -227,7 +227,7 @@ def stUpdate() {
 
 //	===== Polling/Refresh Capability =====
 def onPoll() {
-	logDebug("onPoll: ${sendData}, ${passData}")
+	logDebug("onPoll")
 	def sendCmdParams = [
 		uri: "http://${deviceIp}:8001/api/v2/",
 		timeout: 2
@@ -696,7 +696,7 @@ def deviceSetupParse(mainData) {
 
 def statusParse(mainData) {
 	def stData = [:]
-	if (onOff == "on") {
+	if (device.currentValue("switch") == "on") {
 		def volume = mainData.audioVolume.volume.value.toInteger()
 		if (device.currentValue("volume").toInteger() != volume) {
 			sendEvent(name: "volume", value: volume)
