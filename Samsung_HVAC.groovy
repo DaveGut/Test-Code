@@ -21,7 +21,7 @@ d.	Method deviceCommand: if Failed response, do not refresh nor poll the device.
 e.	Preference setPollInterval: Change to add 5 minutes.  Default 1 minute.
 
 ==============================================================================*/
-def driverVer() { return "1.2.8" }
+def driverVer() { return "1.2.9" }
 
 metadata {
 	definition (name: "Samsung HVAC",
@@ -74,12 +74,12 @@ metadata {
 
 		//		TEST ONLY
 //		command "testTemp", ["NUMBER"]
-		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
-		command "aSetHVACScale", [
-			[name: "Test Scale", constraints: ["C", "F"],
-			 type: "ENUM"]]
-		command "aSetTemp", ["NUMBER"]	//	Simulate house temp
-		command "aSetHVACSetpoint", ["NUMBER"]	//	Simulate change in HVAC setpoint from remote.
+//		command "aSetThermostat", ["NUMBER"]	//	Test conversion algorithms.
+//		command "aSetHVACScale", [
+//			[name: "Test Scale", constraints: ["C", "F"],
+//			 type: "ENUM"]]
+//		command "aSetTemp", ["NUMBER"]	//	Simulate house temp
+//		command "aSetHVACSetpoint", ["NUMBER"]	//	Simulate change in HVAC setpoint from remote.
 
 	}
 	preferences {
@@ -674,12 +674,12 @@ def listAttributes(trace = false) { // library marker davegut.commonLogging, lin
 
 //	6.7.2 Change B.  Remove driverVer() // library marker davegut.commonLogging, line 25
 def logTrace(msg){ // library marker davegut.commonLogging, line 26
-	log.trace "${device.displayName}: ${msg}" // library marker davegut.commonLogging, line 27
+	log.trace "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.commonLogging, line 27
 } // library marker davegut.commonLogging, line 28
 
 def logInfo(msg) {  // library marker davegut.commonLogging, line 30
 	if (textEnable || infoLog) { // library marker davegut.commonLogging, line 31
-		log.info "${device.displayName}: ${msg}" // library marker davegut.commonLogging, line 32
+		log.info "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.commonLogging, line 32
 	} // library marker davegut.commonLogging, line 33
 } // library marker davegut.commonLogging, line 34
 
@@ -692,11 +692,11 @@ def debugLogOff() { // library marker davegut.commonLogging, line 36
 
 def logDebug(msg) { // library marker davegut.commonLogging, line 43
 	if (logEnable || debugLog) { // library marker davegut.commonLogging, line 44
-		log.debug "${device.displayName}: ${msg}" // library marker davegut.commonLogging, line 45
+		log.debug "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.commonLogging, line 45
 	} // library marker davegut.commonLogging, line 46
 } // library marker davegut.commonLogging, line 47
 
-def logWarn(msg) { log.warn "${device.displayName}: ${msg}" } // library marker davegut.commonLogging, line 49
+def logWarn(msg) { log.warn "${device.displayName}-${driverVer()}: ${msg}" } // library marker davegut.commonLogging, line 49
 
 // ~~~~~ end include (1170) davegut.commonLogging ~~~~~
 
