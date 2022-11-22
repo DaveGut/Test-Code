@@ -5,7 +5,7 @@ License:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/Licen
 ===== 2022 Version 4.0 ====================================================================
 
 ===========================================================================================*/
-def driverVer() { return "DEV 4.0" }
+def driverVer() { return "DEV 4.0.1" }
 import groovy.json.JsonOutput
 
 metadata {
