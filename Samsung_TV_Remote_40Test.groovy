@@ -310,8 +310,7 @@ log.warn "onPollParse: detected non-on powerMode. onOff set to OFF"
 		sendEvent(name: "switch", value: onOff)
 		state.standbyTest = false
 		if (onOff == "on") {
-//			runIn(1, getArtModeStatus)
-			runIn(2, home)
+			runIn(2, getArtModeStatus)
 			runIn(4, setPowerOnMode)
 		}
 		logInfo("onPollParse: [switch: ${onOff}, powerState: ${powerState}]")
@@ -361,8 +360,7 @@ def on() {
 										encoding: hubitat.device.HubAction.Encoding.HEX_STRING])
 	sendHubCommand(wol)
 //	if (device.currentValue("switch") == "off") {
-//		runIn(1, getArtModeStatus)
-		runIn(2, home)
+		runIn(2, getArtModeStatus)
 		runIn(4, setPowerOnMode)
 //	}
 	sendEvent(name: "switch", value: "on")
