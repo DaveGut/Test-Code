@@ -280,9 +280,9 @@ def onPollParse(resp, data) {
 	} else {
 		powerState = "notConnected"
 	}
-	if (powerState != "on") {
-//		onOff = "on"
-//	} else {
+	if (powerState == "on") {
+		state.standbyTest = false
+	} else {
 		//	power state is not on.  (could be notConnected or standby.  Below handles spurious comms failure
 		//	as well as the TV power off sequencing to standby mode then disconnect.
 		if (device.currentValue("switch") == "on") {
@@ -308,7 +308,6 @@ log.warn "onPollParse: detected non-on powerMode. onOff set to OFF"
 	if (device.currentValue("switch") != onOff) {
 		//	If switch has changed, update attribute and set standbyTest to false.
 		sendEvent(name: "switch", value: onOff)
-		state.standbyTest = false
 		if (onOff == "on") {
 			runIn(2, getArtModeStatus)
 			runIn(4, setPowerOnMode)
