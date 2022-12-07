@@ -3,28 +3,43 @@ Hubitat - Samsung TV Remote Driver
 		Copyright 2022 Dave Gutheinz
 License:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 ===== 2022 Version 4.0 ====================================================================
--1 mods
-a.	Remove all calls to getArtModeStatus() as well as attribute "artModeStatus".  Remove
-	parse section for artModeStatus.  When if artModeStatus, use dataValue frameTv (t/f).
-b.	Fix erratic on behavior for Art (ambient?) modes when start preference is set.
-	1.	Move call from on detetion to the on command.
-	2.	Create new attriute wsStatus set from the webSocket status messages.
-	3.	Assure that wsStatus is "connected" prior to executing the websocket status.
-	4.	Remove state.wsDeviceStatus
-	5.	set wsStatus in installed and (temporarily) updated.
-	LINE 295 has code for Beta Tester to refine the delay for setting the power on display.
-c.	Refine onPoll processing based on experience.
-	1.	For on/off command:
-		a)	set state.switchHubTime prior to sending command
-		b)	set attribute state as part of method on or off
-	2.	Method On Poll - prevent it running if now - state.switchHubTime < 2 minutes.
+-3 Cumulative Modifications
+a.	Changed methods for artMode to accommodate 2022 model and pre-2022 model operations.
+	Uses modelYear developed during setup.
+b.	Update Hubitat methods on and off
+	1)	Immediately set new state
+	2)	Block out onPoll parsing for 60 seconds to preclude switch state ping-pong
+	3)	On: cause power on display mode to run.
+c.	Update onPollParse to accommodate hubitat-external on/off commmanding
+	1)	Obtain two off indications prior to declaring state switch to off
+	2)	Set power on display mode when on is first detected.
+d.	Known issue: Turning power on too soon after turning power off (2 minutes) can
+	cause anomolous behavior.
+New Power thread
+a.	Hubitat ON
+	1)	sends common Wake-on-lan message
+	2)	sets attribute switch to "on"
+	3)	blocks onPoll function for 1 minute
+	4)	sets artModeStatus and runs setPowerOnMode (default display)
+b.	Remote ON (including physical TV remote and SmartThings)
+	1)	Detected through onPoll/onPollParse
+	2)	If attribute switch is changed to ON, sets artModeStatus and runs setPoweOnMode.
+c.	Hubitat OFF
+	1)	send power-off remote keys
+	2)	sets attribute switch to "off"
+	3)	blocks onPoll function for 1 minute
+d.	Remote OFF (including physical TV remote and SmartThings)
+	1)	Detected through onPoll/onPollParse
+	2)	If switch is on, waits for a second off indication to set attribute switch to "off"
+e.	Known issue: Turning power on too soon after turning power off (2 minutes) can
+	cause anomolous behavior.
 ===========================================================================================*/
-def driverVer() { return "D 4.0-2" }
+def driverVer() { return "D 4.0-3" }
 import groovy.json.JsonOutput
 def stConnect() { return connectST }
 
 metadata {
-	definition (name: "Samsung TV Remote",
+	definition (name: "aDev Samsung TV Remote",
 				namespace: "davegut",
 				author: "David Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungTvRemote/SamsungTVRemote.groovy"
@@ -32,13 +47,14 @@ metadata {
 		capability "SamsungTV"			//	cmds: on/off, volume, mute. attrs: switch, volume, mute
 		command "showMessage", [[name: "NOT IMPLEMENTED"]]
 		capability "Switch"
-		attribute "wsStatus", "string"
+//		attribute "wsStatus", "string"
 		command "pause"				//	Only work on TV Players
 		command "play"					//	Only work on TV Players
 		command "stop"					//	Only work on TV Players
 		//	===== Remote Control Interface =====
 		command "sendKey", ["string"]	//	Send entered key. eg: HDMI
 		command "artMode"				//	Toggles artMode
+		attribute "artModeStatus", "string"	//	on/off
 		command "ambientMode"			//	non-Frame TVs
 		//	Cursor and Entry Control
 		command "arrowLeft"
@@ -134,7 +150,8 @@ String helpLogo() { // library marker davegut.kasaCommon, line 11
 def installed() {
 	state.token = "12345678"
 	def tokenSupport = "false"
-	sendEvent(name: "wsStatus", value: "closed")
+	state.wsStatus = "closed"
+//	sendEvent(name: "wsStatus", value: "closed")
 	runIn(1, updated)
 }
 
@@ -163,7 +180,9 @@ def updated() {
 		updStatus << [stUpdate: stUpdate()]
 		state.switchHubTime = 0
 	}
-	sendEvent(name: "wsStatus", value: "closed")
+	state.wsStatus = "closed"
+//	sendEvent(name: "wsStatus", value: "closed")
+	state.standbyTest = false
 
 	if (updStatus.toString().contains("ERROR")) {
 		logWarn("updated: ${updStatus}")
@@ -212,6 +231,7 @@ def getDeviceData() {
 				updateDataValue("uuid", uuid)
 				respData << [status: "OK", dni: alternateWolMac, modelYear: modelYear,
 							 frameTv: frameTv, tokenSupport: tokenSupport]
+				getArtModeStatus()
 			}
 		} catch (error) {
 			respData << [status: "ERROR", reason: error]
@@ -243,8 +263,8 @@ def stUpdate() {
 
 //	===== Polling/Refresh Capability =====
 def onPoll() {
-	//	Suspend on poll commands for 120 seconds after sending a hubitat-based power on command.
-	if (now() - state.switchHubTime > 120000) {
+	//	Suspend on poll commands for 60 seconds after sending a hubitat-based onOff command.
+	if (now() - state.switchHubTime > 60000) {
 		def sendCmdParams = [
 			uri: "http://${deviceIp}:8001/api/v2/",
 			timeout: 4
@@ -253,6 +273,51 @@ def onPoll() {
 	}
 }
 def onPollParse(resp, data) {
+	def powerState
+	def onOff = "on"
+	if (resp.status == 200) {
+		powerState = new JsonSlurper().parseText(resp.data).device.PowerState
+	} else {
+		powerState = "notConnected"
+	}
+	if (powerState != "on") {
+//		onOff = "on"
+//	} else {
+		//	power state is not on.  (could be notConnected or standby.  Below handles spurious comms failure
+		//	as well as the TV power off sequencing to standby mode then disconnect.
+		if (device.currentValue("switch") == "on") {
+			//	If swith is on, insert a second poll before declaring OFF due to spurious response indicating not on.
+			if (!state.standbyTest) {
+				//	initial condition.  Set state true and schedule repoll
+log.warn "onPollParse: detected non-on powerMode. Ignore and repoll."
+				state.standbyTest = true
+				if (pollInterval != "10") {
+					runIn(10, onPoll)
+				}
+			} else {
+log.warn "onPollParse: detected non-on powerMode. onOff set to OFF"
+				//	Second in-loop.  Set state false and onOff to true.
+				state.standbyTest = false
+				onOff = "off"
+			}
+		} else {
+			onOff = "off"
+		}
+	}
+		
+	if (device.currentValue("switch") != onOff) {
+		//	If switch has changed, update attribute and set standbyTest to false.
+		sendEvent(name: "switch", value: onOff)
+		state.standbyTest = false
+		if (onOff == "on") {
+//			runIn(1, getArtModeStatus)
+			runIn(2, home)
+			runIn(4, setPowerOnMode)
+		}
+		logInfo("onPollParse: [switch: ${onOff}, powerState: ${powerState}]")
+	}
+}
+def xxxxonPollParse(resp, data) {
 	def powerState
 	if (resp.status == 200) {
 		powerState = new JsonSlurper().parseText(resp.data).device.PowerState
@@ -266,6 +331,12 @@ def onPollParse(resp, data) {
 	if (device.currentValue("switch") != onOff) {
 		sendEvent(name: "switch", value: onOff)
 		state.standbyTest = false
+		if (onOff == "on") {
+////////////////////
+//			runIn(2, getArtModeStatus)
+			runIn(2, home)
+			runIn(3, setPowerOnMode)
+		}
 		logInfo("onPollParse: [switch: ${onOff}, powerState: ${powerState}]")
 	}
 }
@@ -277,10 +348,10 @@ def stRefresh() {
 
 //	===== Switch Commands =====
 def on() {
-	//	Could put code in to use the state to prevent rapid on - off - on commands.
+	//	state used to stop poll commands during Hub executed power-on and power-off process.
+	//	Uses 2 minute shutdown (can later be adjusted).
 	state.switchHubTime = now()
 	pauseExecution(1000)
-	logInfo("on")
 	def wolMac = getDataValue("alternateWolMac")
 	def cmd = "FFFFFFFFFFFF$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac"
 	wol = new hubitat.device.HubAction(cmd,
@@ -289,14 +360,17 @@ def on() {
 										destinationAddress: "255.255.255.255:7",
 										encoding: hubitat.device.HubAction.Encoding.HEX_STRING])
 	sendHubCommand(wol)
+//	if (device.currentValue("switch") == "off") {
+//		runIn(1, getArtModeStatus)
+		runIn(2, home)
+		runIn(4, setPowerOnMode)
+//	}
 	sendEvent(name: "switch", value: "on")
-	setPowerOnMode()
+	logInfo("on: [frameTv: ${frameTv}]")
 }
 
 def setPowerOnMode() {
-	pauseExecution(3000)		//	milliseconds
-	connect("remote")
-	logInfo("setPowerOnMode: [switch: ${device.currentValue("switch")}, tvPwrOnMode: ${tvPwrOnMode}]")
+	logInfo("setPowerOnMode: [tvPwrOnMode: ${tvPwrOnMode}]")
 	if(tvPwrOnMode == "ART_MODE") {
 		artMode()
 	} else if (tvPwrOnMode == "Ambient") {
@@ -305,16 +379,18 @@ def setPowerOnMode() {
 }
 
 def off() {
+	//	state used to stop poll commands during Hub executed power-on and power-off process.
+	//	Uses 2 minute shutdown (can later be adjusted).
 	state.switchHubTime = now()
 	pauseExecution(1000)
 	def frameTv = getDataValue("frameTv")
-	logInfo("off: [frameTv: ${frameTv}]")
 	def cmds = []
 	sendKey("POWER", "Press")
 	pauseExecution(5000)
 	sendKey("POWER", "Release")
 	sendEvent(name: "switch", value: "off")
 	close()
+	logInfo("off: [frameTv: ${frameTv}]")
 }
 
 def showMessage() { logWarn("showMessage: not implemented") }
@@ -395,6 +471,48 @@ def previousChannel() {
 
 //	===== Art Mode Implementation / Ambient Mode =====
 def artMode() {
+	if (getDataValue("frameTv") == "true") {
+		if (getDataValue("modelYear").toInteger() >= 2022) {
+			sendKey("POWER")
+			logDebug("artMode: setting artMode.")
+		} else {
+//////////////////////////
+//			getArtModeStatus()
+			def onOff = "on"
+			if (device.currentValue("artModeStatus") == "on") {
+				onOff = "off"
+			}
+			logDebug("artMode: setting artMode to ${onOff}.")
+			def data = [value:"${onOff}",
+						request:"set_artmode_status",
+						id: "${getDataValue("uuid")}"]
+			data = JsonOutput.toJson(data)
+			artModeCmd(data)
+		}
+	} else {
+		logDebug("artMode: not a frameTv")
+	}
+}
+def getArtModeStatus() {
+	if (getDataValue("frameTv") == "true" &&
+		getDataValue("modelYear").toInteger() < 2022) {
+		def data = [request:"get_artmode_status",
+					id: "${getDataValue("uuid")}"]
+		data = JsonOutput.toJson(data)
+		artModeCmd(data)
+	} else {
+		logDebug("artModeStatus: not a frameTv")
+	}
+}
+def artModeCmd(data) {
+	def cmdData = [method:"ms.channel.emit",
+				   params:[data:"${data}",
+						   to:"host",
+						   event:"art_app_request"]]
+	cmdData = JsonOutput.toJson(cmdData)
+	sendMessage("frameArt", cmdData)
+}
+def xxxxartMode() {
 	if (getDataValue("frameTv") == "true") { 
 		sendKey("POWER")
 //		runIn(2, getArtModeStatus)
@@ -445,8 +563,8 @@ def connect(funct) {
 
 def sendMessage(funct, data) {
 	logDebug("sendMessage: function = ${funct} | data = ${data} | connectType = ${state.currentFunction}")
-//	if (state.wsDeviceStatus != "open" || state.currentFunction != funct) {
-	if (device.currentValue("wsStatus") != "open" || state.currentFunction != funct) {
+//	if (device.currentValue("wsStatus") != "open" || state.currentFunction != funct) {
+	if (state.wsStatus != "open" || state.currentFunction != funct) {
 		connect(funct)
 		pauseExecution(300)
 	}
@@ -471,7 +589,8 @@ def webSocketStatus(message) {
 		state.currentFunction = "close"
 		close()
 	}
-	sendEvent(name: "wsStatus", value: status)
+	state.wsStatus = status
+//	sendEvent(name: "wsStatus", value: status)
 	logDebug("webSocketStatus: [status: ${status}, message: ${message}]")
 }
 
@@ -489,6 +608,16 @@ def parse(resp) {
 					logData << [TOKEN: "updated"]
 				} else {
 					logData << [TOKEN: "noChange"]
+				}
+				break
+			case "d2d_service_message":
+				def data = parseJson(resp.data)
+				if (data.event == "artmode_status" ||
+					data.event == "art_mode_changed") {
+					def status = data.value
+					if (status == null) { status = data.status }
+					sendEvent(name: "artModeStatus", value: status)
+					logData << [artModeStatus: status]
 				}
 				break
 			case "ms.error":
