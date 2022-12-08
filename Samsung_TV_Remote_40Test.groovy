@@ -3,7 +3,7 @@ Hubitat - Samsung TV Remote Driver
 		Copyright 2022 Dave Gutheinz
 License:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 ===== 2022 Version 4.0 ====================================================================
--3 Cumulative Modifications
+-4 Cumulative Modifications
 a.	Changed methods for artMode to accommodate 2022 model and pre-2022 model operations.
 	Uses modelYear developed during setup.
 b.	Update Hubitat methods on and off
@@ -13,6 +13,7 @@ b.	Update Hubitat methods on and off
 c.	Update onPollParse to accommodate hubitat-external on/off commmanding
 	1)	Obtain two off indications prior to declaring state switch to off
 	2)	Set power on display mode when on is first detected.
+	3)	If powerState = on, getArtModeStatus (Frame-TV pre 2022)
 d.	Known issue: Turning power on too soon after turning power off (2 minutes) can
 	cause anomolous behavior.
 New Power thread
@@ -30,11 +31,11 @@ c.	Hubitat OFF
 	3)	blocks onPoll function for 1 minute
 d.	Remote OFF (including physical TV remote and SmartThings)
 	1)	Detected through onPoll/onPollParse
-	2)	If switch is on, waits for a second off indication to set attribute switch to "off"
+	2)	If switch is on, closes WS and waits for a second off indication to set attribute switch to "off"
 e.	Known issue: Turning power on too soon after turning power off (2 minutes) can
 	cause anomolous behavior.
 ===========================================================================================*/
-def driverVer() { return "D 4.0-3" }
+def driverVer() { return "D 4.0-4" }
 import groovy.json.JsonOutput
 def stConnect() { return connectST }
 
@@ -44,15 +45,16 @@ metadata {
 				author: "David Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungTvRemote/SamsungTVRemote.groovy"
 			   ){
+		command "close"
 		capability "SamsungTV"			//	cmds: on/off, volume, mute. attrs: switch, volume, mute
 		command "showMessage", [[name: "NOT IMPLEMENTED"]]
 		capability "Switch"
-//		attribute "wsStatus", "string"
 		command "pause"				//	Only work on TV Players
 		command "play"					//	Only work on TV Players
 		command "stop"					//	Only work on TV Players
 		//	===== Remote Control Interface =====
 		command "sendKey", ["string"]	//	Send entered key. eg: HDMI
+		attribute "wsStatus", "string"
 		command "artMode"				//	Toggles artMode
 		attribute "artModeStatus", "string"	//	on/off
 		command "ambientMode"			//	non-Frame TVs
@@ -123,7 +125,7 @@ metadata {
 		if (deviceIp) {
 			input ("tvPwrOnMode", "enum", title: "TV Startup Display", 
 				   options: ["ART_MODE", "Ambient", "none"], defaultValue: "none")
-			input ("debugLog", "bool",  
+			input ("logEnable", "bool",  
 				   title: "Enable debug logging for 30 minutes", defaultValue: false)
 			input ("infoLog", "bool", 
 				   title: "Enable information logging " + helpLogo(),
@@ -150,8 +152,7 @@ String helpLogo() { // library marker davegut.kasaCommon, line 11
 def installed() {
 	state.token = "12345678"
 	def tokenSupport = "false"
-	state.wsStatus = "closed"
-//	sendEvent(name: "wsStatus", value: "closed")
+	sendEvent(name: "wsStatus", value: "closed")
 	runIn(1, updated)
 }
 
@@ -174,14 +175,14 @@ def updated() {
 			cmds << state.remove("___2022_Model_Note___")
 			delayBetween(cmds, 500)
 		}
-		if (debugLog) { runIn(1800, debugLogOff) }
-		updStatus << [debugLog: debugLog, infoLog: infoLog]
+		if (logEnable) { runIn(1800, debugLogOff) }
+		updStatus << [logEnable: logEnable, infoLog: infoLog]
 		updStatus << [setOnPollInterval: setOnPollInterval()]
 		updStatus << [stUpdate: stUpdate()]
 		state.switchHubTime = 0
 	}
-	state.wsStatus = "closed"
-//	sendEvent(name: "wsStatus", value: "closed")
+	sendEvent(name: "wsStatus", value: "closed")
+//	state.wsStatus = "closed"
 	state.standbyTest = false
 
 	if (updStatus.toString().contains("ERROR")) {
@@ -201,7 +202,7 @@ def setOnPollInterval() {
 	} else if (pollInterval != "off") {
 		schedule("0/${pollInterval} * * * * ?",  onPoll)
 	}
-	return interval
+	return pollInterval
 }
 
 def getDeviceData() {
@@ -267,7 +268,7 @@ def onPoll() {
 	if (now() - state.switchHubTime > 60000) {
 		def sendCmdParams = [
 			uri: "http://${deviceIp}:8001/api/v2/",
-			timeout: 4
+			timeout: 3
 		]
 		asynchttpGet("onPollParse", sendCmdParams)
 	}
@@ -282,6 +283,7 @@ def onPollParse(resp, data) {
 	}
 	if (powerState == "on") {
 		state.standbyTest = false
+		getArtModeStatus()
 	} else {
 		//	power state is not on.  (could be notConnected or standby.  Below handles spurious comms failure
 		//	as well as the TV power off sequencing to standby mode then disconnect.
@@ -289,13 +291,12 @@ def onPollParse(resp, data) {
 			//	If swith is on, insert a second poll before declaring OFF due to spurious response indicating not on.
 			if (!state.standbyTest) {
 				//	initial condition.  Set state true and schedule repoll
-log.warn "onPollParse: detected non-on powerMode. Ignore and repoll."
+log.warn "onPollParse: detected non-on powerMode. Ignore and repoll. powerState = ${powerState}"
 				state.standbyTest = true
-				if (pollInterval != "10") {
-					runIn(10, onPoll)
-				}
+					close()
+					runIn(5, onPoll)
 			} else {
-log.warn "onPollParse: detected non-on powerMode. onOff set to OFF"
+log.warn "onPollParse: detected non-on powerMode. onOff set to OFF. powerState = ${powerState}"
 				//	Second in-loop.  Set state false and onOff to true.
 				state.standbyTest = false
 				onOff = "off"
@@ -309,31 +310,7 @@ log.warn "onPollParse: detected non-on powerMode. onOff set to OFF"
 		//	If switch has changed, update attribute and set standbyTest to false.
 		sendEvent(name: "switch", value: onOff)
 		if (onOff == "on") {
-			runIn(2, getArtModeStatus)
 			runIn(4, setPowerOnMode)
-		}
-		logInfo("onPollParse: [switch: ${onOff}, powerState: ${powerState}]")
-	}
-}
-def xxxxonPollParse(resp, data) {
-	def powerState
-	if (resp.status == 200) {
-		powerState = new JsonSlurper().parseText(resp.data).device.PowerState
-	} else {
-		powerState = "notConnected"
-	}
-	def onOff = "on"
-	if (powerState != "on") {
-		onOff = "off"
-	}
-	if (device.currentValue("switch") != onOff) {
-		sendEvent(name: "switch", value: onOff)
-		state.standbyTest = false
-		if (onOff == "on") {
-////////////////////
-//			runIn(2, getArtModeStatus)
-			runIn(2, home)
-			runIn(3, setPowerOnMode)
 		}
 		logInfo("onPollParse: [switch: ${onOff}, powerState: ${powerState}]")
 	}
@@ -365,7 +342,6 @@ def on() {
 	sendEvent(name: "switch", value: "on")
 	logInfo("on: [frameTv: ${frameTv}]")
 }
-
 def setPowerOnMode() {
 	logInfo("setPowerOnMode: [tvPwrOnMode: ${tvPwrOnMode}]")
 	if(tvPwrOnMode == "ART_MODE") {
@@ -374,7 +350,6 @@ def setPowerOnMode() {
 		ambientMode()
 	}
 }
-
 def off() {
 	//	state used to stop poll commands during Hub executed power-on and power-off process.
 	//	Uses 2 minute shutdown (can later be adjusted).
@@ -389,7 +364,6 @@ def off() {
 	close()
 	logInfo("off: [frameTv: ${frameTv}]")
 }
-
 def showMessage() { logWarn("showMessage: not implemented") }
 
 //	===== Web Socket Remote Commands =====
@@ -497,8 +471,6 @@ def getArtModeStatus() {
 					id: "${getDataValue("uuid")}"]
 		data = JsonOutput.toJson(data)
 		artModeCmd(data)
-	} else {
-		logDebug("artModeStatus: not a frameTv")
 	}
 }
 def artModeCmd(data) {
@@ -508,12 +480,6 @@ def artModeCmd(data) {
 						   event:"art_app_request"]]
 	cmdData = JsonOutput.toJson(cmdData)
 	sendMessage("frameArt", cmdData)
-}
-def xxxxartMode() {
-	if (getDataValue("frameTv") == "true") { 
-		sendKey("POWER")
-//		runIn(2, getArtModeStatus)
-	}
 }
 def ambientMode() {
 	sendKey("AMBIENT")
@@ -527,6 +493,17 @@ def sendKey(key, cmd = "Click") {
 						DataOfCmd:"${key}",
 						TypeOfRemote:"SendRemoteKey"]]
 	sendMessage("remote", JsonOutput.toJson(data) )
+}
+
+def sendMessage(funct, data) {
+	def wsStat = device.currentValue("wsStatus")
+	logDebug("sendMessage: [wsStatus: ${wsStat}, function: ${funct}, data: ${data}, connectType: ${state.currentFunction}")
+	if (wsStat != "open" || state.currentFunction != funct) {
+		connect(funct)
+		pauseExecution(300)
+	}
+	interfaces.webSocket.sendMessage(data)
+	runIn(30, close)
 }
 
 def connect(funct) {
@@ -558,17 +535,6 @@ def connect(funct) {
 	interfaces.webSocket.connect(url, ignoreSSLIssues: true)
 }
 
-def sendMessage(funct, data) {
-	logDebug("sendMessage: function = ${funct} | data = ${data} | connectType = ${state.currentFunction}")
-//	if (device.currentValue("wsStatus") != "open" || state.currentFunction != funct) {
-	if (state.wsStatus != "open" || state.currentFunction != funct) {
-		connect(funct)
-		pauseExecution(300)
-	}
-	interfaces.webSocket.sendMessage(data)
-	runIn(30, close)
-}
-
 def close() {
 	logDebug("close")
 	interfaces.webSocket.close()
@@ -586,8 +552,8 @@ def webSocketStatus(message) {
 		state.currentFunction = "close"
 		close()
 	}
-	state.wsStatus = status
-//	sendEvent(name: "wsStatus", value: status)
+	sendEvent(name: "wsStatus", value: status)
+//	state.wsStatus = status
 	logDebug("webSocketStatus: [status: ${status}, message: ${message}]")
 }
 
@@ -624,6 +590,8 @@ def parse(resp) {
 			case "ms.channel.ready":
 			case "ms.channel.clientConnect":
 			case "ms.channel.clientDisconnect":
+			case "ms.remote.touchEnable":
+			case "ms.remote.touchDisable":
 				break
 			default:
 				logData << [STATUS: "Not Parsed", DATA: resp.data]
@@ -638,15 +606,10 @@ def parse(resp) {
 
 //	===== LAN TV Apps Implementation =====
 def appRunBrowser() { appOpenByCode("org.tizen.browser") }
-
 def appRunYouTube() { appOpenByName("YouTube") }
-
 def appRunNetflix() { appOpenByName("Netflix") }
-
 def appRunPrimeVideo() { appOpenByName("AmazonInstantVideo") }
-
 def appRunYouTubeTV() { appOpenByName("YouTubeTV") }
-
 def appRunHulu() { appOpenByCode("3201601007625") }
 
 //	HTTP Commands
@@ -660,7 +623,6 @@ def appOpenByName(appName) {
 		logWarn("appOpenByName: [name: ${appName}, status: FAILED, data: ${e}]")
 	}
 }
-
 def appOpenByCode(appId) {
 	def uri = "http://${deviceIp}:8001/api/v2/applications/${appId}"
 	try {
@@ -672,10 +634,19 @@ def appOpenByCode(appId) {
 		logWarn("appOpenByCode: [code: ${appId}, status: FAILED, data: ${e}]")
 	}
 }
+def appGetData(appId) {
+	def uri = "http://${deviceIp}:8001/api/v2/applications/${appId}"
+	try {
+		httpGet(uri) { resp ->
+			logDebug("appGetData: [code: ${appId}, status: ${resp.status}, data: ${resp.data}]")
+		}
+	} catch (e) {
+		logWarn("appGetData: [code: ${appId}, status: FAILED, data: ${e}]")
+	}
+}
 
 //	===== SmartThings Implementation =====
 def setLevel(level) { setVolume(level) }
-
 def setVolume(volume) {
 	def cmdData = [
 		component: "main",
@@ -684,7 +655,6 @@ def setVolume(volume) {
 		arguments: [volume.toInteger()]]
 	deviceCommand(cmdData)
 }
-
 def togglePictureMode() {
 	//	requires state.pictureModes
 	def pictureModes = state.pictureModes
@@ -696,7 +666,6 @@ def togglePictureMode() {
 	def newPictureMode = pictureModes[newModeNo]
 	setPictureMode(newPictureMode)
 }
-
 def setPictureMode(pictureMode) {
 	def cmdData = [
 		component: "main",
@@ -705,7 +674,6 @@ def setPictureMode(pictureMode) {
 		arguments: [pictureMode]]
 	deviceCommand(cmdData)
 }
-
 def toggleSoundMode() {
 	def soundModes = state.soundModes
 	def totalModes = soundModes.size()
@@ -716,7 +684,6 @@ def toggleSoundMode() {
 	def soundMode = soundModes[newModeNo]
 	setSoundMode(soundMode)
 }
-
 def setSoundMode(soundMode) { 
 	def cmdData = [
 		component: "main",
@@ -725,7 +692,6 @@ def setSoundMode(soundMode) {
 		arguments: [soundMode]]
 	deviceCommand(cmdData)
 }
-
 def toggleInputSource() {
 	def inputSources = state.supportedInputs
 	def totalSources = inputSources.size()
@@ -736,7 +702,6 @@ def toggleInputSource() {
 	def inputSource = inputSources[newSourceNo]
 	setInputSource(inputSource)
 }
-
 def setInputSource(inputSource) {
 	def cmdData = [
 		component: "main",
@@ -745,7 +710,6 @@ def setInputSource(inputSource) {
 		arguments: [inputSource]]
 	deviceCommand(cmdData)
 }
-
 def setTvChannel(newChannel) {
 	def cmdData = [
 		component: "main",
@@ -921,58 +885,58 @@ def push(pushed) {
 
 def simulate() { return false }
 
-// ~~~~~ start include (1072) davegut.Logging ~~~~~
-library ( // library marker davegut.Logging, line 1
-	name: "Logging", // library marker davegut.Logging, line 2
-	namespace: "davegut", // library marker davegut.Logging, line 3
-	author: "Dave Gutheinz", // library marker davegut.Logging, line 4
-	description: "Common Logging Methods", // library marker davegut.Logging, line 5
-	category: "utilities", // library marker davegut.Logging, line 6
-	documentationLink: "" // library marker davegut.Logging, line 7
-) // library marker davegut.Logging, line 8
+// ~~~~~ start include (1170) davegut.commonLogging ~~~~~
+library ( // library marker davegut.commonLogging, line 1
+	name: "commonLogging", // library marker davegut.commonLogging, line 2
+	namespace: "davegut", // library marker davegut.commonLogging, line 3
+	author: "Dave Gutheinz", // library marker davegut.commonLogging, line 4
+	description: "Common Logging Methods", // library marker davegut.commonLogging, line 5
+	category: "utilities", // library marker davegut.commonLogging, line 6
+	documentationLink: "" // library marker davegut.commonLogging, line 7
+) // library marker davegut.commonLogging, line 8
 
-//	Logging during development // library marker davegut.Logging, line 10
-def listAttributes(trace = false) { // library marker davegut.Logging, line 11
-	def attrs = device.getSupportedAttributes() // library marker davegut.Logging, line 12
-	def attrList = [:] // library marker davegut.Logging, line 13
-	attrs.each { // library marker davegut.Logging, line 14
-		def val = device.currentValue("${it}") // library marker davegut.Logging, line 15
-		attrList << ["${it}": val] // library marker davegut.Logging, line 16
-	} // library marker davegut.Logging, line 17
-	if (trace == true) { // library marker davegut.Logging, line 18
-		logInfo("Attributes: ${attrList}") // library marker davegut.Logging, line 19
-	} else { // library marker davegut.Logging, line 20
-		logDebug("Attributes: ${attrList}") // library marker davegut.Logging, line 21
-	} // library marker davegut.Logging, line 22
-} // library marker davegut.Logging, line 23
+//	Logging during development // library marker davegut.commonLogging, line 10
+def listAttributes(trace = false) { // library marker davegut.commonLogging, line 11
+	def attrs = device.getSupportedAttributes() // library marker davegut.commonLogging, line 12
+	def attrList = [:] // library marker davegut.commonLogging, line 13
+	attrs.each { // library marker davegut.commonLogging, line 14
+		def val = device.currentValue("${it}") // library marker davegut.commonLogging, line 15
+		attrList << ["${it}": val] // library marker davegut.commonLogging, line 16
+	} // library marker davegut.commonLogging, line 17
+	if (trace == true) { // library marker davegut.commonLogging, line 18
+		logInfo("Attributes: ${attrList}") // library marker davegut.commonLogging, line 19
+	} else { // library marker davegut.commonLogging, line 20
+		logDebug("Attributes: ${attrList}") // library marker davegut.commonLogging, line 21
+	} // library marker davegut.commonLogging, line 22
+} // library marker davegut.commonLogging, line 23
 
-//	6.7.2 Change B.  Remove driverVer() // library marker davegut.Logging, line 25
-def logTrace(msg){ // library marker davegut.Logging, line 26
-	log.trace "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.Logging, line 27
-} // library marker davegut.Logging, line 28
+//	6.7.2 Change B.  Remove driverVer() // library marker davegut.commonLogging, line 25
+def logTrace(msg){ // library marker davegut.commonLogging, line 26
+	log.trace "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.commonLogging, line 27
+} // library marker davegut.commonLogging, line 28
 
-def logInfo(msg) {  // library marker davegut.Logging, line 30
-	if (textEnable || infoLog) { // library marker davegut.Logging, line 31
-		log.info "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.Logging, line 32
-	} // library marker davegut.Logging, line 33
-} // library marker davegut.Logging, line 34
+def logInfo(msg) {  // library marker davegut.commonLogging, line 30
+	if (textEnable || infoLog) { // library marker davegut.commonLogging, line 31
+		log.info "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.commonLogging, line 32
+	} // library marker davegut.commonLogging, line 33
+} // library marker davegut.commonLogging, line 34
 
-def debugLogOff() { // library marker davegut.Logging, line 36
-	if (logEnable) { // library marker davegut.Logging, line 37
-		device.updateSetting("logEnable", [type:"bool", value: false]) // library marker davegut.Logging, line 38
-	} // library marker davegut.Logging, line 39
-	logInfo("debugLogOff") // library marker davegut.Logging, line 40
-} // library marker davegut.Logging, line 41
+def debugLogOff() { // library marker davegut.commonLogging, line 36
+	if (logEnable) { // library marker davegut.commonLogging, line 37
+		device.updateSetting("logEnable", [type:"bool", value: false]) // library marker davegut.commonLogging, line 38
+	} // library marker davegut.commonLogging, line 39
+	logInfo("debugLogOff") // library marker davegut.commonLogging, line 40
+} // library marker davegut.commonLogging, line 41
 
-def logDebug(msg) { // library marker davegut.Logging, line 43
-	if (logEnable || debugLog) { // library marker davegut.Logging, line 44
-		log.debug "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.Logging, line 45
-	} // library marker davegut.Logging, line 46
-} // library marker davegut.Logging, line 47
+def logDebug(msg) { // library marker davegut.commonLogging, line 43
+	if (logEnable) { // library marker davegut.commonLogging, line 44
+		log.debug "${device.displayName}-${driverVer()}: ${msg}" // library marker davegut.commonLogging, line 45
+	} // library marker davegut.commonLogging, line 46
+} // library marker davegut.commonLogging, line 47
 
-def logWarn(msg) { log.warn "${device.displayName}-${driverVer()}: ${msg}" } // library marker davegut.Logging, line 49
+def logWarn(msg) { log.warn "${device.displayName}-${driverVer()}: ${msg}" } // library marker davegut.commonLogging, line 49
 
-// ~~~~~ end include (1072) davegut.Logging ~~~~~
+// ~~~~~ end include (1170) davegut.commonLogging ~~~~~
 
 // ~~~~~ start include (1091) davegut.ST-Communications ~~~~~
 library ( // library marker davegut.ST-Communications, line 1
