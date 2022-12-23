@@ -3,61 +3,30 @@ Hubitat - Samsung TV Remote Driver
 		Copyright 2022 Dave Gutheinz
 License:  https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md
 ===== 2022 Version 4.0 ====================================================================
--4 Cumulative Modifications
-a.	Changed methods for artMode to accommodate 2022 model and pre-2022 model operations.
-	Uses modelYear developed during setup.
-b.	Update Hubitat methods on and off
-	1)	Immediately set new state
-	2)	Block out onPoll parsing for 60 seconds to preclude switch state ping-pong
-	3)	On: cause power on display mode to run.
-c.	Update onPollParse to accommodate hubitat-external on/off commmanding
-	1)	Obtain two off indications prior to declaring state switch to off
-	2)	Set power on display mode when on is first detected.
-	3)	If powerState = on, getArtModeStatus (Frame-TV pre 2022)
-d.	Known issue: Turning power on too soon after turning power off (2 minutes) can
-	cause anomolous behavior.
-e.	Added preference and processing to scan for TV-installed applications.
-f.	Modified TV App methods to use new device database.  Added attribute latestApp.
+Complete documentation is available at:
+	https://github.com/DaveGut/HubitatActive/tree/master/SamsungTvRemote/Docs
+A Version 4.0 change description is contained at:
+	https://github.com/DaveGut/HubitatActive/blob/master/SamsungTvRemote/Docs/V4_0%20Notes.pdf
+A list (not comprehensive) of Samsung Smart TV Apps and their codes is contained at:
+	https://github.com/DaveGut/HubitatActive/blob/master/SamsungTvRemote/Docs/SamsungAppList.pdf
 
-SAMSUNG TV SMART APP INTERFACE
-a.	New preferences:
-	1)	Scan for App Codes: Scans list of 100+ app codes to detect on your TV.  Takes
-		about 10 minutes.  The TV must remain on; otherwise no restrictions.  Running
-		a second time will rescan and may detect missed or new apps.
-	2)	Delete and Rescan for App Codes: Deletes the existing appData and rescans.
-	3)	SmartThings Poll Interval.  In minutes.  Was originally hard-coded to 5 minutes.
-b.	App Open By Name command:
-	1)	Not case sensitive
-	2)	App name does not need to be complete.  It will start the fist app on the appList
-		that matches the entered text.
-	3)	Known ambiguity: YouTube and YouTube TV.
-c.	SmartThings Interface.  SmartThings data reports the appId code as the title.  Driver
-	uses this to read the appId and add that to the appData (if the code returns an app).
-d.	Adding undetected apps:  You can do this through your TV is the SmartThings interface
-	is available.  Simply start the app and wait until the next SmartThings Poll.
+-1	a.  Fixed issue with smartThings volume not parsing.  (created event on enabling smartThings).
+	b.	Modified device data setup to not set data until any potential error has cleared.
+		Moved setting values outside the try clause.
 
-NEW POWER ON THREAD
-a.	Hubitat ON
-	1)	sends common Wake-on-lan message
-	2)	sets attribute switch to "on"
-	3)	blocks onPoll function for 1 minute
-	4)	sets artModeStatus and runs setPowerOnMode (default display)
-b.	Remote ON (including physical TV remote and SmartThings)
-	1)	Detected through onPoll/onPollParse
-	2)	If attribute switch is changed to ON, sets artModeStatus and runs setPoweOnMode.
-c.	Hubitat OFF
-	1)	send power-off remote keys
-	2)	sets attribute switch to "off"
-	3)	blocks onPoll function for 1 minute
-d.	Remote OFF (including physical TV remote and SmartThings)
-	1)	Detected through onPoll/onPollParse
-	2)	If switch is on, closes WS and waits for a second off indication to set attribute switch to "off"
-e.	Known issue: Turning power on too soon after turning power off (2 minutes) can
-	cause anomolous behavior.
+-2	a.	Added capability Configuration (command configure()).  Auto Configuration will run
+		if an update has occurred then next time the power polling detects "on".
+	b.	Added frameArt WebSocket test in method configuration.  Sets artModeStatus to "none"
+		then runs artModeStatus() to update and (if successful) set state.artModeWs to true.
+	c.	SmartThings: IF state.artModeWs not true, then the SmartThings interface can be
+		used to update artModeStatus.
+	d.	artMode().  Checks if artModeStatus is "yes" and does not update is yes.  Otherwise,
+		sends key POWER to enable websocket.  If artModeStatus is not, includes alert that
+		the ST interface is required to assure functionality.
+	e.	Increased delay on TV Startup to set up start display.  Having timing issues.
 ===========================================================================================*/
-def driverVer() { return "D 4.0-5" }
+def driverVer() { return "4.0-2a" }
 import groovy.json.JsonOutput
-def stConnect() { return connectST }
 
 metadata {
 	definition (name: "Samsung TV Remote",
@@ -65,6 +34,7 @@ metadata {
 				author: "David Gutheinz",
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/SamsungTvRemote/SamsungTVRemote.groovy"
 			   ){
+		capability "Configuration"
 		capability "SamsungTV"
 		command "showMessage", [[name: "Not Implemented"]]
 		capability "Switch"
@@ -76,7 +46,7 @@ metadata {
 		command "ambientMode"
 		command "appOpenByName", ["string"]
 		command "appOpenByCode", ["string"]
-		
+		command "appClose"
 		//	Remote Control Keys (samsungTV-Keys)
 		command "pause"				//	Only work on TV Players
 		command "play"					//	Only work on TV Players
@@ -102,7 +72,6 @@ metadata {
 		command "channelUp"
 		command "channelDown"
 		command "previousChannel"
-		command "nextChannel"
 		//	Playing Navigation Commands
 		command "exit"
 		command "Return"
@@ -160,6 +129,7 @@ metadata {
 			}
 			input ("stPollInterval", "enum", title: "SmartThings Poll Interval (minutes)",
 				   options: ["off", "1", "5", "15", "30"], defaultValue: "15")
+			input ("stTestData", "bool", title: "Get ST data dump for developer", defaultValue: false)
 				
 		}
 		input ("pollInterval","enum", title: "Power Polling Interval (seconds)",
@@ -189,7 +159,7 @@ def updated() {
 		logWarn("\n\n\t\t<b>Enter the deviceIp and Save Preferences</b>\n\n")
 		updStatus << [status: "ERROR", data: "Device IP not set."]
 	} else {
-		updStatus << [getDeviceData: getDeviceData()]
+		updStatus << [getDeviceData: configure()]
 		if (!getDataValue("driverVersion") || getDataValue("driverVersion") != driverVer()) {
 			updateDataValue("driverVersion", driverVer())
 			updStatus << [driverVer: driverVer()]
@@ -209,17 +179,15 @@ def updated() {
 	sendEvent(name: "wsStatus", value: "closed")
 	state.standbyTest = false
 
-	if (updStatus.toString().contains("ERROR")) {
-		logWarn("updated: ${updStatus}")
-	} else {
-		logInfo("updated: ${updStatus}")
-	}
+	logInfo("updated: ${updStatus}")
+
 	if (resetAppCodes) {
 		state.appData = [:]
 		runIn(5, updateAppCodes)
 	} else if (findAppCodes) {
 		runIn(5, updateAppCodes)
 	}
+	pauseExecution(5000)
 }
 
 def setOnPollInterval() {
@@ -235,38 +203,46 @@ def setOnPollInterval() {
 	return pollInterval
 }
 
-def getDeviceData() {
+def configure() {
 	def respData = [:]
-	if (getDataValue("uuid")) {
-		respData << [status: "already run"]
-	} else {
-		try{
-			httpGet([uri: "http://${deviceIp}:8001/api/v2/", timeout: 5]) { resp ->
-				def wifiMac = resp.data.device.wifiMac
-				updateDataValue("deviceMac", wifiMac)
-				def alternateWolMac = wifiMac.replaceAll(":", "").toUpperCase()
-				updateDataValue("alternateWolMac", alternateWolMac)
-				device.setDeviceNetworkId(alternateWolMac)
-				def modelYear = "20" + resp.data.device.model[0..1]
-				updateDataValue("modelYear", modelYear)
-				def frameTv = "false"
-				if (resp.data.device.FrameTVSupport) {
-					frameTv = resp.data.device.FrameTVSupport
-				}
-				updateDataValue("frameTv", frameTv)
-				if (resp.data.device.TokenAuthSupport) {
-					tokenSupport = resp.data.device.TokenAuthSupport
-					updateDataValue("tokenSupport", tokenSupport)
-				}
-				def uuid = resp.data.device.duid.substring(5)
-				updateDataValue("uuid", uuid)
-				respData << [status: "OK", dni: alternateWolMac, modelYear: modelYear,
-							 frameTv: frameTv, tokenSupport: tokenSupport]
-				getArtModeStatus()
-			}
-		} catch (error) {
-			respData << [status: "ERROR", reason: error]
+	def tvData = [:]
+	try{
+		httpGet([uri: "http://${deviceIp}:8001/api/v2/", timeout: 5]) { resp ->
+			tvData = resp.data
+			runIn(1, getArtModeStatus)
 		}
+	} catch (error) {
+		tvData << [status: "error", data: error] 
+	}
+	if (!tvData.status) {
+		def wifiMac = tvData.device.wifiMac
+		updateDataValue("deviceMac", wifiMac)
+		def alternateWolMac = wifiMac.replaceAll(":", "").toUpperCase()
+		updateDataValue("alternateWolMac", alternateWolMac)
+		device.setDeviceNetworkId(alternateWolMac)
+		def modelYear = "20" + tvData.device.model[0..1]
+		updateDataValue("modelYear", modelYear)
+		def frameTv = "false"
+		if (tvData.device.FrameTVSupport) {
+			frameTv = tvData.device.FrameTVSupport
+		}
+		updateDataValue("frameTv", frameTv)
+		if (tvData.device.TokenAuthSupport) {
+			tokenSupport = tvData.device.TokenAuthSupport
+			updateDataValue("tokenSupport", tokenSupport)
+		}
+		def uuid = tvData.device.duid.substring(5)
+		updateDataValue("uuid", uuid)
+		respData << [status: "OK", dni: alternateWolMac, modelYear: modelYear,
+					 frameTv: frameTv, tokenSupport: tokenSupport]
+		sendEvent(name: "artModeStatus", value: "none")
+		def data = [request:"get_artmode_status",
+					id: "${getDataValue("uuid")}"]
+		data = JsonOutput.toJson(data)
+		artModeCmd(data)
+		state.configured = true
+	} else {
+		respData << tvData
 	}
 	return respData
 }
@@ -282,6 +258,9 @@ def stUpdate() {
 		logWarn("\n\n\t\t<b>Enter the deviceId from the Log List and Save Preferences</b>\n\n")
 		stData << [status: "ERROR", date: "no stDeviceId"]
 	} else {
+		if (device.currentValue("volume") == null) {
+			sendEvent(name: "volume", value: 0)
+		}
 		def pollInterval = stPollInterval
 		if (pollInterval == null) { 
 			pollInterval = "15"
@@ -318,16 +297,19 @@ def onPollParse(resp, data) {
 	}
 	if (powerState == "on") {
 		state.standbyTest = false
+		if (!state.configured) {
+			logInfo("Auto Configuring changes to this TV.")
+			updated()
+			pauseExecution(2000)
+		}
 		getArtModeStatus()
 	} else {
 		if (device.currentValue("switch") == "on") {
 			if (!state.standbyTest) {
-log.warn "onPollParse: detected non-on powerMode. Ignore and repoll. powerState = ${powerState}"
 				state.standbyTest = true
 				close()
 				runIn(5, onPoll)
 			} else {
-log.warn "onPollParse: detected non-on powerMode. onOff set to OFF. powerState = ${powerState}"
 				state.standbyTest = false
 				onOff = "off"
 			}
@@ -390,33 +372,41 @@ def off() {
 
 //	===== Art Mode / Ambient Mode (under evaluation) =====
 def artMode() {
-	if (getDataValue("frameTv") == "true") {
-		if (getDataValue("modelYear").toInteger() >= 2022) {
-			sendKey("POWER")
-			logDebug("artMode: setting artMode.")
-		} else {
-			def onOff = "on"
-			if (device.currentValue("artModeStatus") == "on") {
-				onOff = "off"
-			}
-			logDebug("artMode: setting artMode to ${onOff}.")
+	def artModeStatus = device.currentValue("artModeStatus")
+	def logData = [artModeStatus: artModeStatus, artModeWs: state.artModeWs]
+	if (getDataValue("frameTv") != "true") {
+		logData << [status: "Not a Frame TV"]
+	} else if (artModeStatus == "on") {
+		logData << [status: "artMode already set"]
+	} else {
+		if (state.artModeWs) {
 			def data = [value:"${onOff}",
 						request:"set_artmode_status",
 						id: "${getDataValue("uuid")}"]
 			data = JsonOutput.toJson(data)
 			artModeCmd(data)
+			logData << [status: "Sending artMode WS Command"]
+		} else {
+			sendKey("POWER")
+			logData << [status: "Sending Power WS Command"]
+			if (artModeStatus == "none") {
+				logData << [NOTE: "SENT BLING. Enable SmartThings interface!"]
+			}
 		}
-	} else {
-		logDebug("artMode: not a frameTv")
+		runIn(10, getArtModeStatus)
 	}
+	logInfo("artMode: ${logData}")
 }
 def getArtModeStatus() {
-	if (getDataValue("frameTv") == "true" &&
-		getDataValue("modelYear").toInteger() < 2022) {
-		def data = [request:"get_artmode_status",
-					id: "${getDataValue("uuid")}"]
-		data = JsonOutput.toJson(data)
-		artModeCmd(data)
+	if (getDataValue("frameTv") == "true") {
+		if (state.artModeWs) {
+			def data = [request:"get_artmode_status",
+						id: "${getDataValue("uuid")}"]
+			data = JsonOutput.toJson(data)
+			artModeCmd(data)
+		} else {
+			stRefresh()
+		}
 	}
 }
 def artModeCmd(data) {
@@ -429,6 +419,7 @@ def artModeCmd(data) {
 }
 def ambientMode() {
 	sendKey("AMBIENT")
+	runIn(10, stRefresh)
 }
 
 //	===== Smart App Control (under evaluation) =====
@@ -442,18 +433,73 @@ def appOpenByName(appName) {
 		def url = "http://${deviceIp}:8080/ws/apps/${appName}"
 		try {
 			httpPost(url, "") { resp ->
-				if (resp.status == 200) {
-					logData << [status: "OK"]
-				} else {
-					logData << [status: "FAILED", httpStatus: resp.status, data: resp.data]
-				}
+				sendEvent(name: "currentApp", value: respData.name)
+				logData << [status: "OK", currentApp: respData.name]
 			}
 			runIn(5, stRefresh)
 		} catch (err) {
-			logData << [status: "FAILED", data: err]
+			logData << [status: "appName Not Found", data: err]
+			logWarn("appOpenByName: ${logData}")
 		}
 	}
 	logDebug("appOpenByName: ${logData}")
+}
+def appOpenByCode(appId) {
+	def appName = state.appData.find { it.value == appId }
+	if (appName != null) {
+		appName = appName.key
+	}
+	def logData = [appId: appId, appName: appName]
+	def uri = "http://${deviceIp}:8001/api/v2/applications/${appId}"
+	try {
+		httpPost(uri, body) { resp ->
+			if (appName == null) {
+				runIn(3, getAppData, [data: appId])
+			} else {
+				sendEvent(name: "currentApp", value: appName)
+				logData << [currentApp: appName]
+			}
+			runIn(5, stRefresh)
+			logData << [status: "OK", data: resp.data]
+		}
+	} catch (err) {
+		logData << [status: "appId Not Found", data: err]
+		logWarn("appOpenByCode: ${logData}")
+	}
+	logDebug("appOpenByCode: ${logData}")
+}
+def appClose() {
+	def appId
+	def appName = device.currentValue("currentApp")
+	if (appName == " " || appName == null) {
+		logWarn("appClose: [status: FAILED, reason: appName not set.]")
+		return
+	}
+	def thisApp = findThisApp(appName)
+	appId = thisApp[1]
+	def logData = [appName: appName, appId: appId]
+	Map params = [uri: "http://${deviceIp}:8001/api/v2/applications/${appId}",
+				  timeout: 3]
+	try {
+		asynchttpDelete("appCloseParse", params, [appId: appId])
+		logData: [status: "OK"]
+		exit()
+	} catch (err) {
+		logData: [status: "FAILED", data: err]
+		logWarn("appClose: ${logData}")
+	}
+	logDebug("appClose: ${logData}")
+}
+def appCloseParse(resp, data) {
+	def logData = [appId: data.appId]
+	if (resp.status == 200) {
+		sendEvent(name: "currentApp", value: " ")
+		logData << [status: "OK"]
+	} else {
+		logData << [status: "FAILED", status: resp.status]
+		logWarn("appCloseParse: ${logData}")
+	}
+	logDebug("appCloseParse: ${logData}")
 }
 def findThisApp(appName) {
 	def thisApp = state.appData.find { it.key.toLowerCase().contains(appName.toLowerCase()) }
@@ -485,83 +531,45 @@ def findThisApp(appName) {
 				appName = "Prime Video"
 				break
 			default:
-				found = false
-				log.warn "APP NOT FOUND"
+				logWarn("findThisApp: ${appName} not found in appData")
 		}
 	}
 	return [appName, appId]
 }
-def appOpenByCode(appId) {
-	def uri = "http://${deviceIp}:8001/api/v2/applications/${appId}"
-	try {
-		httpPost(uri, body) { resp ->
-			logDebug("appOpenByCode: [code: ${appId}, status: ${resp.status}, data: ${resp.data}]")
-		}
-		runIn(3, getAppData, [data: appId]) 
-		runIn(5, stRefresh)
-	} catch (e) {
-		logWarn("appOpenByCode: [status: invalidAppId, code: ${appId}, status: FAILED, data: ${e}]")
-	}
-}
+
 def getAppData(appId) {
+	def logData = [appId: appId]
 	def thisApp = state.appData.find { it.value == appId }
 	if (thisApp && !state.appIdIndex) {
 		sendEvent(name: "currentApp", value: thisApp.key)
-		logInfo("getAppData: [currentApp: ${thisApp.key}]")
+		logData << [currentApp: thisApp.key]
 	} else {
 		Map params = [uri: "http://${deviceIp}:8001/api/v2/applications/${appId}",
 					  timeout: 3]
 		try {
 			asynchttpGet("getAppDataParse", params, [appId: appId])
 		} catch (err) {
-			logWarn("getAppData: ${err}")
+			logData: [status: "FAILED", data: err]
 		}
 	}
-}
-def xxgetAppData(appId) {
-	def thisApp = state.appData.find { it.value == appId }
-	if (thisApp && !state.appIdIndex) {
-		sendEvent(name: "currentApp", value: thisApp.key)
-		logInfo("getAppData: [currentApp: ${thisApp.key}]")
-	} else {
-		Map params
-		if (getDataValue("tokenSupport") == "true") {
-			params = [uri: "https://${deviceIp}:8002/api/v2/applications/${appId}",
-					  ignoreSSLIssues: true,
-					  timeout: 3]
-		} else {
-			params = [uri: "http://${deviceIp}:8001/api/v2/applications/${appId}",
-					  timeout: 3]
-		}
-		try {
-			asynchttpGet("getAppDataParse", params, [appId: appId])
-		} catch (err) {
-			logWarn("getAppData: ${err}")
-		}
-	}
+	logDebug("getAppData: ${logData}")
 }
 def getAppDataParse(resp, data) {
 	def logData = [appId: data.appId]
-	def currApp
 	if (resp.status == 200) {
 		def respData = new JsonSlurper().parseText(resp.data)
 		logData << [resp: respData]
 		state.appData << ["${respData.name}": respData.id]
-		if(!state.appIdIndex) {
-			currApp = respData.name
+		if(!state.appIdIndex && device.currentValue("currentApp") != currApp) {
 			sendEvent(name: "currentApp", value: respData.name)
 			logData << [currentApp: respData.name]
 		}
 	} else {
 		logData << [status: "FAILED", reason: "${resp.status} response from TV"]
-		if(!state.appIdIndex) { currApp = data.appId }
 	}
-	if (device.currentValue("currentApp") != currApp) {
-		sendEvent(name: "currentApp", value: currApp)
-		logData << [currentApp: currApp]
-	}
-	logInfo("getAppDataParse: ${logData}")
+	logDebug("getAppDataParse: ${logData}")
 }
+
 def updateAppCodes() {
 	if (!state.appData) { state.appData = [:] }
 	if (device.currentValue("switch") == "on") {
@@ -592,6 +600,7 @@ def findNextApp() {
 		logInfo("findNextApp: ${logData}")
 	}
 }
+
 def appIdList() {
 	def appList = [
 		"kk8MbItQ0H.VUDU",
@@ -605,6 +614,8 @@ def appIdList() {
 		"cj37Ni3qXM.HBONow",
 		"gzcc4LRFBF.Peacock",
 		"9Ur5IzDKqV.TizenYouTube",
+		"BjyffU0l9h.Stream",
+		"3202203026841",
 		"3202103023232",
 		"3202103023185",
 		"3202012022468",
@@ -702,119 +713,6 @@ def appIdList() {
 		"11091000000"
 	]
 	return appList
-
-/*	These are known apps as of June 2022.  The apps beginning
-with "3" are the newer apps.  You can tell their Samsung
-deployment year by the four digits after the "3".  This can be
-used to start apps not captured in method getAppList using the
-code.  If successful, the app list will be updated for future use.
-		3201704012147: "10 play",
-		3201803015934: "7plus",
-		3201607010031: "9Now",
-		3201812017479: "ABC iview",
-		111299002148: "All 4",
-		AQKO41xyKP.AmazonAlexa: "Amazon Alexa",
-		3202004020626: "Amazon Alexa",
-		3201710014874: "Amazon Music",
-		3201611011005: "AntenaPlay.ro",
-		3201908019041: "Apple Music",
-		3201807016597: "Apple TV",
-		3202011022316: "ARTE",
-		3201910019420: "B.tv",
-		3201601007670: "BBC iPlayer",
-		3201602007865: "BBC News",
-		3202003020365: "BBC Sounds",
-		3202007021336: "Benshi",
-		3202010022098: "BINGE",
-		3201909019175: "BritBox",
-		3201803015869: "Canaal Digitaal",
-		3201606009910: "CANAL+",
-		3201506003488: "Crave",
-		3201506003486: "CTV",
-		3201806016390: "DAZN",
-		3201608010191: "Deezer",
-		3201907018786: "DIRECTV GO",
-		3201803015944: "Discovery+",
-		MCmYXNxgcu.DisneyPlus: "Disney+",
-		3201901017640: "Disney+",
-		3201608010385: "EduPedia",
-		"vYmY3ACVaa.emby": "Emby",
-		3201703012079: "Eurosport Player",
-		3202004020674: "Explore Google Assistant",
-		11091000000: "Facebook Watch",
-		3201906018693: "Focus Sat",
-		3201910019449: "Foxtel",
-		3202103023232: "france.tv",
-		3201710015037: "Gallery",
-		3201908019022: "globoplay",
-		3202008021439: "Google Duo",
-		3201806016381: "hayu",
-		3201706012478: "HBO GO",
-		cj37Ni3qXM.HBONow: "HBO Max",
-		3201601007230: "HBO Max",
-		LBUAQX1exg.Hulu: "Hulu",
-		3201601007625: "Hulu",
-		3201907018784: "Internet",
-		"org.tizen.browser": "Internet",
-		121299000089: "ITV Hub",
-		3201910019354: "Kayo Sports",
-		3201910019457: "Kidoodle.TV FREE, KidSafe Videos",
-		3201901017768: "Kijk",
-		3201703012065: "Love Nature 4K",
-		3201612011418: "McAfee Security",
-		3201603008210: "MLB",
-		3201611011210: "Molotov",
-		121299000612: "My5",
-		11101200001: "Netflix",
-		3201907018807: "Netflix",
-		3202012022421: "NL Ziet",
-		3202011022131: "NOW PlayTV",
-		3201603008746: "NOW TV",
-		3201706014250: "NPO",
-		3201703012029: "OCS",
-		3202103023185: "OQEE by Free",
-		3201710014866: "Orange TV Go",
-		3201506003175: "Pathe Thuis",
-		gzcc4LRFBF.Peacock: "Peacock TV"
-		3201810017091: "Playzer",
-		3201512006963: "Plex",
-		3201512006785: "Prime Video",
-		3201910019365: "Prime Video",
-		3201909019271: "PrivacyChoices",
-		3201711015226: "Radio UK",
-		3202012022468: "Radio WOW",
-		111399002034: "RaiPlay",
-		3201511006428: "Rakuten TV",
-		3201704012212: "RMC Sport",
-		3201510005981: "SBS On Demand",
-		3202009021877: "Security Center",
-		111399002220: "SiriusXM",
-		ZmmGjO6VKO.slingtv: "Sling TV",
-		3201710015016: "SmartThings",
-		3201910019378: "SmartThings",
-		3201606009684: "Spotify",
-		3201606009798: "Stan",
-		3201702011851: "Steam Link",
-		3201604009182: "Telecine",
-		3202008021462: "Telefoot",
-		11101000407: "Telstra TV Box Office",
-		111399000741: "The Weather Network",
-		3201805016367: "TIDAL",
-		3202008021577: "TikTok",
-		3KA0pm7a7V.TubiTV: "Tubi Free Movies & TV",
-		3201504001965: "Tubi Free Movies & TV",
-		121299000101: "TuneIn",
-		3201806016432: "UKTV Play",
-		3201710015067: "Universal Guide",
-		3201810017074: "Videoland",
-		111299000769: "VOYO.RO",
-		kk8MbItQ0H.VUDU" "VUDU",
-		111012010001: "VUDU",
-		111299001912: "YouTube",
-		3201611010983: "YouTube Kids",
-		3201707014489: "YouTube TV",
-		PvWgqxV3Xa.YouTubeTV: "YouTube TV"
-*/
 }
 
 //	===== WebSocket Implementation =====
@@ -832,7 +730,7 @@ def sendMessage(funct, data) {
 	logDebug("sendMessage: [wsStatus: ${wsStat}, function: ${funct}, data: ${data}, connectType: ${state.currentFunction}")
 	if (wsStat != "open" || state.currentFunction != funct) {
 		connect(funct)
-		pauseExecution(300)
+		pauseExecution(600)
 	}
 	interfaces.webSocket.sendMessage(data)
 	runIn(30, close)
@@ -881,7 +779,6 @@ def webSocketStatus(message) {
 		close()
 	}
 	sendEvent(name: "wsStatus", value: status)
-//	state.wsStatus = status
 	logDebug("webSocketStatus: [status: ${status}, message: ${message}]")
 }
 
@@ -909,6 +806,7 @@ def parse(resp) {
 					if (status == null) { status = data.status }
 					sendEvent(name: "artModeStatus", value: status)
 					logData << [artModeStatus: status]
+					state.artModeWs = true
 				}
 				break
 			case "ms.error":
@@ -1087,74 +985,200 @@ def deviceSetupParse(mainData) { // library marker davegut.samsungTV-ST, line 10
 } // library marker davegut.samsungTV-ST, line 124
 
 def statusParse(mainData) { // library marker davegut.samsungTV-ST, line 126
-	def stData = [:] // library marker davegut.samsungTV-ST, line 127
-	if (device.currentValue("switch") == "on") { // library marker davegut.samsungTV-ST, line 128
-		def volume = mainData.audioVolume.volume.value.toInteger() // library marker davegut.samsungTV-ST, line 129
-		if (device.currentValue("volume").toInteger() != volume) { // library marker davegut.samsungTV-ST, line 130
-			sendEvent(name: "volume", value: volume) // library marker davegut.samsungTV-ST, line 131
-			stData << [volume: volume] // library marker davegut.samsungTV-ST, line 132
-		} // library marker davegut.samsungTV-ST, line 133
+	if (stTestData) { // library marker davegut.samsungTV-ST, line 127
+		log.error mainData // library marker davegut.samsungTV-ST, line 128
+		device.updateSetting("stTestData", [type:"bool", value: false]) // library marker davegut.samsungTV-ST, line 129
+	} // library marker davegut.samsungTV-ST, line 130
+	if (logEnable) { // library marker davegut.samsungTV-ST, line 131
+		def quickLog = [:] // library marker davegut.samsungTV-ST, line 132
+		try { // library marker davegut.samsungTV-ST, line 133
+			quickLog << [ // library marker davegut.samsungTV-ST, line 134
+				switch: device.currentValue("switch"), // library marker davegut.samsungTV-ST, line 135
+				volume: [device.currentValue("volume"), mainData.audioVolume.volume.value.toInteger()], // library marker davegut.samsungTV-ST, line 136
+				mute: [device.currentValue("mute"), mainData.audioMute.mute.value], // library marker davegut.samsungTV-ST, line 137
+				input: [device.currentValue("inputSource"), mainData.mediaInputSource.inputSource.value], // library marker davegut.samsungTV-ST, line 138
+				channel: [device.currentValue("tvChannel"), mainData.tvChannel.tvChannel.value], // library marker davegut.samsungTV-ST, line 139
+				channelName: [device.currentValue("tvChannelName"), mainData.tvChannel.tvChannelName.value], // library marker davegut.samsungTV-ST, line 140
+				pictureMode: [device.currentValue("pictureMode"), mainData["custom.picturemode"].pictureMode.value], // library marker davegut.samsungTV-ST, line 141
+				soundMode: [device.currentValue("soundMode"), mainData["custom.soundmode"].soundMode.value], // library marker davegut.samsungTV-ST, line 142
+				transportStatus: [device.currentValue("transportStatus"), mainData.mediaPlayback.playbackStatus.value]] // library marker davegut.samsungTV-ST, line 143
+		} catch (err) { // library marker davegut.samsungTV-ST, line 144
+			quickLog << [error: ${err}, data: mainData] // library marker davegut.samsungTV-ST, line 145
+		} // library marker davegut.samsungTV-ST, line 146
+		logDebug("statusParse: [quickLog: ${quickLog}]") // library marker davegut.samsungTV-ST, line 147
+	} // library marker davegut.samsungTV-ST, line 148
+	if (device.currentValue("switch") == "on") { // library marker davegut.samsungTV-ST, line 149
+		def stData = [:] // library marker davegut.samsungTV-ST, line 150
+//		def volume = mainData.audioVolume.volume.value.toInteger() // library marker davegut.samsungTV-ST, line 151
+		def volume = mainData.audioVolume.volume.value // library marker davegut.samsungTV-ST, line 152
+//		if (device.currentValue("volume").toInteger() != volume) { // library marker davegut.samsungTV-ST, line 153
+			sendEvent(name: "volume", value: volume) // library marker davegut.samsungTV-ST, line 154
+			stData << [volume: volume] // library marker davegut.samsungTV-ST, line 155
+//		} // library marker davegut.samsungTV-ST, line 156
 
-		def mute = mainData.audioMute.mute.value // library marker davegut.samsungTV-ST, line 135
-		if (device.currentValue("mute") != mute) { // library marker davegut.samsungTV-ST, line 136
-			sendEvent(name: "mute", value: mute) // library marker davegut.samsungTV-ST, line 137
-			stData << [mute: mute] // library marker davegut.samsungTV-ST, line 138
-		} // library marker davegut.samsungTV-ST, line 139
+		def mute = mainData.audioMute.mute.value // library marker davegut.samsungTV-ST, line 158
+//		if (device.currentValue("mute") != mute) { // library marker davegut.samsungTV-ST, line 159
+			sendEvent(name: "mute", value: mute) // library marker davegut.samsungTV-ST, line 160
+			stData << [mute: mute] // library marker davegut.samsungTV-ST, line 161
+//		} // library marker davegut.samsungTV-ST, line 162
 
-		def inputSource = mainData.mediaInputSource.inputSource.value // library marker davegut.samsungTV-ST, line 141
-		if (device.currentValue("inputSource") != inputSource) { // library marker davegut.samsungTV-ST, line 142
-			sendEvent(name: "inputSource", value: inputSource)		 // library marker davegut.samsungTV-ST, line 143
-			stData << [inputSource: inputSource] // library marker davegut.samsungTV-ST, line 144
-		} // library marker davegut.samsungTV-ST, line 145
+		def inputSource = mainData.mediaInputSource.inputSource.value // library marker davegut.samsungTV-ST, line 164
+//		if (device.currentValue("inputSource") != inputSource) { // library marker davegut.samsungTV-ST, line 165
+			sendEvent(name: "inputSource", value: inputSource)		 // library marker davegut.samsungTV-ST, line 166
+			stData << [inputSource: inputSource] // library marker davegut.samsungTV-ST, line 167
+//		} // library marker davegut.samsungTV-ST, line 168
 
-		def tvChannel = mainData.tvChannel.tvChannel.value // library marker davegut.samsungTV-ST, line 147
-		if (tvChannel == "") { tvChannel = " " } // library marker davegut.samsungTV-ST, line 148
-		def tvChannelName = mainData.tvChannel.tvChannelName.value // library marker davegut.samsungTV-ST, line 149
-		if (tvChannelName == "") { tvChannelName = " " } // library marker davegut.samsungTV-ST, line 150
-		if (device.currentValue("tvChannelName") != tvChannelName) { // library marker davegut.samsungTV-ST, line 151
-			sendEvent(name: "tvChannel", value: tvChannel) // library marker davegut.samsungTV-ST, line 152
-			sendEvent(name: "tvChannelName", value: tvChannelName) // library marker davegut.samsungTV-ST, line 153
-			if (tvChannelName.contains(".")) { // library marker davegut.samsungTV-ST, line 154
-				getAppData(tvChannelName) // library marker davegut.samsungTV-ST, line 155
-			} else { // library marker davegut.samsungTV-ST, line 156
-				sendEvent(name: "currentApp", value: " ") // library marker davegut.samsungTV-ST, line 157
-			} // library marker davegut.samsungTV-ST, line 158
-			stData << [tvChannel: tvChannel, tvChannelName: tvChannelName] // library marker davegut.samsungTV-ST, line 159
-		} // library marker davegut.samsungTV-ST, line 160
+		def tvChannel = mainData.tvChannel.tvChannel.value // library marker davegut.samsungTV-ST, line 170
+		if (tvChannel == "") { tvChannel = " " } // library marker davegut.samsungTV-ST, line 171
+		def tvChannelName = mainData.tvChannel.tvChannelName.value // library marker davegut.samsungTV-ST, line 172
+		if (tvChannelName == "") { tvChannelName = " " } // library marker davegut.samsungTV-ST, line 173
+//		if (device.currentValue("tvChannelName") != tvChannelName) { // library marker davegut.samsungTV-ST, line 174
+			sendEvent(name: "tvChannel", value: tvChannel) // library marker davegut.samsungTV-ST, line 175
+			sendEvent(name: "tvChannelName", value: tvChannelName) // library marker davegut.samsungTV-ST, line 176
+			if (tvChannelName.contains(".")) { // library marker davegut.samsungTV-ST, line 177
+				getAppData(tvChannelName) // library marker davegut.samsungTV-ST, line 178
+			} else { // library marker davegut.samsungTV-ST, line 179
+				sendEvent(name: "currentApp", value: " ") // library marker davegut.samsungTV-ST, line 180
+			} // library marker davegut.samsungTV-ST, line 181
+			stData << [tvChannel: tvChannel, tvChannelName: tvChannelName] // library marker davegut.samsungTV-ST, line 182
+			if (getDataValue("frameTv") == "true" && !state.artModeWs) { // library marker davegut.samsungTV-ST, line 183
+				def artMode = "off" // library marker davegut.samsungTV-ST, line 184
+				if (tvChannelName == "art") { artMode = "on" } // library marker davegut.samsungTV-ST, line 185
+				sendEvent(name: "artModeStatus", value: artMode) // library marker davegut.samsungTV-ST, line 186
+			} // library marker davegut.samsungTV-ST, line 187
+//		} // library marker davegut.samsungTV-ST, line 188
 
-		def trackDesc = inputSource // library marker davegut.samsungTV-ST, line 162
-		if (tvChannelName != " ") { trackDesc = tvChannelName } // library marker davegut.samsungTV-ST, line 163
-		if (device.currentValue("trackDescription") != trackDesc) { // library marker davegut.samsungTV-ST, line 164
-			sendEvent(name: "trackDescription", value:trackDesc) // library marker davegut.samsungTV-ST, line 165
-			stData << [trackDescription: trackDesc] // library marker davegut.samsungTV-ST, line 166
-		} // library marker davegut.samsungTV-ST, line 167
+		def trackDesc = inputSource // library marker davegut.samsungTV-ST, line 190
+		if (tvChannelName != " ") { trackDesc = tvChannelName } // library marker davegut.samsungTV-ST, line 191
+//		if (device.currentValue("trackDescription") != trackDesc) { // library marker davegut.samsungTV-ST, line 192
+			sendEvent(name: "trackDescription", value:trackDesc) // library marker davegut.samsungTV-ST, line 193
+			stData << [trackDescription: trackDesc] // library marker davegut.samsungTV-ST, line 194
+//		} // library marker davegut.samsungTV-ST, line 195
 
-		def pictureMode = mainData["custom.picturemode"].pictureMode.value // library marker davegut.samsungTV-ST, line 169
-		if (device.currentValue("pictureMode") != pictureMode) { // library marker davegut.samsungTV-ST, line 170
-			sendEvent(name: "pictureMode",value: pictureMode) // library marker davegut.samsungTV-ST, line 171
-			stData << [pictureMode: pictureMode] // library marker davegut.samsungTV-ST, line 172
-		} // library marker davegut.samsungTV-ST, line 173
+		def pictureMode = mainData["custom.picturemode"].pictureMode.value // library marker davegut.samsungTV-ST, line 197
+//		if (device.currentValue("pictureMode") != pictureMode) { // library marker davegut.samsungTV-ST, line 198
+			sendEvent(name: "pictureMode",value: pictureMode) // library marker davegut.samsungTV-ST, line 199
+			stData << [pictureMode: pictureMode] // library marker davegut.samsungTV-ST, line 200
+//		} // library marker davegut.samsungTV-ST, line 201
 
-		def soundMode = mainData["custom.soundmode"].soundMode.value // library marker davegut.samsungTV-ST, line 175
-		if (device.currentValue("soundMode") != soundMode) { // library marker davegut.samsungTV-ST, line 176
-			sendEvent(name: "soundMode",value: soundMode) // library marker davegut.samsungTV-ST, line 177
-			stData << [soundMode: soundMode] // library marker davegut.samsungTV-ST, line 178
-		} // library marker davegut.samsungTV-ST, line 179
+		def soundMode = mainData["custom.soundmode"].soundMode.value // library marker davegut.samsungTV-ST, line 203
+		if (device.currentValue("soundMode") != soundMode) { // library marker davegut.samsungTV-ST, line 204
+			sendEvent(name: "soundMode",value: soundMode) // library marker davegut.samsungTV-ST, line 205
+			stData << [soundMode: soundMode] // library marker davegut.samsungTV-ST, line 206
+		} // library marker davegut.samsungTV-ST, line 207
 
-		def transportStatus = mainData.mediaPlayback.playbackStatus.value // library marker davegut.samsungTV-ST, line 181
-		if (transportStatus == null || transportStatus == "") { // library marker davegut.samsungTV-ST, line 182
-			transportStatus = "stopped" // library marker davegut.samsungTV-ST, line 183
-		} // library marker davegut.samsungTV-ST, line 184
-		if (device.currentValue("transportStatus") != transportStatus) { // library marker davegut.samsungTV-ST, line 185
-			sendEvent(name: "transportStatus", value: transportStatus) // library marker davegut.samsungTV-ST, line 186
-			stData << [transportStatus: transportStatus] // library marker davegut.samsungTV-ST, line 187
-		} // library marker davegut.samsungTV-ST, line 188
-	} // library marker davegut.samsungTV-ST, line 189
+		def transportStatus = mainData.mediaPlayback.playbackStatus.value // library marker davegut.samsungTV-ST, line 209
+		if (transportStatus == null || transportStatus == " ") { // library marker davegut.samsungTV-ST, line 210
+			transportStatus = "stopped" // library marker davegut.samsungTV-ST, line 211
+		} // library marker davegut.samsungTV-ST, line 212
+//		if (device.currentValue("transportStatus") != transportStatus) { // library marker davegut.samsungTV-ST, line 213
+			sendEvent(name: "transportStatus", value: transportStatus) // library marker davegut.samsungTV-ST, line 214
+			stData << [transportStatus: transportStatus] // library marker davegut.samsungTV-ST, line 215
+//		} // library marker davegut.samsungTV-ST, line 216
+		if (stData != [:]) { // library marker davegut.samsungTV-ST, line 217
+			logInfo("statusParse: ${stData}") // library marker davegut.samsungTV-ST, line 218
+		} // library marker davegut.samsungTV-ST, line 219
+	} // library marker davegut.samsungTV-ST, line 220
+} // library marker davegut.samsungTV-ST, line 221
 
-	if (stData != [:]) { // library marker davegut.samsungTV-ST, line 191
-		logInfo("statusParse: ${stData}") // library marker davegut.samsungTV-ST, line 192
-	} // library marker davegut.samsungTV-ST, line 193
-} // library marker davegut.samsungTV-ST, line 194
+
+
+def xxxstatusParse(mainData) { // library marker davegut.samsungTV-ST, line 225
+	if (stTestData) { // library marker davegut.samsungTV-ST, line 226
+		log.error mainData // library marker davegut.samsungTV-ST, line 227
+		device.updateSetting("stTestData", [type:"bool", value: false]) // library marker davegut.samsungTV-ST, line 228
+	} // library marker davegut.samsungTV-ST, line 229
+	def stData = [:] // library marker davegut.samsungTV-ST, line 230
+	if (logEnable) { // library marker davegut.samsungTV-ST, line 231
+		def quickLog = [:] // library marker davegut.samsungTV-ST, line 232
+		try { // library marker davegut.samsungTV-ST, line 233
+			quickLog << [ // library marker davegut.samsungTV-ST, line 234
+				switch: device.currentValue("switch"), // library marker davegut.samsungTV-ST, line 235
+				volume: mainData.audioVolume.volume.value.toInteger(), // library marker davegut.samsungTV-ST, line 236
+				mute: mainData.audioMute.mute.value, // library marker davegut.samsungTV-ST, line 237
+				input: mainData.mediaInputSource.inputSource.value, // library marker davegut.samsungTV-ST, line 238
+				channel: mainData.tvChannel.tvChannel.value, // library marker davegut.samsungTV-ST, line 239
+				channelName: mainData.tvChannel.tvChannelName.value, // library marker davegut.samsungTV-ST, line 240
+				pictureMode: mainData["custom.picturemode"].pictureMode.value, // library marker davegut.samsungTV-ST, line 241
+				soundMode: mainData["custom.soundmode"].soundMode.value, // library marker davegut.samsungTV-ST, line 242
+				transportStatus: mainData.mediaPlayback.playbackStatus.value] // library marker davegut.samsungTV-ST, line 243
+		} catch (err) { // library marker davegut.samsungTV-ST, line 244
+			quickLog << [error: ${err}, data: mainData] // library marker davegut.samsungTV-ST, line 245
+		} // library marker davegut.samsungTV-ST, line 246
+		logDebug("statusParse: [quickLog: ${quickLog}]") // library marker davegut.samsungTV-ST, line 247
+	} // library marker davegut.samsungTV-ST, line 248
+	if (device.currentValue("switch") == "on") { // library marker davegut.samsungTV-ST, line 249
+		def volume = mainData.audioVolume.volume.value.toInteger() // library marker davegut.samsungTV-ST, line 250
+		if (device.currentValue("volume").toInteger() != volume) { // library marker davegut.samsungTV-ST, line 251
+			sendEvent(name: "volume", value: volume) // library marker davegut.samsungTV-ST, line 252
+			stData << [volume: volume] // library marker davegut.samsungTV-ST, line 253
+		} // library marker davegut.samsungTV-ST, line 254
+
+		def mute = mainData.audioMute.mute.value // library marker davegut.samsungTV-ST, line 256
+		if (device.currentValue("mute") != mute) { // library marker davegut.samsungTV-ST, line 257
+			sendEvent(name: "mute", value: mute) // library marker davegut.samsungTV-ST, line 258
+			stData << [mute: mute] // library marker davegut.samsungTV-ST, line 259
+		} // library marker davegut.samsungTV-ST, line 260
+
+		def inputSource = mainData.mediaInputSource.inputSource.value // library marker davegut.samsungTV-ST, line 262
+		if (device.currentValue("inputSource") != inputSource) { // library marker davegut.samsungTV-ST, line 263
+			sendEvent(name: "inputSource", value: inputSource)		 // library marker davegut.samsungTV-ST, line 264
+			stData << [inputSource: inputSource] // library marker davegut.samsungTV-ST, line 265
+		} // library marker davegut.samsungTV-ST, line 266
+
+		def tvChannel = mainData.tvChannel.tvChannel.value // library marker davegut.samsungTV-ST, line 268
+		if (tvChannel == "") { tvChannel = " " } // library marker davegut.samsungTV-ST, line 269
+		def tvChannelName = mainData.tvChannel.tvChannelName.value // library marker davegut.samsungTV-ST, line 270
+		if (tvChannelName == "") { tvChannelName = " " } // library marker davegut.samsungTV-ST, line 271
+		if (device.currentValue("tvChannelName") != tvChannelName) { // library marker davegut.samsungTV-ST, line 272
+			sendEvent(name: "tvChannel", value: tvChannel) // library marker davegut.samsungTV-ST, line 273
+			sendEvent(name: "tvChannelName", value: tvChannelName) // library marker davegut.samsungTV-ST, line 274
+			if (tvChannelName.contains(".")) { // library marker davegut.samsungTV-ST, line 275
+				getAppData(tvChannelName) // library marker davegut.samsungTV-ST, line 276
+			} else { // library marker davegut.samsungTV-ST, line 277
+				sendEvent(name: "currentApp", value: " ") // library marker davegut.samsungTV-ST, line 278
+			} // library marker davegut.samsungTV-ST, line 279
+			stData << [tvChannel: tvChannel, tvChannelName: tvChannelName] // library marker davegut.samsungTV-ST, line 280
+			if (getDataValue("frameTv") == "true" && !state.artModeWs) { // library marker davegut.samsungTV-ST, line 281
+				def artMode = "off" // library marker davegut.samsungTV-ST, line 282
+				if (tvChannelName == "art") { artMode = "on" } // library marker davegut.samsungTV-ST, line 283
+				sendEvent(name: "artModeStatus", value: artMode) // library marker davegut.samsungTV-ST, line 284
+			} // library marker davegut.samsungTV-ST, line 285
+		} // library marker davegut.samsungTV-ST, line 286
+
+		def trackDesc = inputSource // library marker davegut.samsungTV-ST, line 288
+		if (tvChannelName != " ") { trackDesc = tvChannelName } // library marker davegut.samsungTV-ST, line 289
+		if (device.currentValue("trackDescription") != trackDesc) { // library marker davegut.samsungTV-ST, line 290
+			sendEvent(name: "trackDescription", value:trackDesc) // library marker davegut.samsungTV-ST, line 291
+			stData << [trackDescription: trackDesc] // library marker davegut.samsungTV-ST, line 292
+		} // library marker davegut.samsungTV-ST, line 293
+
+		def pictureMode = mainData["custom.picturemode"].pictureMode.value // library marker davegut.samsungTV-ST, line 295
+		if (device.currentValue("pictureMode") != pictureMode) { // library marker davegut.samsungTV-ST, line 296
+			sendEvent(name: "pictureMode",value: pictureMode) // library marker davegut.samsungTV-ST, line 297
+			stData << [pictureMode: pictureMode] // library marker davegut.samsungTV-ST, line 298
+		} // library marker davegut.samsungTV-ST, line 299
+
+		def soundMode = mainData["custom.soundmode"].soundMode.value // library marker davegut.samsungTV-ST, line 301
+		if (device.currentValue("soundMode") != soundMode) { // library marker davegut.samsungTV-ST, line 302
+			sendEvent(name: "soundMode",value: soundMode) // library marker davegut.samsungTV-ST, line 303
+			stData << [soundMode: soundMode] // library marker davegut.samsungTV-ST, line 304
+		} // library marker davegut.samsungTV-ST, line 305
+
+		def transportStatus = mainData.mediaPlayback.playbackStatus.value // library marker davegut.samsungTV-ST, line 307
+		if (transportStatus == null || transportStatus == "") { // library marker davegut.samsungTV-ST, line 308
+			transportStatus = "stopped" // library marker davegut.samsungTV-ST, line 309
+		} // library marker davegut.samsungTV-ST, line 310
+		if (device.currentValue("transportStatus") != transportStatus) { // library marker davegut.samsungTV-ST, line 311
+			sendEvent(name: "transportStatus", value: transportStatus) // library marker davegut.samsungTV-ST, line 312
+			stData << [transportStatus: transportStatus] // library marker davegut.samsungTV-ST, line 313
+		} // library marker davegut.samsungTV-ST, line 314
+	} // library marker davegut.samsungTV-ST, line 315
+
+	if (stData != [:]) { // library marker davegut.samsungTV-ST, line 317
+		logInfo("statusParse: ${stData}") // library marker davegut.samsungTV-ST, line 318
+	} // library marker davegut.samsungTV-ST, line 319
+} // library marker davegut.samsungTV-ST, line 320
 
 // ~~~~~ end include (1215) davegut.samsungTV-ST ~~~~~
 
