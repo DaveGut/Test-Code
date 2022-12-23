@@ -25,7 +25,7 @@ A list (not comprehensive) of Samsung Smart TV Apps and their codes is contained
 		the ST interface is required to assure functionality.
 	e.	Increased delay on TV Startup to set up start display.  Having timing issues.
 ===========================================================================================*/
-def driverVer() { return "4.0-2a" }
+def driverVer() { return "4.0-2b" }
 import groovy.json.JsonOutput
 
 metadata {
