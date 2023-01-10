@@ -28,7 +28,7 @@ A list (not comprehensive) of Samsung Smart TV Apps and their codes is contained
 	handle error where the device is returning a null powerState on the 8001 port.
 
 ===========================================================================================*/
-def driverVer() { return "4.0-3" }
+def driverVer() { return "4.0-3b" }
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
@@ -126,6 +126,7 @@ metadata {
 			input ("traceLog", "bool", title: "Enable trace logging as directed by developer", defaultValue: false)
 			input ("connectST", "bool", title: "Connect to SmartThings for added functions", defaultValue: false)
 		}
+		def onPollMethod = "local"
 		if (connectST) {
 			input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
 			if (stApiKey) {
@@ -134,8 +135,10 @@ metadata {
 			input ("stPollInterval", "enum", title: "SmartThings Poll Interval (minutes)",
 				   options: ["off", "1", "5", "15", "30"], defaultValue: "15")
 			input ("stTestData", "bool", title: "Get ST data dump for developer", defaultValue: false)
-				
+			onPollMethod = "st"
 		}
+		input ("pollMethod", "enum", title: "Power Polling Method", defaultValue: onPollMethod,
+			   options: ["st": "SmartThings", "local": "Local", "off": "DISABLE"])
 		input ("pollInterval","enum", title: "Power Polling Interval (seconds)",
 			   options: ["off", "10", "15", "20", "30", "60"], defaultValue: "60")
 		input ("findAppCodes", "bool", title: "Scan for App Codes (use rarely)", defaultValue: false)
@@ -174,6 +177,16 @@ def updated() {
 		updStatus << [logEnable: logEnable, infoLog: infoLog, traceLog: traceLog]
 		updStatus << [setOnPollInterval: setOnPollInterval()]
 		updStatus << [stUpdate: stUpdate()]
+		def newPollMethod = "local"
+		if (!pollMethod && connectST) {
+			newPollMethod = "st"
+		} else if (pollMethod == "st" && !connectST) {
+			newPollMethod = "local"
+		} else {
+			newPollMethod = pollMethod
+		}
+		device.updateSetting("pollMethod", [type:"enum", value: newPollMethod])
+		updStatus << [pollMethod: newPollMethod]
 	}
 	sendEvent(name: "volume", value: 0)
 	sendEvent(name: "level", value: 0)
@@ -195,14 +208,19 @@ def updated() {
 }
 
 def setOnPollInterval() {
-	if (pollInterval == null) {
-		pollInterval = "60"
-		device.updateSetting("pollInterval", [type:"enum", value: "60"])
-	}
-	if (pollInterval == "60") {
-		runEvery1Minute(onPoll)
-	} else if (pollInterval != "off") {
-		schedule("0/${pollInterval} * * * * ?",  onPoll)
+	if (pollMethod == "off") {
+		pollInterval = "DISABLED"
+		device.updateSetting("pollInterval", [type:"enum", value: "ogg"])
+	} else {
+		if (pollInterval == null) {
+			pollInterval = "60"
+			device.updateSetting("pollInterval", [type:"enum", value: "60"])
+		}
+		if (pollInterval == "60") {
+			runEvery1Minute(onPoll)
+		} else if (pollInterval != "off") {
+			schedule("0/${pollInterval} * * * * ?",  onPoll)
+		}
 	}
 	return pollInterval
 }
@@ -254,18 +272,25 @@ def configure() {
 //	===== Polling/Refresh Capability =====
 def onPoll() {
 	if (traceLog) { state.onPollCount += 1 }
-	if (connectST) {
+	if (pollMethod == "st") {
 		def sendData = [
 			path: "/devices/${stDeviceId.trim()}/status",
 			parse: "stPollParse"
 			]
 		asyncGet(sendData, "stPollParse")
-	} else {
+	} else if (pollMethod == "local") {
 		def sendCmdParams = [
 			uri: "http://${deviceIp}:8001/api/v2/",
 			timeout: 6
 		]
 		asynchttpGet("onPollParse", sendCmdParams)
+	} else {
+		logWarn("onPoll: Polling is disabled")
+	}
+	if (getDataValue("driverVersion") != driverVer()) {
+		logInfo("Auto Configuring changes to this TV.")
+		updated()
+		pauseExecution(3000)
 	}
 }
 
@@ -300,20 +325,20 @@ def stPollParse(resp, data) {
 
 def onPollParse(resp, data) {
 	def powerState
-	def onOff = "on"
 	if (resp.status == 200) {
-		powerState = new JsonSlurper().parseText(resp.data).device.PowerState
+		def tempPower = new JsonSlurper().parseText(resp.data).device.PowerState
+		if (tempPower == null) {
+			powerState = "on"
+		} else { 
+			powerState = tempPower
+		}
 	} else {
 		logTrace("onPollParse: [state: error, status: $resp.status]")
 		powerState = "NC"
 	}
+	def onOff = "on"
 	if (powerState == "on") {
 		state.standbyTest = false
-		if (getDataValue("driverVersion") != driverVer()) {
-			logInfo("Auto Configuring changes to this TV.")
-			updated()
-			pauseExecution(3000)
-		}
 		onOff = "on"
 	} else {
 		if (device.currentValue("switch") == "on") {
@@ -332,7 +357,6 @@ def onPollParse(resp, data) {
 		}
 		logTrace("onPollParse: [switch: ${device.currentValue("switch")}, onOff: ${onOff}, powerState: $powerState, stbyTest: $state.standbyTest]")
 	}
-	
 	if (device.currentValue("switch") != onOff) {
 		sendEvent(name: "switch", value: onOff)
 		if (onOff == "on") {
@@ -357,6 +381,7 @@ def on() {
 		 destinationAddress: "255.255.255.255:7",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING])
 	sendHubCommand(wol)
+	sendEvent(name: "switch", value: "on")
 	runIn(2, getArtModeStatus)
 	runIn(5, setPowerOnMode)
 }
@@ -384,7 +409,7 @@ def off() {
 	sendEvent(name: "switch", value: "off")
 	runIn(1, close)
 }
-	
+
 //	===== WEBSOCKET =====
 //	== ART/Ambient Mode
 def artMode() {
