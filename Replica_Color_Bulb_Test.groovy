@@ -18,7 +18,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import groovy.transform.Field
 @Field volatile static Map<String,Long> g_mEventSendTime = [:]
-public static String driverVer() { return "0.1.1" }
+public static String driverVer() { return "0.1.1T" }
 
 //	Beta Status:  Tested on Sengled and Kasa Bulbs integrated in SmartThings.
 
