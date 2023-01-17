@@ -18,7 +18,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import groovy.transform.Field
 @Field volatile static Map<String,Long> g_mEventSendTime = [:]
-public static String driverVer() { return "0.1.1T" }
+public static String driverVer() { return "0.1.1" }
 
 //	Beta Status:  Tested on Sengled and Kasa Bulbs integrated in SmartThings.
 
@@ -217,10 +217,10 @@ def setColor(color) {
 		def rgbHex = hubitat.helper.HexUtils.integerToHexString(rgbData[0], 1)
 		rgbHex += hubitat.helper.HexUtils.integerToHexString(rgbData[1], 1)
 		rgbHex += hubitat.helper.HexUtils.integerToHexString(rgbData[2], 1)
-		def newColor = """{"hue":${hue}, "saturation":${saturation}, "level":${level}, "hex": "${rgbHex}"}"""
+		def newColor = """{"hue":${hue}, "saturation":${saturation}, "level":${level}, "hex": "#${rgbHex}"}"""
 		sendEvent(name: "colorMode", value: "COLOR")
 		sendCommand("setColor", newColor)
-		logDebug("setColor: [color: ${newColor}, colorMode: COLOR]")
+		logDebug("setColor: [color: ${newColor2}, colorMode: COLOR]")
 	}
 }
 
@@ -301,7 +301,7 @@ Map getReplicaCommands() {
 		setColorTemperatureValue:[[name: "colorTemperature", type: "NUMBER"]],
 		setHueValue:[[name: "hue*", type: "NUMBER"]],
 		setSaturationValue:[[name: "saturation*", type: "NUMBER"]],
-		setColorValue:[[name: "color*", type: "string"]],
+		setColorValue:[[name: "color*", type: "object"]],
 		setHealthStatusValue:[[name:"healthStatus*",type:"ENUM"]]]
 	return replicaCommands
 }
@@ -315,7 +315,7 @@ Map getReplicaTriggers() {
 		setColorTemperature: [
 			[name:"colorTemperature*", type: "NUMBER"]],
 		setColor: [
-			[name: "color*", type: "OBJECT"]]]
+			[name: "color*", type: "string"]]]
 	return replicaTriggers
 }
 
