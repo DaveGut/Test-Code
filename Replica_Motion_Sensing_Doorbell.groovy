@@ -11,8 +11,8 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-@SuppressWarnings('unused')
-driverVer() {return "1.2.0"}
+import org.json.JSONObject
+def driverVer() {return "1.2.0"}
 
 metadata {
     definition(name: "Replica Motion-Sensing Doorbell", namespace: "replica", author: "bthrock", importUrl:"https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaMotionSensingDoorbell.groovy")
@@ -26,7 +26,6 @@ metadata {
 		command "testRules"
 		attribute "lastMotion", "string"
 		attribute "lastRing", "string"
-
         attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {   
@@ -44,7 +43,7 @@ def installed() {
 }
 
 def updated() {
-	initialize()    
+	initialize()
 }
 
 def initialize() {
@@ -81,17 +80,25 @@ def testRules() {
 }
 
 def setRing(button) {
-	if (device.currentValue("motion") == "active") {
-		runIn(10, unsetRing)
-		sendEvent(name: "doorbell", value: "active", isStateChange: true)
-		def ringTime = new Date()
-		sendEvent(name: "lastRing", value: ringTime)
-		logInfo("setRing: [doorbell: ${button}]")
+	if (device.currentValue("doorbell") != button) {
+		sendEvent(name: "doorbell", value: button)
+		if (button == "pushed") {
+			def ringTime = new Date()
+			sendEvent(name: "lastRing", value: ringTime)
+		}
 	}
+	if (button == "pushed") {
+		runIn(5, deviceRefresh)
+		runIn(15, checkRing)
+	}
+	logInfo("setRing: [doorbell: ${button}]")
 }
 
-def unsetRing() {
-	sendEvent(name: "doorbell", value: "inactive")
+def checkRing() {
+	if (device.currentValue("doorbell") == "pushed") {
+		sendEvent(name: "doorbell", value: "up")
+		logInfo("checkRing: [doorbell: up]")
+	}
 }
 
 def setBattery(battery) {
@@ -109,12 +116,16 @@ def setMotionValue(value) {
 }
 
 def setHealthStatusValue(value) {    
-    sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
+    sendEvent(name: "healthStatus", value: value)
+}
+
+def deviceRefresh() {
+	sendCommand("deviceRefresh")
 }
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
 Map getReplicaTriggers() {
-    return ([ "refresh":[] ])
+    return ([ "refresh":[], "deviceRefresh": [] ])
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
@@ -126,13 +137,7 @@ void refresh() {
 }
 
 String getReplicaRules() {
- 	return """{"version":1,"components":[
-{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBattery","label":"command: setBattery(battery)","type":"command","parameters":[{"name":"battery","type":"integer"}]},"type":"smartTrigger"},
-{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.*"},"command":{"name":"setMotionValue","label":"command: setMotionValue(motion*)","type":"command","parameters":[{"name":"motion*","type":"ENUM"}]},"type":"smartTrigger"},
-{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.*"},"command":{"name":"setRing","label":"command: setRing(button)","type":"command","parameters":[{"name":"button","type":"ENUM"}]},"type":"smartTrigger"},
-{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger"}]}"""
-
-//	return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.*"},"command":{"name":"setMotionValue","label":"command: setMotionValue(motion*)","type":"command","parameters":[{"name":"motion*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.pushed","value":"pushed","dataType":"ENUM"},"command":{"name":"push","label":"command: push","type":"command","parameters":[{"name":"button","type":"ENUM"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true}]}"""
+	return """{"version":1,"components":[{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBattery","label":"command: setBattery(battery)","type":"command","parameters":[{"name":"battery","type":"integer"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.*"},"command":{"name":"setMotionValue","label":"command: setMotionValue(motion*)","type":"command","parameters":[{"name":"motion*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.*"},"command":{"name":"setRing","label":"command: setRing(button)","type":"command","parameters":[{"name":"button","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"deviceRefresh","label":"command: deviceRefresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger","disableStatus":true}]}"""
 }
 
 def logInfo(msg) { 
