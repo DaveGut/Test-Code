@@ -12,7 +12,7 @@
 *
 */
 import org.json.JSONObject
-def driverVer() {return "1.2.0"}
+def driverVer() {return "1.0"}
 
 metadata {
     definition(name: "Replica Motion-Sensing Doorbell", namespace: "replica", author: "bthrock", importUrl:"https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaMotionSensingDoorbell.groovy")
