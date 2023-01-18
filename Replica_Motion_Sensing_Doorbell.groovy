@@ -12,7 +12,7 @@
 *
 */
 import org.json.JSONObject
-def driverVer() {return "1.0"}
+def driverVer() {return "1.2.0"}
 
 metadata {
     definition(name: "Replica Motion-Sensing Doorbell", namespace: "replica", author: "bthrock", importUrl:"https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaMotionSensingDoorbell.groovy")
@@ -85,11 +85,9 @@ def setRing(button) {
 		if (button == "pushed") {
 			def ringTime = new Date()
 			sendEvent(name: "lastRing", value: ringTime)
+			runIn(20, deviceRefresh)
+			runIn(30, checkRing)
 		}
-	}
-	if (button == "pushed") {
-		runIn(5, deviceRefresh)
-		runIn(15, checkRing)
 	}
 	logInfo("setRing: [doorbell: ${button}]")
 }
