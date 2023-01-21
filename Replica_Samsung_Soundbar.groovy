@@ -19,7 +19,7 @@ Hubitat Community site: https://community.hubitat.com/
 ==========================================================================*/
 import org.json.JSONObject
 import groovy.json.JsonOutput
-def driverVer() { return "1.0" }
+def driverVer() { return "0.5TEST" }
 
 metadata {
 	definition (name: "Replica Samsung Soundbar",
