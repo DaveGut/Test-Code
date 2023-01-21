@@ -22,8 +22,8 @@ Test 2 (Barking dogs worked, but TTS notification did not):
 
    *  Preference Use Alternate TTS Method. Save Preferences.
    * Preferences: Obtain and enter Key. Select TTS Language from drop-down. Save Preferences
-    command: Test Audio Notify. Results:
-    * Both Barking Dogs and Text Notification: STOP. You are good to go. PM me with configuration.
+   * command: Test Audio Notify. Results:
+     * Both Barking Dogs and Text Notification: STOP. You are good to go. PM me with configuration.
     Otherwise, go to Test 3.
 
 Test 3 (One or both of the two notifications did not work):
