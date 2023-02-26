@@ -15,10 +15,9 @@ b.	Volume reporting zero.  Checks of several issues shows that this value is com
 	from SmartThings.
 
 ===========================================================================================*/
+def driverVer() { return "4.1-1" }
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-def driverVer() { return "4.1-1" }
-def platform() { return "Hubitat" }
 
 metadata {
 	definition (name: "Samsung TV Remote",
@@ -116,8 +115,9 @@ metadata {
 			input ("traceLog", "bool", title: "Enable trace logging as directed by developer", defaultValue: false)
 			input ("connectST", "bool", title: "Connect to SmartThings for added functions", defaultValue: false)
 		}
-		def onPollMethod = "local"
+		def onPollOptions = ["local": "Local", "off": "DISABLE"]
 		if (connectST) {
+			onPollOptions = ["st": "SmartThings", "local": "Local", "off": "DISABLE"]
 			input ("stApiKey", "string", title: "SmartThings API Key", defaultValue: "")
 			if (stApiKey) {
 				input ("stDeviceId", "string", title: "SmartThings Device ID", defaultValue: "")
@@ -125,10 +125,10 @@ metadata {
 			input ("stPollInterval", "enum", title: "SmartThings Poll Interval (minutes)",
 				   options: ["off", "1", "5", "15", "30"], defaultValue: "15")
 			input ("stTestData", "bool", title: "Get ST data dump for developer", defaultValue: false)
-			onPollMethod = "st"
 		}
-		input ("pollMethod", "enum", title: "Power Polling Method", defaultValue: onPollMethod,
-			   options: ["st": "SmartThings", "local": "Local", "off": "DISABLE"])
+		input ("pollMethod", "enum", title: "Power Polling Method", defaultValue: "local",
+			   options: onPollOptions)
+//			   options: ["st": "SmartThings", "local": "Local", "off": "DISABLE"])
 		input ("pollInterval","enum", title: "Power Polling Interval (seconds)",
 			   options: ["off", "10", "15", "20", "30", "60"], defaultValue: "60")
 		input ("findAppCodes", "bool", title: "Scan for App Codes (use rarely)", defaultValue: false)
@@ -158,7 +158,7 @@ def updated() {
 		logWarn("\n\n\t\t<b>Enter the deviceIp and Save Preferences</b>\n\n")
 		updStatus << [status: "ERROR", data: "Device IP not set."]
 	} else {
-		updStatus << [getDeviceData: configure()]
+//		updStatus << [getDeviceData: configure()]
 		if (!getDataValue("driverVersion") || getDataValue("driverVersion") != driverVer()) {
 			updateDataValue("driverVersion", driverVer())
 			updStatus << [driverVer: driverVer()]
@@ -167,8 +167,14 @@ def updated() {
 		if (traceLog) { runIn(600, traceLogOff) }
 		updStatus << [logEnable: logEnable, infoLog: infoLog, traceLog: traceLog]
 		updStatus << [setOnPollInterval: setOnPollInterval()]
-		updStatus << [stUpdate: stUpdate()]
-		def newPollMethod = "local"
+		if (!pollMethod) {
+			pollMethod = "local"
+			device.updateSetting("pollMethod", [type:"enum", value: "local"])
+		}
+		updStatus << [pollMethod: newPollMethod]
+/*		def newPollMethod = pollMethod
+		if (newPollMethod == null) {
+			
 		if (!pollMethod && connectST) {
 			newPollMethod = "st"
 		} else if (pollMethod == "st" && !connectST) {
@@ -177,22 +183,21 @@ def updated() {
 			newPollMethod = pollMethod
 		}
 		device.updateSetting("pollMethod", [type:"enum", value: newPollMethod])
-		updStatus << [pollMethod: newPollMethod]
+		updStatus << [pollMethod: newPollMethod]*/
+		if (resetAppCodes) {
+			state.appData = [:]
+			runIn(1, updateAppCodes)
+		} else if (findAppCodes) {
+			runIn(1, updateAppCodes)
+		}
+		runIn(1, configure)
 	}
-	sendEvent(name: "volume", value: 0)
-	sendEvent(name: "level", value: 0)
 	sendEvent(name: "numberOfButtons", value: 45)
 	sendEvent(name: "wsStatus", value: "closed")
 	state.standbyTest = false
 	logInfo("updated: ${updStatus}")
 
-	if (resetAppCodes) {
-		state.appData = [:]
-		runIn(5, updateAppCodes)
-	} else if (findAppCodes) {
-		runIn(5, updateAppCodes)
-	}
-	pauseExecution(5000)
+//	runIn(1, configure)
 	listAttributes(true)
 	logTrace("updated: onPollCount = $state.onPollCount")
 	state.onPollCount = 0
@@ -216,6 +221,9 @@ def setOnPollInterval() {
 	return pollInterval
 }
 
+
+
+
 def configure() {
 	def respData = [:]
 	def tvData = [:]
@@ -225,7 +233,9 @@ def configure() {
 			runIn(1, getArtModeStatus)
 		}
 	} catch (error) {
-		tvData << [status: "error", data: error] 
+		tvData << [status: "error", data: error]
+		logError("configure: TV Off during setup or Invalid IP address.\n\t\tTurn TV On and Run CONFIGURE or Save Preferences!")
+
 	}
 	if (!tvData.status) {
 		def wifiMac = tvData.device.wifiMac
@@ -257,8 +267,51 @@ def configure() {
 	} else {
 		respData << tvData
 	}
+	runIn(1, stUpdate)
+	logInfo("configure: ${respData}")
 	return respData
 }
+
+def stUpdate() {
+	def stData = [:]
+	if (connectST) {
+		stData << [connectST: "true"]
+		stData << [connectST: connectST]
+		if (!stApiKey || stApiKey == "") {
+			logWarn("\n\n\t\t<b>Enter the ST API Key and Save Preferences</b>\n\n")
+			stData << [status: "ERROR", date: "no stApiKey"]
+		} else if (!stDeviceId || stDeviceId == "") {
+			getDeviceList()
+			logWarn("\n\n\t\t<b>Enter the deviceId from the Log List and Save Preferences</b>\n\n")
+			stData << [status: "ERROR", date: "no stDeviceId"]
+		} else {
+			if (device.currentValue("volume") == null) {
+//				sendEvent(name: "volume", value: 0)
+//				sendEvent(name: "level", value: 0)
+			}
+			def stPollInterval = stPollInterval
+			if (stPollInterval == null) { 
+				stPollInterval = "15"
+				device.updateSetting("stPollInterval", [type:"enum", value: "15"])
+			}
+			switch(stPollInterval) {
+				case "1" : runEvery1Minute(refresh); break
+				case "5" : runEvery5Minutes(refresh); break
+				case "15" : runEvery15Minutes(refresh); break
+				case "30" : runEvery30Minutes(refresh); break
+				default: unschedule("refresh")
+			}
+			deviceSetup()
+			stData << [stPollInterval: stPollInterval]
+		}
+	} else {
+		stData << [connectST: "false"]
+	}
+	logInfo("stUpdate: ${stData}")
+}
+
+
+
 
 //	===== Polling/Refresh Capability =====
 def onPoll() {
@@ -285,6 +338,9 @@ def onPoll() {
 	}
 }
 
+
+
+
 def stPollParse(resp, data) {
 	def respLog = [:]
 	if (resp.status == 200) {
@@ -295,7 +351,7 @@ def stPollParse(resp, data) {
 				logInfo("stPollParse: [switch: ${onOff}]")
 				sendEvent(name: "switch", value: onOff)
 				if (onOff == "on") {
-					runIn(4, setPowerOnMode)
+					runIn(3, setPowerOnMode)
 				} else {
 					close()
 				}
@@ -314,6 +370,9 @@ def stPollParse(resp, data) {
 		logWarn("stPollParse: ${respLog}")
 	}
 }
+
+
+
 
 def onPollParse(resp, data) {
 	def powerState
@@ -347,12 +406,13 @@ def onPollParse(resp, data) {
 			//	as the tv powers down (takes 0.5 to 2 minutes to disconnect).
 			onOff = "off"
 		}
-		logTrace("onPollParse: [switch: ${device.currentValue("switch")}, onOff: ${onOff}, powerState: ${powerState}, stbyTest: ${state.standbyTest}]")
+		logTrace("onPollParse: [switch: ${device.currentValue("switch")}, onOff: ${onOff}, powerState: $powerState, stbyTest: $state.standbyTest]")
 	}
 	if (device.currentValue("switch") != onOff) {
 		sendEvent(name: "switch", value: onOff)
 		if (onOff == "on") {
 			runIn(5, setPowerOnMode)
+			refresh()
 		} else {
 			close()
 			refresh()
@@ -361,10 +421,18 @@ def onPollParse(resp, data) {
 	}
 }
 
+
+
+
 //	===== Capability Switch =====
+
+
+
 
 def on() {
 	logInfo("on: [frameTv: ${getDataValue("frameTv")}]")
+//	unschedule("onPoll")
+//	runIn(60, setOnPollInterval)
 	def wolMac = getDataValue("alternateWolMac")
 	def cmd = "FFFFFFFFFFFF$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac$wolMac"
 	wol = new hubitat.device.HubAction(
@@ -374,8 +442,15 @@ def on() {
 		 destinationAddress: "255.255.255.255:7",
 		 encoding: hubitat.device.HubAction.Encoding.HEX_STRING])
 	sendHubCommand(wol)
+//	added
 	runIn(5, onPoll)
+//	sendEvent(name: "switch", value: "on")
+//	runIn(2, getArtModeStatus)
+//	runIn(5, setPowerOnMode)
 }
+
+
+
 
 def setPowerOnMode() {
 	logInfo("setPowerOnMode: [tvPwrOnMode: ${tvPwrOnMode}]")
@@ -389,8 +464,13 @@ def setPowerOnMode() {
 	refresh()
 }
 
+
+
+
 def off() {
 	logInfo("off: [frameTv: ${getDataValue("frameTv")}]")
+//	unschedule("onPoll")
+//	runIn(60, setOnPollInterval)
 	if (getDataValue("frameTv") == "true") {
 		sendKey("POWER", "Press")
 		pauseExecution(4000)
@@ -398,8 +478,13 @@ def off() {
 	} else {
 		sendKey("POWER")
 	}
+//	added
 	runIn(5, onPoll)
+//	sendEvent(name: "switch", value: "off")
 }
+
+
+
 
 //	===== SMART THINGS INTERFACE =====
 //	ST Device Setup
@@ -448,39 +533,6 @@ def getDeviceListParse(resp, data) {
 		}
 		log.trace "<b>Copy your device's deviceId value and enter into the device Preferences.</b>"
 	}
-}
-
-def stUpdate() {
-	def stData = [:]
-	stData << [connectST: connectST]
-	if (!stApiKey || stApiKey == "") {
-		logWarn("\n\n\t\t<b>Enter the ST API Key and Save Preferences</b>\n\n")
-		stData << [status: "ERROR", date: "no stApiKey"]
-	} else if (!stDeviceId || stDeviceId == "") {
-		getDeviceList()
-		logWarn("\n\n\t\t<b>Enter the deviceId from the Log List and Save Preferences</b>\n\n")
-		stData << [status: "ERROR", date: "no stDeviceId"]
-	} else {
-		if (device.currentValue("volume") == null) {
-			sendEvent(name: "volume", value: 0)
-			sendEvent(name: "level", value: 0)
-		}
-		def stPollInterval = stPollInterval
-		if (stPollInterval == null) { 
-			stPollInterval = "15"
-			device.updateSetting("stPollInterval", [type:"enum", value: "15"])
-		}
-		switch(stPollInterval) {
-			case "1" : runEvery1Minute(refresh); break
-			case "5" : runEvery5Minutes(refresh); break
-			case "15" : runEvery15Minutes(refresh); break
-			case "30" : runEvery30Minutes(refresh); break
-			default: unschedule("refresh")
-		}
-		runIn(1, deviceSetup)
-		stData << [stPollInterval: stPollInterval]
-	}
-	return stData
 }
 
 def deviceSetupParse(mainData) {
@@ -633,6 +685,9 @@ def deviceCommand(cmdData) {
 	}
 }
 
+
+
+
 def statusParse(mainData) {
 	if (stTestData) {
 		device.updateSetting("stTestData", [type:"bool", value: false])
@@ -661,7 +716,7 @@ def statusParse(mainData) {
 
 	if (device.currentValue("switch") == "on") {
 		Integer volume = mainData.audioVolume.volume.value.toInteger()
-		if (device.currentValue("volume").toInteger() != volume.toInteger()) {
+		if (device.currentValue("volume") != volume) {
 			sendEvent(name: "volume", value: volume)
 			sendEvent(name: "level", value: volume)
 			stData << [volume: volume]
@@ -736,6 +791,9 @@ def statusParse(mainData) {
 		logInfo("statusParse: ${stData}")
 	}
 }
+
+
+
 
 //	== ST Communications
 private asyncGet(sendData, passData = "none") {
@@ -824,8 +882,10 @@ def distResp(resp, data) {
 			def respData = new JsonSlurper().parseText(resp.data)
 			if (data.reason == "deviceSetup") {
 				deviceSetupParse(respData.components.main)
+				runIn(1, statusParse, [data: respData.components.main])
+			} else {
+				statusParse(respData.components.main)
 			}
-			statusParse(respData.components.main)
 		} catch (err) {
 			respLog << [status: "ERROR",
 						errorMsg: err,
@@ -911,7 +971,7 @@ def parse(resp) {
 
 
 
-// ~~~~~ start include (1241) davegut.samsungTvWebsocket ~~~~~
+// ~~~~~ start include (1245) davegut.samsungTvWebsocket ~~~~~
 library ( // library marker davegut.samsungTvWebsocket, line 1
 	name: "samsungTvWebsocket", // library marker davegut.samsungTvWebsocket, line 2
 	namespace: "davegut", // library marker davegut.samsungTvWebsocket, line 3
@@ -1203,9 +1263,9 @@ def parseWs(resp) { // library marker davegut.samsungTvWebsocket, line 244
 	} // library marker davegut.samsungTvWebsocket, line 289
 } // library marker davegut.samsungTvWebsocket, line 290
 
-// ~~~~~ end include (1241) davegut.samsungTvWebsocket ~~~~~
+// ~~~~~ end include (1245) davegut.samsungTvWebsocket ~~~~~
 
-// ~~~~~ start include (1242) davegut.samsungTvApps ~~~~~
+// ~~~~~ start include (1244) davegut.samsungTvApps ~~~~~
 library ( // library marker davegut.samsungTvApps, line 1
 	name: "samsungTvApps", // library marker davegut.samsungTvApps, line 2
 	namespace: "davegut", // library marker davegut.samsungTvApps, line 3
@@ -1373,80 +1433,76 @@ def updateAppCodes() { // library marker davegut.samsungTvApps, line 164
 	if (!state.appData) { state.appData = [:] } // library marker davegut.samsungTvApps, line 165
 	if (device.currentValue("switch") == "on") { // library marker davegut.samsungTvApps, line 166
 		logInfo("updateAppCodes: [currentDbSize: ${state.appData.size()}, availableCodes: ${appIdList().size()}]") // library marker davegut.samsungTvApps, line 167
-		if (pollInterval != null) { // library marker davegut.samsungTvApps, line 168
-			unschedule("onPoll") // library marker davegut.samsungTvApps, line 169
-			runIn(900, setOnPollInterval) // library marker davegut.samsungTvApps, line 170
-		} // library marker davegut.samsungTvApps, line 171
-		state.appIdIndex = 0 // library marker davegut.samsungTvApps, line 172
-		findNextApp() // library marker davegut.samsungTvApps, line 173
-	} else { // library marker davegut.samsungTvApps, line 174
-		logWarn("getAppList: [status: FAILED, reason: tvOff]") // library marker davegut.samsungTvApps, line 175
-	} // library marker davegut.samsungTvApps, line 176
-	device.updateSetting("resetAppCodes", [type:"bool", value: false]) // library marker davegut.samsungTvApps, line 177
-	device.updateSetting("findAppCodes", [type:"bool", value: false]) // library marker davegut.samsungTvApps, line 178
-} // library marker davegut.samsungTvApps, line 179
+		unschedule("onPoll") // library marker davegut.samsungTvApps, line 168
+		runIn(900, setOnPollInterval) // library marker davegut.samsungTvApps, line 169
+		state.appIdIndex = 0 // library marker davegut.samsungTvApps, line 170
+		findNextApp() // library marker davegut.samsungTvApps, line 171
+	} else { // library marker davegut.samsungTvApps, line 172
+		logWarn("getAppList: [status: FAILED, reason: tvOff]") // library marker davegut.samsungTvApps, line 173
+	} // library marker davegut.samsungTvApps, line 174
+	device.updateSetting("resetAppCodes", [type:"bool", value: false]) // library marker davegut.samsungTvApps, line 175
+	device.updateSetting("findAppCodes", [type:"bool", value: false]) // library marker davegut.samsungTvApps, line 176
+} // library marker davegut.samsungTvApps, line 177
 
-def findNextApp() { // library marker davegut.samsungTvApps, line 181
-	def appIds = appIdList() // library marker davegut.samsungTvApps, line 182
-	def logData = [:] // library marker davegut.samsungTvApps, line 183
-	if (state.appIdIndex < appIds.size()) { // library marker davegut.samsungTvApps, line 184
-		def nextApp = appIds[state.appIdIndex] // library marker davegut.samsungTvApps, line 185
-		state.appIdIndex += 1 // library marker davegut.samsungTvApps, line 186
-		getAppData(nextApp) // library marker davegut.samsungTvApps, line 187
-		runIn(6, findNextApp) // library marker davegut.samsungTvApps, line 188
-	} else { // library marker davegut.samsungTvApps, line 189
-		if (pollInterval != null) { // library marker davegut.samsungTvApps, line 190
-			runIn(20, setOnPollInterval) // library marker davegut.samsungTvApps, line 191
-		} // library marker davegut.samsungTvApps, line 192
-		logData << [status: "Complete", appIdsScanned: state.appIdIndex] // library marker davegut.samsungTvApps, line 193
-		logData << [totalApps: state.appData.size(), appData: state.appData] // library marker davegut.samsungTvApps, line 194
-		state.remove("appIdIndex") // library marker davegut.samsungTvApps, line 195
-		logInfo("findNextApp: ${logData}") // library marker davegut.samsungTvApps, line 196
-	} // library marker davegut.samsungTvApps, line 197
-} // library marker davegut.samsungTvApps, line 198
+def findNextApp() { // library marker davegut.samsungTvApps, line 179
+	def appIds = appIdList() // library marker davegut.samsungTvApps, line 180
+	def logData = [:] // library marker davegut.samsungTvApps, line 181
+	if (state.appIdIndex < appIds.size()) { // library marker davegut.samsungTvApps, line 182
+		def nextApp = appIds[state.appIdIndex] // library marker davegut.samsungTvApps, line 183
+		state.appIdIndex += 1 // library marker davegut.samsungTvApps, line 184
+		getAppData(nextApp) // library marker davegut.samsungTvApps, line 185
+		runIn(6, findNextApp) // library marker davegut.samsungTvApps, line 186
+	} else { // library marker davegut.samsungTvApps, line 187
+		runIn(20, setOnPollInterval) // library marker davegut.samsungTvApps, line 188
+		logData << [status: "Complete", appIdsScanned: state.appIdIndex] // library marker davegut.samsungTvApps, line 189
+		logData << [totalApps: state.appData.size(), appData: state.appData] // library marker davegut.samsungTvApps, line 190
+		state.remove("appIdIndex") // library marker davegut.samsungTvApps, line 191
+		logInfo("findNextApp: ${logData}") // library marker davegut.samsungTvApps, line 192
+	} // library marker davegut.samsungTvApps, line 193
+} // library marker davegut.samsungTvApps, line 194
 
-def appIdList() { // library marker davegut.samsungTvApps, line 200
-	def appList = [ // library marker davegut.samsungTvApps, line 201
-		"kk8MbItQ0H.VUDU", "vYmY3ACVaa.emby", "ZmmGjO6VKO.slingtv", "MCmYXNxgcu.DisneyPlus", // library marker davegut.samsungTvApps, line 202
-		"PvWgqxV3Xa.YouTubeTV", "LBUAQX1exg.Hulu", "AQKO41xyKP.AmazonAlexa", "3KA0pm7a7V.TubiTV", // library marker davegut.samsungTvApps, line 203
-		"cj37Ni3qXM.HBONow", "gzcc4LRFBF.Peacock", "9Ur5IzDKqV.TizenYouTube", "BjyffU0l9h.Stream", // library marker davegut.samsungTvApps, line 204
-		"3202203026841", "3202103023232", "3202103023185", "3202012022468", "3202012022421", // library marker davegut.samsungTvApps, line 205
-		"3202011022316", "3202011022131", "3202010022098", "3202009021877", "3202008021577", // library marker davegut.samsungTvApps, line 206
-		"3202008021462", "3202008021439", "3202007021336", "3202004020674", "3202004020626", // library marker davegut.samsungTvApps, line 207
-		"3202003020365", "3201910019457", "3201910019449", "3201910019420", "3201910019378", // library marker davegut.samsungTvApps, line 208
-		"3201910019365", "3201910019354", "3201909019271", "3201909019175", "3201908019041", // library marker davegut.samsungTvApps, line 209
-		"3201908019022", "3201907018807", "3201907018786", "3201907018784", "3201906018693", // library marker davegut.samsungTvApps, line 210
-		"3201901017768", "3201901017640", "3201812017479", "3201810017091", "3201810017074", // library marker davegut.samsungTvApps, line 211
-		"3201807016597", "3201806016432", "3201806016390", "3201806016381", "3201805016367", // library marker davegut.samsungTvApps, line 212
-		"3201803015944", "3201803015934", "3201803015869", "3201711015226", "3201710015067", // library marker davegut.samsungTvApps, line 213
-		"3201710015037", "3201710015016", "3201710014874", "3201710014866", "3201707014489", // library marker davegut.samsungTvApps, line 214
-		"3201706014250", "3201706012478", "3201704012212", "3201704012147", "3201703012079", // library marker davegut.samsungTvApps, line 215
-		"3201703012065", "3201703012029", "3201702011851", "3201612011418", "3201611011210", // library marker davegut.samsungTvApps, line 216
-		"3201611011005", "3201611010983", "3201608010385", "3201608010191", "3201607010031", // library marker davegut.samsungTvApps, line 217
-		"3201606009910", "3201606009798", "3201606009684", "3201604009182", "3201603008746", // library marker davegut.samsungTvApps, line 218
-		"3201603008210", "3201602007865", "3201601007670", "3201601007625", "3201601007230", // library marker davegut.samsungTvApps, line 219
-		"3201512006963", "3201512006785", "3201511006428", "3201510005981", "3201506003488", // library marker davegut.samsungTvApps, line 220
-		"3201506003486", "3201506003175", "3201504001965", "121299000612", "121299000101", // library marker davegut.samsungTvApps, line 221
-		"121299000089", "111399002220", "111399002034", "111399000741", "111299002148", // library marker davegut.samsungTvApps, line 222
-		"111299001912", "111299000769", "111012010001", "11101200001", "11101000407", // library marker davegut.samsungTvApps, line 223
-		"11091000000" // library marker davegut.samsungTvApps, line 224
-	] // library marker davegut.samsungTvApps, line 225
-	return appList // library marker davegut.samsungTvApps, line 226
-} // library marker davegut.samsungTvApps, line 227
+def appIdList() { // library marker davegut.samsungTvApps, line 196
+	def appList = [ // library marker davegut.samsungTvApps, line 197
+		"kk8MbItQ0H.VUDU", "vYmY3ACVaa.emby", "ZmmGjO6VKO.slingtv", "MCmYXNxgcu.DisneyPlus", // library marker davegut.samsungTvApps, line 198
+		"PvWgqxV3Xa.YouTubeTV", "LBUAQX1exg.Hulu", "AQKO41xyKP.AmazonAlexa", "3KA0pm7a7V.TubiTV", // library marker davegut.samsungTvApps, line 199
+		"cj37Ni3qXM.HBONow", "gzcc4LRFBF.Peacock", "9Ur5IzDKqV.TizenYouTube", "BjyffU0l9h.Stream", // library marker davegut.samsungTvApps, line 200
+		"3202203026841", "3202103023232", "3202103023185", "3202012022468", "3202012022421", // library marker davegut.samsungTvApps, line 201
+		"3202011022316", "3202011022131", "3202010022098", "3202009021877", "3202008021577", // library marker davegut.samsungTvApps, line 202
+		"3202008021462", "3202008021439", "3202007021336", "3202004020674", "3202004020626", // library marker davegut.samsungTvApps, line 203
+		"3202003020365", "3201910019457", "3201910019449", "3201910019420", "3201910019378", // library marker davegut.samsungTvApps, line 204
+		"3201910019365", "3201910019354", "3201909019271", "3201909019175", "3201908019041", // library marker davegut.samsungTvApps, line 205
+		"3201908019022", "3201907018807", "3201907018786", "3201907018784", "3201906018693", // library marker davegut.samsungTvApps, line 206
+		"3201901017768", "3201901017640", "3201812017479", "3201810017091", "3201810017074", // library marker davegut.samsungTvApps, line 207
+		"3201807016597", "3201806016432", "3201806016390", "3201806016381", "3201805016367", // library marker davegut.samsungTvApps, line 208
+		"3201803015944", "3201803015934", "3201803015869", "3201711015226", "3201710015067", // library marker davegut.samsungTvApps, line 209
+		"3201710015037", "3201710015016", "3201710014874", "3201710014866", "3201707014489", // library marker davegut.samsungTvApps, line 210
+		"3201706014250", "3201706012478", "3201704012212", "3201704012147", "3201703012079", // library marker davegut.samsungTvApps, line 211
+		"3201703012065", "3201703012029", "3201702011851", "3201612011418", "3201611011210", // library marker davegut.samsungTvApps, line 212
+		"3201611011005", "3201611010983", "3201608010385", "3201608010191", "3201607010031", // library marker davegut.samsungTvApps, line 213
+		"3201606009910", "3201606009798", "3201606009684", "3201604009182", "3201603008746", // library marker davegut.samsungTvApps, line 214
+		"3201603008210", "3201602007865", "3201601007670", "3201601007625", "3201601007230", // library marker davegut.samsungTvApps, line 215
+		"3201512006963", "3201512006785", "3201511006428", "3201510005981", "3201506003488", // library marker davegut.samsungTvApps, line 216
+		"3201506003486", "3201506003175", "3201504001965", "121299000612", "121299000101", // library marker davegut.samsungTvApps, line 217
+		"121299000089", "111399002220", "111399002034", "111399000741", "111299002148", // library marker davegut.samsungTvApps, line 218
+		"111299001912", "111299000769", "111012010001", "11101200001", "11101000407", // library marker davegut.samsungTvApps, line 219
+		"11091000000" // library marker davegut.samsungTvApps, line 220
+	] // library marker davegut.samsungTvApps, line 221
+	return appList // library marker davegut.samsungTvApps, line 222
+} // library marker davegut.samsungTvApps, line 223
 
-def appRunBrowser() { appOpenByName("Browser") } // library marker davegut.samsungTvApps, line 229
+def appRunBrowser() { appOpenByName("Browser") } // library marker davegut.samsungTvApps, line 225
 
-def appRunYouTube() { appOpenByName("YouTube") } // library marker davegut.samsungTvApps, line 231
+def appRunYouTube() { appOpenByName("YouTube") } // library marker davegut.samsungTvApps, line 227
 
-def appRunNetflix() { appOpenByName("Netflix") } // library marker davegut.samsungTvApps, line 233
+def appRunNetflix() { appOpenByName("Netflix") } // library marker davegut.samsungTvApps, line 229
 
-def appRunPrimeVideo() { appOpenByName("Prime Video") } // library marker davegut.samsungTvApps, line 235
+def appRunPrimeVideo() { appOpenByName("Prime Video") } // library marker davegut.samsungTvApps, line 231
 
-def appRunYouTubeTV() { appOpenByName("YouTubeTV") } // library marker davegut.samsungTvApps, line 237
+def appRunYouTubeTV() { appOpenByName("YouTubeTV") } // library marker davegut.samsungTvApps, line 233
 
-def appRunHulu() { appOpenByName("Hulu") } // library marker davegut.samsungTvApps, line 239
+def appRunHulu() { appOpenByName("Hulu") } // library marker davegut.samsungTvApps, line 235
 
-// ~~~~~ end include (1242) davegut.samsungTvApps ~~~~~
+// ~~~~~ end include (1244) davegut.samsungTvApps ~~~~~
 
 // ~~~~~ start include (1072) davegut.Logging ~~~~~
 library ( // library marker davegut.Logging, line 1
@@ -1502,5 +1558,7 @@ def logDebug(msg) { // library marker davegut.Logging, line 47
 } // library marker davegut.Logging, line 51
 
 def logWarn(msg) { log.warn "${device.displayName}-${driverVer()}: ${msg}" } // library marker davegut.Logging, line 53
+
+def logError(msg) { log.error "${device.displayName}-${driverVer()}: ${msg}" } // library marker davegut.Logging, line 55
 
 // ~~~~~ end include (1072) davegut.Logging ~~~~~
