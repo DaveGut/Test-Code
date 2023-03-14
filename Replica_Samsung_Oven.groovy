@@ -25,7 +25,14 @@ metadata {
 				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/HubiThingsReplica%20Drivers/Replica_Samsung_Oven.groovy"
 			   ){
 		
-		command "aTestMe"
+/*		command "aStartTest"
+		command "bBakeSet"
+		command "bAirFrySet"
+		command "bTempSet300"
+		command "bTempSet350"
+		command "bTimeSetOneHour"
+		command "bTimeSetTwoHour"
+		command "bzTestHubitatTimeSet"*/
 		
 		capability "Configuration"
 		capability "Refresh"
@@ -65,17 +72,111 @@ metadata {
 }
 
 
-def aTestMe() {
-	logInfo("<b>TEST: Starting operationTime = ${device.currentValue("operationTime")}</b>")
-	logInfo("<b>TEST_1: setting Op Time to 01:00:00 using second format</b>")
-	setOperationTime(3600)
-	pauseExecution(5000)
-	logInfo("<b>TEST_1: operationTime = ${device.currentValue("operationTime")}</b>")
-	logInfo("<b>TEST_2: setting Op Time to 00:45:30 using hh:mm:ss format</b>")
-	setOperationTime("00:45:30")
-	pauseExecution(5000)
-	logInfo("<b>TEST_2: operationTime = ${device.currentValue("operationTime")}</b>")
+
+//	===== TEST CODE =====
+command "aStartTest"
+command "bBakeSet"
+command "bAirFrySet"
+command "bTempSet300"
+command "bTempSet350"
+command "bTimeSetOneHour"
+command "bTimeSetTwoHour"
+command "bzTestHubitatTimeSet"
+
+def aStartTest() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Start Test</b>: Using SmartThings, set oven to Air Fry and press B Air Fry Set.")
 }
+
+def bAirFrySet() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Air Fry Set</b>: Using SmartThings, set oven to Bake and press B Bake Set.")
+}
+	
+def bBakeSet() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Bake Set</b>: Using SmartThings, set Temperature to 300F and press B Temp Set300.")
+}
+	
+def bTempSet300() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Temp Set300</b>: Using SmartThings, set Temperature to 350F and press B Temp Set350.")
+}
+	
+def bTempSet350() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Temp Set350</b>: Using SmartThings, set Time to 1 hour and press B Time Set One Hour.")
+}
+	
+def bTimeSetOneHour() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Time Set One Hour</b>: Using SmartThings, set Time to 2 hour and press B Time Set Two Hour.")
+}
+	
+def bTimeSetTwoHour() {
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+	logInfo("<b>Time Set Two Hour</b>: Press the hubitat command bz Test Hubitat Time Set.")
+}
+	
+def bzTestHubitatTimeSet() {
+	logInfo("<b>===== Begin Test =====</b>")
+	listAttributes(true)
+
+	sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["01:00:00"])
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+
+	pauseExecution(5000)
+	sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["time": "00:45:00"])
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+
+	pauseExecution(5000)
+	sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", [1800])
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+
+	pauseExecution(5000)
+	sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["time": 1800])
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+
+	pauseExecution(5000)
+	setOvenMode("AirFryer")
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+
+	pauseExecution(5000)
+	setOvenSetpoint(400)
+	deviceRefresh()
+	runIn(2, aGetAttrs)
+
+	pauseExecution(5000)
+	logInfo("<b>===== End Test =====</b>")
+}
+
+def aGetAttrs() {
+	Map attrs = [
+		ovenJobState: device.currentValue("ovenJobState"),
+		doorState: device.currentValue("doorState"),
+		operatingState: device.currentValue("operatingState"),
+		remoteControlEnabled: device.currentValue("remoteControlEnabled"),
+		lockState: device.currentValue("lockState"),
+		ovenSetpoint: device.currentValue("ovenSetpoint"),
+		ovenMode: device.currentValue("ovenMode"),
+		operationTime: device.currentValue("operationTime")
+		]
+	log.info attrs
+}
+//	===== TEST CODE END =====
+
 
 
 //	===== Installation, setup and update =====
@@ -86,7 +187,7 @@ def installed() {
 
 def updated() {
 	unschedule()
-	configure()
+//	configure()
 	pauseExecution(2000)
 	def updStatus = [:]
 	if (!getDataValue("driverVersion") || getDataValue("driverVersion") != driverVer()) {
@@ -96,8 +197,9 @@ def updated() {
 	if (logEnable) { runIn(1800, debugLogOff) }
 	if (traceLog) { runIn(600, traceLogOff) }
 	updStatus << [logEnable: logEnable, infoLog: infoLog, traceLog: traceLog]
-	refresh()
-	runIn(5, listAttributes,[data:true])
+	runIn(3, configure)
+//	refresh()
+//	runIn(5, listAttributes,[data:true])
 	logInfo("updated: ${updStatus}")
 }
 
@@ -113,15 +215,10 @@ Map designChildren() {
 }
 
 def sendRawCommand(component, capability, command, arguments = []) {
-//	if (device.currentValue("remoteControlEnabled")) {
-		def deviceId = new JSONObject(getDataValue("description")).deviceId
-		def status = parent.setSmartDeviceCommand(deviceId, component, capability, command, arguments)
-		logInfo("sendRawCommand: [${component}, ${capability}, ${command}, ${arguments}, ${status}]")
-		return "[${component}, ${capability}, ${command}, ${arguments}, ${status}]"
-//	} else {
-//		logWarn("sendRawCommand: Command Aborted.  The Remote Control must be enabled at the stove prior to entering control commands.")
-//		return "[Aborted: Remote Control disabled]"
-//	}
+	def deviceId = new JSONObject(getDataValue("description")).deviceId
+	def status = parent.setSmartDeviceCommand(deviceId, component, capability, command, arguments)
+	logInfo("<b>sendRawCommand: [${component}, ${capability}, ${command}, ${arguments}, ${status}]</b>")
+	return "[${component}, ${capability}, ${command}, ${arguments}, ${status}]"
 }
 
 //	===== Device Commands =====
@@ -519,195 +616,190 @@ def configure() { // library marker replica.samsungReplicaCommon, line 15
 	Map logData = [:] // library marker replica.samsungReplicaCommon, line 16
     updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers())) // library marker replica.samsungReplicaCommon, line 17
     updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands())) // library marker replica.samsungReplicaCommon, line 18
-	logData << [triggers: "initialized", commands: "initialized"] // library marker replica.samsungReplicaCommon, line 19
-	setReplicaRules() // library marker replica.samsungReplicaCommon, line 20
-	logData << [replicaRules: "initialized"] // library marker replica.samsungReplicaCommon, line 21
-	state.checkCapabilities = true // library marker replica.samsungReplicaCommon, line 22
-	sendCommand("configure") // library marker replica.samsungReplicaCommon, line 23
-	logData: [device: "configuring HubiThings"] // library marker replica.samsungReplicaCommon, line 24
-	logInfo("configure: ${logData}") // library marker replica.samsungReplicaCommon, line 25
-} // library marker replica.samsungReplicaCommon, line 26
+	updateDataValue("rules", getReplicaRules()) // library marker replica.samsungReplicaCommon, line 19
+//	setReplicaRules() // library marker replica.samsungReplicaCommon, line 20
+	logData << [triggers: "initialized", commands: "initialized", rules: "initialized"] // library marker replica.samsungReplicaCommon, line 21
+	logData << [replicaRules: "initialized"] // library marker replica.samsungReplicaCommon, line 22
+	state.checkCapabilities = true // library marker replica.samsungReplicaCommon, line 23
+	sendCommand("configure") // library marker replica.samsungReplicaCommon, line 24
+	logData: [device: "configuring HubiThings"] // library marker replica.samsungReplicaCommon, line 25
+//	refresh() // library marker replica.samsungReplicaCommon, line 26
+	runIn(5, listAttributes,[data:true]) // library marker replica.samsungReplicaCommon, line 27
+	logInfo("configure: ${logData}") // library marker replica.samsungReplicaCommon, line 28
+} // library marker replica.samsungReplicaCommon, line 29
 
-Map getReplicaCommands() { // library marker replica.samsungReplicaCommon, line 28
-    return (["replicaEvent":[[name:"parent*",type:"OBJECT"],[name:"event*",type:"JSON_OBJECT"]],  // library marker replica.samsungReplicaCommon, line 29
-			 "replicaStatus":[[name:"parent*",type:"OBJECT"],[name:"event*",type:"JSON_OBJECT"]],  // library marker replica.samsungReplicaCommon, line 30
-			 "replicaHealth":[[name:"parent*",type:"OBJECT"],[name:"health*",type:"JSON_OBJECT"]], // library marker replica.samsungReplicaCommon, line 31
-			 "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]]) // library marker replica.samsungReplicaCommon, line 32
-} // library marker replica.samsungReplicaCommon, line 33
+Map getReplicaCommands() { // library marker replica.samsungReplicaCommon, line 31
+    return (["replicaEvent":[[name:"parent*",type:"OBJECT"],[name:"event*",type:"JSON_OBJECT"]],  // library marker replica.samsungReplicaCommon, line 32
+			 "replicaStatus":[[name:"parent*",type:"OBJECT"],[name:"event*",type:"JSON_OBJECT"]],  // library marker replica.samsungReplicaCommon, line 33
+			 "replicaHealth":[[name:"parent*",type:"OBJECT"],[name:"health*",type:"JSON_OBJECT"]], // library marker replica.samsungReplicaCommon, line 34
+			 "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]]) // library marker replica.samsungReplicaCommon, line 35
+} // library marker replica.samsungReplicaCommon, line 36
 
-Map getReplicaTriggers() { // library marker replica.samsungReplicaCommon, line 35
-	Map triggers = [  // library marker replica.samsungReplicaCommon, line 36
-		refresh:[], deviceRefresh: [] // library marker replica.samsungReplicaCommon, line 37
-	] // library marker replica.samsungReplicaCommon, line 38
-	return triggers // library marker replica.samsungReplicaCommon, line 39
+Map getReplicaTriggers() { // library marker replica.samsungReplicaCommon, line 38
+	return [refresh:[], deviceRefresh: []] // library marker replica.samsungReplicaCommon, line 39
 } // library marker replica.samsungReplicaCommon, line 40
 
-String setReplicaRules() { // library marker replica.samsungReplicaCommon, line 42
-	def rules = """{"version":1,"components":[ // library marker replica.samsungReplicaCommon, line 43
-{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true}, // library marker replica.samsungReplicaCommon, line 44
-{"trigger":{"name":"refresh","label":"command: refresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger"}, // library marker replica.samsungReplicaCommon, line 45
-{"trigger":{"name":"deviceRefresh","label":"command: deviceRefresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger"}]}""" // library marker replica.samsungReplicaCommon, line 46
+String getReplicaRules() { // library marker replica.samsungReplicaCommon, line 42
+	return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"name":"refresh","label":"command: refresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger"},{"trigger":{"name":"deviceRefresh","label":"command: deviceRefresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger"}]}""" // library marker replica.samsungReplicaCommon, line 43
+} // library marker replica.samsungReplicaCommon, line 44
 
-	updateDataValue("rules", rules) // library marker replica.samsungReplicaCommon, line 48
-} // library marker replica.samsungReplicaCommon, line 49
+//	===== Event Parse Interface s===== // library marker replica.samsungReplicaCommon, line 46
+void replicaStatus(def parent=null, Map status=null) { // library marker replica.samsungReplicaCommon, line 47
+	def logData = [parent: parent, status: status] // library marker replica.samsungReplicaCommon, line 48
+	if (state.checkCapabilities) { // library marker replica.samsungReplicaCommon, line 49
+		runIn(4, checkCapabilities, [data: status.components]) // library marker replica.samsungReplicaCommon, line 50
+	} else if (state.refreshAttributes) { // library marker replica.samsungReplicaCommon, line 51
+		refreshAttributes(status.components) // library marker replica.samsungReplicaCommon, line 52
+	} // library marker replica.samsungReplicaCommon, line 53
+	logDebug("replicaStatus: ${logData}") // library marker replica.samsungReplicaCommon, line 54
+} // library marker replica.samsungReplicaCommon, line 55
 
-//	===== Event Parse Interface s===== // library marker replica.samsungReplicaCommon, line 51
-void replicaStatus(def parent=null, Map status=null) { // library marker replica.samsungReplicaCommon, line 52
-	def logData = [parent: parent, status: status] // library marker replica.samsungReplicaCommon, line 53
-	if (state.checkCapabilities) { // library marker replica.samsungReplicaCommon, line 54
-		runIn(4, checkCapabilities, [data: status.components]) // library marker replica.samsungReplicaCommon, line 55
-	} else if (state.refreshAttributes) { // library marker replica.samsungReplicaCommon, line 56
-		refreshAttributes(status.components) // library marker replica.samsungReplicaCommon, line 57
-	} // library marker replica.samsungReplicaCommon, line 58
-	logDebug("replicaStatus: ${logData}") // library marker replica.samsungReplicaCommon, line 59
-} // library marker replica.samsungReplicaCommon, line 60
+def checkCapabilities(components) { // library marker replica.samsungReplicaCommon, line 57
+	state.checkCapabilities = false // library marker replica.samsungReplicaCommon, line 58
+	def componentId = getDataValue("componentId") // library marker replica.samsungReplicaCommon, line 59
+	def disabledCapabilities = [] // library marker replica.samsungReplicaCommon, line 60
+	try { // library marker replica.samsungReplicaCommon, line 61
+		disabledCapabilities << components[componentId]["custom.disabledCapabilities"].disabledCapabilities.value // library marker replica.samsungReplicaCommon, line 62
+	} catch (e) { } // library marker replica.samsungReplicaCommon, line 63
 
-def checkCapabilities(components) { // library marker replica.samsungReplicaCommon, line 62
-	state.checkCapabilities = false // library marker replica.samsungReplicaCommon, line 63
-	def componentId = getDataValue("componentId") // library marker replica.samsungReplicaCommon, line 64
-	def disabledCapabilities = [] // library marker replica.samsungReplicaCommon, line 65
-	try { // library marker replica.samsungReplicaCommon, line 66
-		disabledCapabilities << components[componentId]["custom.disabledCapabilities"].disabledCapabilities.value // library marker replica.samsungReplicaCommon, line 67
-	} catch (e) { } // library marker replica.samsungReplicaCommon, line 68
+	def enabledCapabilities = [] // library marker replica.samsungReplicaCommon, line 65
+	Map description // library marker replica.samsungReplicaCommon, line 66
+	try { // library marker replica.samsungReplicaCommon, line 67
+		description = new JsonSlurper().parseText(getDataValue("description")) // library marker replica.samsungReplicaCommon, line 68
+	} catch (error) { // library marker replica.samsungReplicaCommon, line 69
+		logWarn("checkCapabilities.  Data element Description not loaded. Run Configure") // library marker replica.samsungReplicaCommon, line 70
+	} // library marker replica.samsungReplicaCommon, line 71
+	def thisComponent = description.components.find { it.id == componentId } // library marker replica.samsungReplicaCommon, line 72
+	thisComponent.capabilities.each { capability -> // library marker replica.samsungReplicaCommon, line 73
+		if (designCapabilities().contains(capability.id) && // library marker replica.samsungReplicaCommon, line 74
+			!disabledCapabilities.contains(capability.id)) { // library marker replica.samsungReplicaCommon, line 75
+			enabledCapabilities << capability.id // library marker replica.samsungReplicaCommon, line 76
+		} // library marker replica.samsungReplicaCommon, line 77
+	} // library marker replica.samsungReplicaCommon, line 78
+	state.deviceCapabilities = enabledCapabilities // library marker replica.samsungReplicaCommon, line 79
+	runIn(1, configureChildren, [data: components]) // library marker replica.samsungReplicaCommon, line 80
+	runIn(5, refreshAttributes, [data: components]) // library marker replica.samsungReplicaCommon, line 81
+	logInfo("checkCapabilities: [design: ${designCapabilities()}, disabled: ${disabledCapabilities}, enabled: ${enabledCapabilities}]") // library marker replica.samsungReplicaCommon, line 82
+} // library marker replica.samsungReplicaCommon, line 83
 
-	def enabledCapabilities = [] // library marker replica.samsungReplicaCommon, line 70
-	Map description // library marker replica.samsungReplicaCommon, line 71
-	try { // library marker replica.samsungReplicaCommon, line 72
-		description = new JsonSlurper().parseText(getDataValue("description")) // library marker replica.samsungReplicaCommon, line 73
-	} catch (error) { // library marker replica.samsungReplicaCommon, line 74
-		logWarn("checkCapabilities.  Data element Description not loaded. Run Configure") // library marker replica.samsungReplicaCommon, line 75
-	} // library marker replica.samsungReplicaCommon, line 76
-	def thisComponent = description.components.find { it.id == componentId } // library marker replica.samsungReplicaCommon, line 77
-	thisComponent.capabilities.each { capability -> // library marker replica.samsungReplicaCommon, line 78
-		if (designCapabilities().contains(capability.id) && // library marker replica.samsungReplicaCommon, line 79
-			!disabledCapabilities.contains(capability.id)) { // library marker replica.samsungReplicaCommon, line 80
-			enabledCapabilities << capability.id // library marker replica.samsungReplicaCommon, line 81
-		} // library marker replica.samsungReplicaCommon, line 82
-	} // library marker replica.samsungReplicaCommon, line 83
-	state.deviceCapabilities = enabledCapabilities // library marker replica.samsungReplicaCommon, line 84
-	runIn(1, configureChildren, [data: components]) // library marker replica.samsungReplicaCommon, line 85
-	runIn(5, refreshAttributes, [data: components]) // library marker replica.samsungReplicaCommon, line 86
-	logInfo("checkCapabilities: [design: ${designCapabilities()}, disabled: ${disabledCapabilities}, enabled: ${enabledCapabilities}]") // library marker replica.samsungReplicaCommon, line 87
-} // library marker replica.samsungReplicaCommon, line 88
+//	===== Child Configure / Install ===== // library marker replica.samsungReplicaCommon, line 85
+def configureChildren(components) { // library marker replica.samsungReplicaCommon, line 86
+	def logData = [:] // library marker replica.samsungReplicaCommon, line 87
+	def componentId = getDataValue("componentId") // library marker replica.samsungReplicaCommon, line 88
+	def disabledComponents = [] // library marker replica.samsungReplicaCommon, line 89
+	try { // library marker replica.samsungReplicaCommon, line 90
+		disabledComponents << components[componentId]["custom.disabledComponents"].disabledComponents.value // library marker replica.samsungReplicaCommon, line 91
+	} catch (e) { } // library marker replica.samsungReplicaCommon, line 92
+	designChildren().each { designChild -> // library marker replica.samsungReplicaCommon, line 93
+		if (disabledComponents.contains(designChild.key)) { // library marker replica.samsungReplicaCommon, line 94
+			logData << ["${designChild.key}": [status: "SmartThingsDisabled"]] // library marker replica.samsungReplicaCommon, line 95
+		} else { // library marker replica.samsungReplicaCommon, line 96
+			def dni = device.getDeviceNetworkId() // library marker replica.samsungReplicaCommon, line 97
+			def childDni = "dni-${designChild.key}" // library marker replica.samsungReplicaCommon, line 98
+			def child = getChildDevice(childDni) // library marker replica.samsungReplicaCommon, line 99
+			if (child == null) { // library marker replica.samsungReplicaCommon, line 100
+				def type = "Replica ${appliance()} ${designChild.value}" // library marker replica.samsungReplicaCommon, line 101
+				def name = "${device.displayName} ${designChild.key}" // library marker replica.samsungReplicaCommon, line 102
+				try { // library marker replica.samsungReplicaCommon, line 103
+					addChildDevice("replicaChild", "${type}", "${childDni}", [ // library marker replica.samsungReplicaCommon, line 104
+						name: type,  // library marker replica.samsungReplicaCommon, line 105
+						label: name, // library marker replica.samsungReplicaCommon, line 106
+						componentId: designChild.key // library marker replica.samsungReplicaCommon, line 107
+					]) // library marker replica.samsungReplicaCommon, line 108
+					logData << ["${name}": [status: "installed"]] // library marker replica.samsungReplicaCommon, line 109
+				} catch (error) { // library marker replica.samsungReplicaCommon, line 110
+					logData << ["${name}": [status: "FAILED", reason: error]] // library marker replica.samsungReplicaCommon, line 111
+				} // library marker replica.samsungReplicaCommon, line 112
+			} else { // library marker replica.samsungReplicaCommon, line 113
+				child.checkCapabilities(components) // library marker replica.samsungReplicaCommon, line 114
+				logData << ["${name}": [status: "already installed"]] // library marker replica.samsungReplicaCommon, line 115
+			} // library marker replica.samsungReplicaCommon, line 116
+		} // library marker replica.samsungReplicaCommon, line 117
+	} // library marker replica.samsungReplicaCommon, line 118
+	runIn(1, checkChildren, [data: components]) // library marker replica.samsungReplicaCommon, line 119
+	runIn(3, refreshAttributes, [data: components]) // library marker replica.samsungReplicaCommon, line 120
+	logInfo("configureChildren: ${logData}") // library marker replica.samsungReplicaCommon, line 121
+} // library marker replica.samsungReplicaCommon, line 122
 
-//	===== Child Configure / Install ===== // library marker replica.samsungReplicaCommon, line 90
-def configureChildren(components) { // library marker replica.samsungReplicaCommon, line 91
-	def logData = [:] // library marker replica.samsungReplicaCommon, line 92
-	def componentId = getDataValue("componentId") // library marker replica.samsungReplicaCommon, line 93
-	def disabledComponents = [] // library marker replica.samsungReplicaCommon, line 94
-	try { // library marker replica.samsungReplicaCommon, line 95
-		disabledComponents << components[componentId]["custom.disabledComponents"].disabledComponents.value // library marker replica.samsungReplicaCommon, line 96
-	} catch (e) { } // library marker replica.samsungReplicaCommon, line 97
-	designChildren().each { designChild -> // library marker replica.samsungReplicaCommon, line 98
-		if (disabledComponents.contains(designChild.key)) { // library marker replica.samsungReplicaCommon, line 99
-			logData << ["${designChild.key}": [status: "SmartThingsDisabled"]] // library marker replica.samsungReplicaCommon, line 100
-		} else { // library marker replica.samsungReplicaCommon, line 101
-			def dni = device.getDeviceNetworkId() // library marker replica.samsungReplicaCommon, line 102
-			def childDni = "dni-${designChild.key}" // library marker replica.samsungReplicaCommon, line 103
-			def child = getChildDevice(childDni) // library marker replica.samsungReplicaCommon, line 104
-			if (child == null) { // library marker replica.samsungReplicaCommon, line 105
-				def type = "Replica ${appliance()} ${designChild.value}" // library marker replica.samsungReplicaCommon, line 106
-				def name = "${device.displayName} ${designChild.key}" // library marker replica.samsungReplicaCommon, line 107
-				try { // library marker replica.samsungReplicaCommon, line 108
-					addChildDevice("replicaChild", "${type}", "${childDni}", [ // library marker replica.samsungReplicaCommon, line 109
-						name: type,  // library marker replica.samsungReplicaCommon, line 110
-						label: name, // library marker replica.samsungReplicaCommon, line 111
-						componentId: designChild.key // library marker replica.samsungReplicaCommon, line 112
-					]) // library marker replica.samsungReplicaCommon, line 113
-					logData << ["${name}": [status: "installed"]] // library marker replica.samsungReplicaCommon, line 114
-				} catch (error) { // library marker replica.samsungReplicaCommon, line 115
-					logData << ["${name}": [status: "FAILED", reason: error]] // library marker replica.samsungReplicaCommon, line 116
-				} // library marker replica.samsungReplicaCommon, line 117
-			} else { // library marker replica.samsungReplicaCommon, line 118
-				child.checkCapabilities(components) // library marker replica.samsungReplicaCommon, line 119
-				logData << ["${name}": [status: "already installed"]] // library marker replica.samsungReplicaCommon, line 120
-			} // library marker replica.samsungReplicaCommon, line 121
-		} // library marker replica.samsungReplicaCommon, line 122
-	} // library marker replica.samsungReplicaCommon, line 123
-	runIn(1, checkChildren, [data: components]) // library marker replica.samsungReplicaCommon, line 124
-	runIn(3, refreshAttributes, [data: components]) // library marker replica.samsungReplicaCommon, line 125
-	logInfo("configureChildren: ${logData}") // library marker replica.samsungReplicaCommon, line 126
-} // library marker replica.samsungReplicaCommon, line 127
+def checkChildren(components) { // library marker replica.samsungReplicaCommon, line 124
+	getChildDevices().each { // library marker replica.samsungReplicaCommon, line 125
+		it.checkCapabilities(components) // library marker replica.samsungReplicaCommon, line 126
+	} // library marker replica.samsungReplicaCommon, line 127
+} // library marker replica.samsungReplicaCommon, line 128
 
-def checkChildren(components) { // library marker replica.samsungReplicaCommon, line 129
-	getChildDevices().each { // library marker replica.samsungReplicaCommon, line 130
-		it.checkCapabilities(components) // library marker replica.samsungReplicaCommon, line 131
-	} // library marker replica.samsungReplicaCommon, line 132
-} // library marker replica.samsungReplicaCommon, line 133
+//	===== Attributes // library marker replica.samsungReplicaCommon, line 130
+def refreshAttributes(components) { // library marker replica.samsungReplicaCommon, line 131
+	state.refreshAttributes = false // library marker replica.samsungReplicaCommon, line 132
+	def component = components."${getDataValue("componentId")}" // library marker replica.samsungReplicaCommon, line 133
+	logDebug("refreshAttributes: ${component}") // library marker replica.samsungReplicaCommon, line 134
+	component.each { capability -> // library marker replica.samsungReplicaCommon, line 135
+		capability.value.each { attribute -> // library marker replica.samsungReplicaCommon, line 136
+			parseEvent([capability: capability.key, // library marker replica.samsungReplicaCommon, line 137
+						attribute: attribute.key, // library marker replica.samsungReplicaCommon, line 138
+						value: attribute.value.value, // library marker replica.samsungReplicaCommon, line 139
+						unit: attribute.value.unit]) // library marker replica.samsungReplicaCommon, line 140
+			pauseExecution(50) // library marker replica.samsungReplicaCommon, line 141
+		} // library marker replica.samsungReplicaCommon, line 142
+	} // library marker replica.samsungReplicaCommon, line 143
+	getChildDevices().each { // library marker replica.samsungReplicaCommon, line 144
+		it.refreshAttributes(components) // library marker replica.samsungReplicaCommon, line 145
+	} // library marker replica.samsungReplicaCommon, line 146
+} // library marker replica.samsungReplicaCommon, line 147
 
-//	===== Attributes // library marker replica.samsungReplicaCommon, line 135
-def refreshAttributes(components) { // library marker replica.samsungReplicaCommon, line 136
-	state.refreshAttributes = false // library marker replica.samsungReplicaCommon, line 137
-	def component = components."${getDataValue("componentId")}" // library marker replica.samsungReplicaCommon, line 138
-	logDebug("refreshAttributes: ${component}") // library marker replica.samsungReplicaCommon, line 139
-	component.each { capability -> // library marker replica.samsungReplicaCommon, line 140
-		capability.value.each { attribute -> // library marker replica.samsungReplicaCommon, line 141
-			parseEvent([capability: capability.key, // library marker replica.samsungReplicaCommon, line 142
-						attribute: attribute.key, // library marker replica.samsungReplicaCommon, line 143
-						value: attribute.value.value, // library marker replica.samsungReplicaCommon, line 144
-						unit: attribute.value.unit]) // library marker replica.samsungReplicaCommon, line 145
-			pauseExecution(50) // library marker replica.samsungReplicaCommon, line 146
-		} // library marker replica.samsungReplicaCommon, line 147
-	} // library marker replica.samsungReplicaCommon, line 148
-	getChildDevices().each { // library marker replica.samsungReplicaCommon, line 149
-		it.refreshAttributes(components) // library marker replica.samsungReplicaCommon, line 150
-	} // library marker replica.samsungReplicaCommon, line 151
+void replicaHealth(def parent=null, Map health=null) { // library marker replica.samsungReplicaCommon, line 149
+	if(parent) { logInfo("replicaHealth: ${parent?.getLabel()}") } // library marker replica.samsungReplicaCommon, line 150
+	if(health) { logInfo("replicaHealth: ${health}") } // library marker replica.samsungReplicaCommon, line 151
 } // library marker replica.samsungReplicaCommon, line 152
 
-void replicaHealth(def parent=null, Map health=null) { // library marker replica.samsungReplicaCommon, line 154
-	if(parent) { logInfo("replicaHealth: ${parent?.getLabel()}") } // library marker replica.samsungReplicaCommon, line 155
-	if(health) { logInfo("replicaHealth: ${health}") } // library marker replica.samsungReplicaCommon, line 156
-} // library marker replica.samsungReplicaCommon, line 157
+def setHealthStatusValue(value) {     // library marker replica.samsungReplicaCommon, line 154
+    sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value") // library marker replica.samsungReplicaCommon, line 155
+} // library marker replica.samsungReplicaCommon, line 156
 
-def setHealthStatusValue(value) {     // library marker replica.samsungReplicaCommon, line 159
-    sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value") // library marker replica.samsungReplicaCommon, line 160
-} // library marker replica.samsungReplicaCommon, line 161
+void replicaEvent(def parent=null, Map event=null) { // library marker replica.samsungReplicaCommon, line 158
+	if (event.deviceEvent.componentId == getDataValue("componentId")) { // library marker replica.samsungReplicaCommon, line 159
+		try { // library marker replica.samsungReplicaCommon, line 160
+			parseEvent(event.deviceEvent) // library marker replica.samsungReplicaCommon, line 161
+		} catch (err) { // library marker replica.samsungReplicaCommon, line 162
+			logWarn("replicaEvent: [event = ${event}, error: ${err}") // library marker replica.samsungReplicaCommon, line 163
+		} // library marker replica.samsungReplicaCommon, line 164
+	} else { // library marker replica.samsungReplicaCommon, line 165
+		getChildDevices().each {  // library marker replica.samsungReplicaCommon, line 166
+			it.parentEvent(event) // library marker replica.samsungReplicaCommon, line 167
+		} // library marker replica.samsungReplicaCommon, line 168
+	} // library marker replica.samsungReplicaCommon, line 169
+} // library marker replica.samsungReplicaCommon, line 170
 
-void replicaEvent(def parent=null, Map event=null) { // library marker replica.samsungReplicaCommon, line 163
-	if (event.deviceEvent.componentId == getDataValue("componentId")) { // library marker replica.samsungReplicaCommon, line 164
-		try { // library marker replica.samsungReplicaCommon, line 165
-			parseEvent(event.deviceEvent) // library marker replica.samsungReplicaCommon, line 166
-		} catch (err) { // library marker replica.samsungReplicaCommon, line 167
-			logWarn("replicaEvent: [event = ${event}, error: ${err}") // library marker replica.samsungReplicaCommon, line 168
-		} // library marker replica.samsungReplicaCommon, line 169
-	} else { // library marker replica.samsungReplicaCommon, line 170
-		getChildDevices().each {  // library marker replica.samsungReplicaCommon, line 171
-			it.parentEvent(event) // library marker replica.samsungReplicaCommon, line 172
-		} // library marker replica.samsungReplicaCommon, line 173
-	} // library marker replica.samsungReplicaCommon, line 174
-} // library marker replica.samsungReplicaCommon, line 175
+def parseCorrect(event) { // library marker replica.samsungReplicaCommon, line 172
+	logTrace("parseCorrect: <b>${event}</b>") // library marker replica.samsungReplicaCommon, line 173
+	if (device.currentValue(event.attribute).toString() != event.value.toString()) { // library marker replica.samsungReplicaCommon, line 174
+		sendEvent(name: event.attribute, value: event.value, unit: event.unit) // library marker replica.samsungReplicaCommon, line 175
+		logInfo("parseCorrect: [event: ${event}]") // library marker replica.samsungReplicaCommon, line 176
+	} // library marker replica.samsungReplicaCommon, line 177
+} // library marker replica.samsungReplicaCommon, line 178
 
-def parseCorrect(event) { // library marker replica.samsungReplicaCommon, line 177
-	logTrace("parseCorrect: <b>${event}</b>") // library marker replica.samsungReplicaCommon, line 178
-	if (device.currentValue(event.attribute).toString() != event.value.toString()) { // library marker replica.samsungReplicaCommon, line 179
-		sendEvent(name: event.attribute, value: event.value, unit: event.unit) // library marker replica.samsungReplicaCommon, line 180
-		logInfo("parseCorrect: [event: ${event}]") // library marker replica.samsungReplicaCommon, line 181
-	} // library marker replica.samsungReplicaCommon, line 182
-} // library marker replica.samsungReplicaCommon, line 183
+def setState(event) { // library marker replica.samsungReplicaCommon, line 180
+	def attribute = event.attribute // library marker replica.samsungReplicaCommon, line 181
+	if (state."${attribute}" != event.value) { // library marker replica.samsungReplicaCommon, line 182
+		state."${event.attribute}" = event.value // library marker replica.samsungReplicaCommon, line 183
+		logInfo("setState: [event: ${event}]") // library marker replica.samsungReplicaCommon, line 184
+	} // library marker replica.samsungReplicaCommon, line 185
+} // library marker replica.samsungReplicaCommon, line 186
 
-def setState(event) { // library marker replica.samsungReplicaCommon, line 185
-	def attribute = event.attribute // library marker replica.samsungReplicaCommon, line 186
-	if (state."${attribute}" != event.value) { // library marker replica.samsungReplicaCommon, line 187
-		state."${event.attribute}" = event.value // library marker replica.samsungReplicaCommon, line 188
-		logInfo("setState: [event: ${event}]") // library marker replica.samsungReplicaCommon, line 189
-	} // library marker replica.samsungReplicaCommon, line 190
-} // library marker replica.samsungReplicaCommon, line 191
+def sendCommand(String name, def value=null, String unit=null, data=[:]) { // library marker replica.samsungReplicaCommon, line 188
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now]) // library marker replica.samsungReplicaCommon, line 189
+} // library marker replica.samsungReplicaCommon, line 190
 
-def sendCommand(String name, def value=null, String unit=null, data=[:]) { // library marker replica.samsungReplicaCommon, line 193
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now]) // library marker replica.samsungReplicaCommon, line 194
-} // library marker replica.samsungReplicaCommon, line 195
+//	===== Refresh Commands ===== // library marker replica.samsungReplicaCommon, line 192
+def refresh() { // library marker replica.samsungReplicaCommon, line 193
+	logDebug("refresh") // library marker replica.samsungReplicaCommon, line 194
+	state.refreshAttributes = true // library marker replica.samsungReplicaCommon, line 195
+	sendCommand("deviceRefresh") // library marker replica.samsungReplicaCommon, line 196
+	runIn(1, sendCommand, [data: ["refresh"]]) // library marker replica.samsungReplicaCommon, line 197
+} // library marker replica.samsungReplicaCommon, line 198
 
-//	===== Refresh Commands ===== // library marker replica.samsungReplicaCommon, line 197
-def refresh() { // library marker replica.samsungReplicaCommon, line 198
-	logDebug("refresh") // library marker replica.samsungReplicaCommon, line 199
-	state.refreshAttributes = true // library marker replica.samsungReplicaCommon, line 200
+def deviceRefresh() { // library marker replica.samsungReplicaCommon, line 200
 	sendCommand("deviceRefresh") // library marker replica.samsungReplicaCommon, line 201
-	runIn(1, sendCommand, [data: ["refresh"]]) // library marker replica.samsungReplicaCommon, line 202
-} // library marker replica.samsungReplicaCommon, line 203
-
-def deviceRefresh() { // library marker replica.samsungReplicaCommon, line 205
-	sendCommand("deviceRefresh") // library marker replica.samsungReplicaCommon, line 206
-} // library marker replica.samsungReplicaCommon, line 207
+} // library marker replica.samsungReplicaCommon, line 202
 
 // ~~~~~ end include (1251) replica.samsungReplicaCommon ~~~~~
 
