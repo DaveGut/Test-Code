@@ -832,16 +832,17 @@ def getTestAttrs() { // library marker replica.samsungOvenTest, line 129
 		setpoint: device.currentValue("ovenSetpoint"), // library marker replica.samsungOvenTest, line 132
 		opTime: device.currentValue("operationTime"), // library marker replica.samsungOvenTest, line 133
 		opState: device.currentValue("operatingState"), // library marker replica.samsungOvenTest, line 134
-		jobState: device.currentValue("ovenJobState") // library marker replica.samsungOvenTest, line 135
-		] // library marker replica.samsungOvenTest, line 136
-	return attrs // library marker replica.samsungOvenTest, line 137
-} // library marker replica.samsungOvenTest, line 138
+		jobState: device.currentValue("ovenJobState"), // library marker replica.samsungOvenTest, line 135
+		remoteControl: device.currentValue("remoteControlEnabled") // library marker replica.samsungOvenTest, line 136
+		] // library marker replica.samsungOvenTest, line 137
+	return attrs // library marker replica.samsungOvenTest, line 138
+} // library marker replica.samsungOvenTest, line 139
 
-def testStop() { // library marker replica.samsungOvenTest, line 140
-	stop() // library marker replica.samsungOvenTest, line 141
-	pauseExecution(15000) // library marker replica.samsungOvenTest, line 142
-	log.trace "Stop: [attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 143
-	return // library marker replica.samsungOvenTest, line 144
-} // library marker replica.samsungOvenTest, line 145
+def testStop() { // library marker replica.samsungOvenTest, line 141
+	stop() // library marker replica.samsungOvenTest, line 142
+	pauseExecution(15000) // library marker replica.samsungOvenTest, line 143
+	log.trace "Stop: [attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 144
+	return // library marker replica.samsungOvenTest, line 145
+} // library marker replica.samsungOvenTest, line 146
 
 // ~~~~~ end include (1254) replica.samsungOvenTest ~~~~~
