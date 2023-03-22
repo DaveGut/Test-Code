@@ -723,128 +723,129 @@ def aTest1() { // library marker replica.samsungOvenTest, line 21
 	log.trace "===== startTestOvenMode(1): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 23
 	def halt = testStop() // library marker replica.samsungOvenTest, line 24
 	pauseExecution(10000) // library marker replica.samsungOvenTest, line 25
-	log.trace "TestOvenMode(1)A: [cap: ovenMode, mode: ConvectionBake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 26
+	def status = sendRawCommand("main", "ovenMode", "setOvenMode", ["ConvectionBake"]) // library marker replica.samsungOvenTest, line 26
+	log.trace "TestOvenMode(1)A: [cap: ovenMode, mode: ConvectionBake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 27
 
-	status = sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Bake"]) // library marker replica.samsungOvenTest, line 28
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 29
-	log.trace "TestOvenMode(1)B: [cap: samsungce.ovenMode, mode: Bake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 30
-	log.trace "===================== END TEST 1 =========================" // library marker replica.samsungOvenTest, line 31
-} // library marker replica.samsungOvenTest, line 32
+	status = sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Bake"]) // library marker replica.samsungOvenTest, line 29
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 30
+	log.trace "TestOvenMode(1)B: [cap: samsungce.ovenMode, mode: Bake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 31
+	log.trace "===================== END TEST 1 =========================" // library marker replica.samsungOvenTest, line 32
+} // library marker replica.samsungOvenTest, line 33
 
-def aTest2() { // library marker replica.samsungOvenTest, line 34
-//	Set oven setpoint.  Expected result: ovenSetpoint changes. // library marker replica.samsungOvenTest, line 35
-	log.trace "===== startTestSetpoint(2): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 36
-	def status = sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [333]) // library marker replica.samsungOvenTest, line 37
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 38
-	log.trace "TestSetpoint(2): [setpoint: 333, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 39
-	log.trace "===================== END TEST 2 =========================" // library marker replica.samsungOvenTest, line 40
-} // library marker replica.samsungOvenTest, line 41
+def aTest2() { // library marker replica.samsungOvenTest, line 35
+//	Set oven setpoint.  Expected result: ovenSetpoint changes. // library marker replica.samsungOvenTest, line 36
+	log.trace "===== startTestSetpoint(2): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 37
+	def status = sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [333]) // library marker replica.samsungOvenTest, line 38
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 39
+	log.trace "TestSetpoint(2): [setpoint: 333, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 40
+	log.trace "===================== END TEST 2 =========================" // library marker replica.samsungOvenTest, line 41
+} // library marker replica.samsungOvenTest, line 42
 
-def aTest3() { // library marker replica.samsungOvenTest, line 43
-//	Set operating time then START.  Expected result: operating time set to 01:01:01 and oven started. // library marker replica.samsungOvenTest, line 44
-	log.trace "===== startTestOpTime(3): [warning: should start the device, attrs: ${getTestAttrs()}] =====" // library marker replica.samsungOvenTest, line 45
-	def status = sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["02:02:02"]) // library marker replica.samsungOvenTest, line 46
-	pauseExecution(2000) // library marker replica.samsungOvenTest, line 47
-	deviceRefresh() // library marker replica.samsungOvenTest, line 48
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 49
-	log.trace "TestOpTime(3)A: [cap: samsungce.ovenOperatingState, opTime: 02:02:02, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 50
+def aTest3() { // library marker replica.samsungOvenTest, line 44
+//	Set operating time then START.  Expected result: operating time set to 01:01:01 and oven started. // library marker replica.samsungOvenTest, line 45
+	log.trace "===== startTestOpTime(3): [warning: should start the device, attrs: ${getTestAttrs()}] =====" // library marker replica.samsungOvenTest, line 46
+	def status = sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["02:02:02"]) // library marker replica.samsungOvenTest, line 47
+	pauseExecution(2000) // library marker replica.samsungOvenTest, line 48
+	deviceRefresh() // library marker replica.samsungOvenTest, line 49
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 50
+	log.trace "TestOpTime(3)A: [cap: samsungce.ovenOperatingState, opTime: 02:02:02, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 51
 
-	status = sendRawCommand(getDataValue("componentId"), "ovenOperatingState", "start",[time: 4444]) // library marker replica.samsungOvenTest, line 52
-	pauseExecution(2000) // library marker replica.samsungOvenTest, line 53
-	deviceRefresh() // library marker replica.samsungOvenTest, line 54
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 55
-	log.trace "TestOpTime(3)C: [cap: ovenOperatingState, opTime: 4444, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 56
+	status = sendRawCommand(getDataValue("componentId"), "ovenOperatingState", "start",[time: 4444]) // library marker replica.samsungOvenTest, line 53
+	pauseExecution(2000) // library marker replica.samsungOvenTest, line 54
+	deviceRefresh() // library marker replica.samsungOvenTest, line 55
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 56
+	log.trace "TestOpTime(3)C: [cap: ovenOperatingState, opTime: 4444, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 57
 
-	status = sendRawCommand(getDataValue("componentId"), "ovenOperatingState", "start",[mode: "Bake", time: 3661, setpoint: 333]) // library marker replica.samsungOvenTest, line 58
-	pauseExecution(2000) // library marker replica.samsungOvenTest, line 59
-	deviceRefresh() // library marker replica.samsungOvenTest, line 60
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 61
-	log.trace "TestOpTime(3)C: [cap: ovenOperatingState, opTime: 3661, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 62
-	log.trace "===================== END TEST 3 =========================" // library marker replica.samsungOvenTest, line 63
-} // library marker replica.samsungOvenTest, line 64
+	status = sendRawCommand(getDataValue("componentId"), "ovenOperatingState", "start",[mode: "Bake", time: 3661, setpoint: 333]) // library marker replica.samsungOvenTest, line 59
+	pauseExecution(2000) // library marker replica.samsungOvenTest, line 60
+	deviceRefresh() // library marker replica.samsungOvenTest, line 61
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 62
+	log.trace "TestOpTime(3)C: [cap: ovenOperatingState, opTime: 3661, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 63
+	log.trace "===================== END TEST 3 =========================" // library marker replica.samsungOvenTest, line 64
+} // library marker replica.samsungOvenTest, line 65
 
-def aTest4() { // library marker replica.samsungOvenTest, line 66
-//	Change Operating time while running.  Expected result: operating time changes to 00:55:55. // library marker replica.samsungOvenTest, line 67
-	log.trace "===== startTestOpTime_2(4): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 68
-	def status = sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["00:55:55"]) // library marker replica.samsungOvenTest, line 69
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 70
-	log.trace "TestOpTime_2(4)A: [cap: samsungce.ovenOperatingState, opTime: 00:55:55, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 71
+def aTest4() { // library marker replica.samsungOvenTest, line 67
+//	Change Operating time while running.  Expected result: operating time changes to 00:55:55. // library marker replica.samsungOvenTest, line 68
+	log.trace "===== startTestOpTime_2(4): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 69
+	def status = sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["00:55:55"]) // library marker replica.samsungOvenTest, line 70
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 71
+	log.trace "TestOpTime_2(4)A: [cap: samsungce.ovenOperatingState, opTime: 00:55:55, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 72
 
-	def curMode = device.currentValue("ovenMode") // library marker replica.samsungOvenTest, line 73
-	def curSetpoint = device.currentValue("ovenSetpoint").toInteger() // library marker replica.samsungOvenTest, line 74
-	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: curMode, time: 4000, setpoint: curSetpoint]) // library marker replica.samsungOvenTest, line 75
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 76
-	log.trace "TestOpTime_2(4)B: [cap: ovenOperatingState, opTime: 4000, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 77
+	def curMode = device.currentValue("ovenMode") // library marker replica.samsungOvenTest, line 74
+	def curSetpoint = device.currentValue("ovenSetpoint").toInteger() // library marker replica.samsungOvenTest, line 75
+	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: curMode, time: 4000, setpoint: curSetpoint]) // library marker replica.samsungOvenTest, line 76
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 77
+	log.trace "TestOpTime_2(4)B: [cap: ovenOperatingState, opTime: 4000, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 78
 
-	status = sendRawCommand("main", "ovenOperatingState", "start",[time: 3000]) // library marker replica.samsungOvenTest, line 79
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 80
-	log.trace "TestOpTime_2(4)C: [cap: ovenOperatingState, opTime: 3000, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 81
-	log.trace "===================== END TEST 4 =========================" // library marker replica.samsungOvenTest, line 82
-} // library marker replica.samsungOvenTest, line 83
+	status = sendRawCommand("main", "ovenOperatingState", "start",[time: 3000]) // library marker replica.samsungOvenTest, line 80
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 81
+	log.trace "TestOpTime_2(4)C: [cap: ovenOperatingState, opTime: 3000, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 82
+	log.trace "===================== END TEST 4 =========================" // library marker replica.samsungOvenTest, line 83
+} // library marker replica.samsungOvenTest, line 84
 
-def aTest5() { // library marker replica.samsungOvenTest, line 85
-//	Change Mode while running.  Expected result: Mode changes to AirFryer. // library marker replica.samsungOvenTest, line 86
-	log.trace "===== startTestOvenMode_2(6): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 87
-	def status = sendRawCommand("main", "ovenMode", "setOvenMode", ["ConvectionRoast"]) // library marker replica.samsungOvenTest, line 88
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 89
-	log.trace "TestOvenMode(5)_2A: [cap: ovenMode, mode: ConvectionRoast, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 90
+def aTest5() { // library marker replica.samsungOvenTest, line 86
+//	Change Mode while running.  Expected result: Mode changes to AirFryer. // library marker replica.samsungOvenTest, line 87
+	log.trace "===== startTestOvenMode_2(6): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 88
+	def status = sendRawCommand("main", "ovenMode", "setOvenMode", ["ConvectionRoast"]) // library marker replica.samsungOvenTest, line 89
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 90
+	log.trace "TestOvenMode(5)_2A: [cap: ovenMode, mode: ConvectionRoast, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 91
 
-	status = sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Broil"]) // library marker replica.samsungOvenTest, line 92
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 93
-	log.trace "TestOvenMode(5)_2B: [cap: samsungce.ovenMode, mode: Broil, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 94
+	status = sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Broil"]) // library marker replica.samsungOvenTest, line 93
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 94
+	log.trace "TestOvenMode(5)_2B: [cap: samsungce.ovenMode, mode: Broil, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 95
 
-	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: "Bake"]) // library marker replica.samsungOvenTest, line 96
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 97
-	log.trace "TestOvenMode(5)_2C: [cap: ovenOperatingState, mode: Bake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 98
-	log.trace "===================== END TEST 5 =========================" // library marker replica.samsungOvenTest, line 99
-} // library marker replica.samsungOvenTest, line 100
+	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: "Bake"]) // library marker replica.samsungOvenTest, line 97
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 98
+	log.trace "TestOvenMode(5)_2C: [cap: ovenOperatingState, mode: Bake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 99
+	log.trace "===================== END TEST 5 =========================" // library marker replica.samsungOvenTest, line 100
+} // library marker replica.samsungOvenTest, line 101
 
-def aTest6() { // library marker replica.samsungOvenTest, line 102
-//	Stop then Restart using Existing Parameters. // library marker replica.samsungOvenTest, line 103
-	log.trace "startTestResume(6): ${getTestAttrs()}" // library marker replica.samsungOvenTest, line 104
-	def halt = testStop() // library marker replica.samsungOvenTest, line 105
-	def status = sendRawCommand("main", "ovenOperatingState", "start", []) // library marker replica.samsungOvenTest, line 106
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 107
-	log.trace "TestResume(6)A: [type: noParams, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 108
+def aTest6() { // library marker replica.samsungOvenTest, line 103
+//	Stop then Restart using Existing Parameters. // library marker replica.samsungOvenTest, line 104
+	log.trace "startTestResume(6): ${getTestAttrs()}" // library marker replica.samsungOvenTest, line 105
+	def halt = testStop() // library marker replica.samsungOvenTest, line 106
+	def status = sendRawCommand("main", "ovenOperatingState", "start", []) // library marker replica.samsungOvenTest, line 107
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 108
+	log.trace "TestResume(6)A: [type: noParams, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 109
 
-	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: "Bake", time: 666, setpoint: 275]) // library marker replica.samsungOvenTest, line 110
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 111
-	log.trace "TestResume(8)A: [type: allParams, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 112
-	log.trace "===================== END TEST 6 =========================" // library marker replica.samsungOvenTest, line 113
-} // library marker replica.samsungOvenTest, line 114
+	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: "Bake", time: 666, setpoint: 275]) // library marker replica.samsungOvenTest, line 111
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 112
+	log.trace "TestResume(8)A: [type: allParams, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 113
+	log.trace "===================== END TEST 6 =========================" // library marker replica.samsungOvenTest, line 114
+} // library marker replica.samsungOvenTest, line 115
 
-def aTest7() { // library marker replica.samsungOvenTest, line 116
-//	Halt then try setting setpoint // library marker replica.samsungOvenTest, line 117
-	log.trace "===== startTestSetpoint(7)_2: ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 118
-	def halt = testStop() // library marker replica.samsungOvenTest, line 119
-	def status = sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [400]) // library marker replica.samsungOvenTest, line 120
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 121
-	log.trace "testSetpoint(7)_2: [setpoint: 400, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 122
-	log.trace "===================== END TEST 7 =========================" // library marker replica.samsungOvenTest, line 123
-} // library marker replica.samsungOvenTest, line 124
+def aTest7() { // library marker replica.samsungOvenTest, line 117
+//	Halt then try setting setpoint // library marker replica.samsungOvenTest, line 118
+	log.trace "===== startTestSetpoint(7)_2: ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 119
+	def halt = testStop() // library marker replica.samsungOvenTest, line 120
+	def status = sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [400]) // library marker replica.samsungOvenTest, line 121
+	pauseExecution(10000) // library marker replica.samsungOvenTest, line 122
+	log.trace "testSetpoint(7)_2: [setpoint: 400, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 123
+	log.trace "===================== END TEST 7 =========================" // library marker replica.samsungOvenTest, line 124
+} // library marker replica.samsungOvenTest, line 125
 
-def aTest8() { testStop() } // library marker replica.samsungOvenTest, line 126
+def aTest8() { testStop() } // library marker replica.samsungOvenTest, line 127
 
-//	Test Utilities // library marker replica.samsungOvenTest, line 128
-def getTestAttrs() { // library marker replica.samsungOvenTest, line 129
-	def attrs = [ // library marker replica.samsungOvenTest, line 130
-		mode: device.currentValue("ovenMode"), // library marker replica.samsungOvenTest, line 131
-		setpoint: device.currentValue("ovenSetpoint"), // library marker replica.samsungOvenTest, line 132
-		opTime: device.currentValue("operationTime"), // library marker replica.samsungOvenTest, line 133
-		opState: device.currentValue("operatingState"), // library marker replica.samsungOvenTest, line 134
-		jobState: device.currentValue("ovenJobState"), // library marker replica.samsungOvenTest, line 135
-		remoteControl: device.currentValue("remoteControlEnabled"), // library marker replica.samsungOvenTest, line 136
-		kidsLock: device.currentValue("lockState"), // library marker replica.samsungOvenTest, line 137
-		door: device.currentValue("doorState") // library marker replica.samsungOvenTest, line 138
-		] // library marker replica.samsungOvenTest, line 139
-	return attrs // library marker replica.samsungOvenTest, line 140
-} // library marker replica.samsungOvenTest, line 141
+//	Test Utilities // library marker replica.samsungOvenTest, line 129
+def getTestAttrs() { // library marker replica.samsungOvenTest, line 130
+	def attrs = [ // library marker replica.samsungOvenTest, line 131
+		mode: device.currentValue("ovenMode"), // library marker replica.samsungOvenTest, line 132
+		setpoint: device.currentValue("ovenSetpoint"), // library marker replica.samsungOvenTest, line 133
+		opTime: device.currentValue("operationTime"), // library marker replica.samsungOvenTest, line 134
+		opState: device.currentValue("operatingState"), // library marker replica.samsungOvenTest, line 135
+		jobState: device.currentValue("ovenJobState"), // library marker replica.samsungOvenTest, line 136
+		remoteControl: device.currentValue("remoteControlEnabled"), // library marker replica.samsungOvenTest, line 137
+		kidsLock: device.currentValue("lockState"), // library marker replica.samsungOvenTest, line 138
+		door: device.currentValue("doorState") // library marker replica.samsungOvenTest, line 139
+		] // library marker replica.samsungOvenTest, line 140
+	return attrs // library marker replica.samsungOvenTest, line 141
+} // library marker replica.samsungOvenTest, line 142
 
-def testStop() { // library marker replica.samsungOvenTest, line 143
-	stop() // library marker replica.samsungOvenTest, line 144
-	pauseExecution(15000) // library marker replica.samsungOvenTest, line 145
-	log.trace "Stop: [attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 146
-	return // library marker replica.samsungOvenTest, line 147
-} // library marker replica.samsungOvenTest, line 148
+def testStop() { // library marker replica.samsungOvenTest, line 144
+	stop() // library marker replica.samsungOvenTest, line 145
+	pauseExecution(15000) // library marker replica.samsungOvenTest, line 146
+	log.trace "Stop: [attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 147
+	return // library marker replica.samsungOvenTest, line 148
+} // library marker replica.samsungOvenTest, line 149
 
 // ~~~~~ end include (1254) replica.samsungOvenTest ~~~~~
