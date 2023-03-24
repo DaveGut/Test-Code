@@ -15,7 +15,7 @@
 Issues with this driver: Contact davegut via Private Message on the
 Hubitat Community site: https://community.hubitat.com/
 ==========================================================================*/
-def driverVer() { return "1.0T2" }
+def driverVer() { return "1.0T3" }
 def appliance() { return "Samsung Oven" }
 
 metadata {
@@ -244,11 +244,11 @@ def setEvent(event) { // library marker replica.samsungOvenCommon, line 116
 
 
 
-log.trace "<b>setEvent</b>: ${event}" // library marker replica.samsungOvenCommon, line 121
 
 
 
-	if (device.currentValue(event.attribute).toString() != event.value.toString()) { // library marker replica.samsungOvenCommon, line 125
+	if (device.currentValue(event.attribute).toString() != event.value.toString()) { // library marker replica.samsungOvenCommon, line 124
+log.trace "<b>setEvent</b>: ${event}" // library marker replica.samsungOvenCommon, line 125
 		sendEvent(name: event.attribute, value: event.value, unit: event.unit) // library marker replica.samsungOvenCommon, line 126
 		logInfo("setEvent: [event: ${event}]") // library marker replica.samsungOvenCommon, line 127
 	} // library marker replica.samsungOvenCommon, line 128
@@ -697,7 +697,7 @@ def logWarn(msg) { log.warn "${device.displayName}-${driverVer()}: ${msg}" } // 
 
 // ~~~~~ end include (1072) davegut.Logging ~~~~~
 
-// ~~~~~ start include (1254) replica.samsungOvenTest ~~~~~
+// ~~~~~ start include (1257) replica.samsungOvenTest ~~~~~
 library ( // library marker replica.samsungOvenTest, line 1
 	name: "samsungOvenTest", // library marker replica.samsungOvenTest, line 2
 	namespace: "replica", // library marker replica.samsungOvenTest, line 3
@@ -708,144 +708,198 @@ library ( // library marker replica.samsungOvenTest, line 1
 ) // library marker replica.samsungOvenTest, line 8
 //	Version 1.0 // library marker replica.samsungOvenTest, line 9
 
-//	===== Test Commands ===== // library marker replica.samsungOvenTest, line 11
-command "aTest1" // library marker replica.samsungOvenTest, line 12
-command "aTest2" // library marker replica.samsungOvenTest, line 13
-command "aTest3" // library marker replica.samsungOvenTest, line 14
-command "aTest4" // library marker replica.samsungOvenTest, line 15
-command "aTest5" // library marker replica.samsungOvenTest, line 16
-command "aTest6" // library marker replica.samsungOvenTest, line 17
-command "aTest7" // library marker replica.samsungOvenTest, line 18
-command "aTest8" // library marker replica.samsungOvenTest, line 19
 
-def aTest1() { // library marker replica.samsungOvenTest, line 21
-//Bake, Broil, ConvectionBake, ConvectionRoast // library marker replica.samsungOvenTest, line 22
-	log.trace "===== startTestOvenMode(1): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 23
-	def halt = testStop() // library marker replica.samsungOvenTest, line 24
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 25
-	def status = sendRawCommand("main", "ovenMode", "setOvenMode", ["ConvectionBake"]) // library marker replica.samsungOvenTest, line 26
-	log.trace "TestOvenMode(1)A: [cap: ovenMode, mode: ConvectionBake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 27
+//	===== Test Commands ===== // library marker replica.samsungOvenTest, line 12
+command "aTest1" // library marker replica.samsungOvenTest, line 13
+command "aTest2" // library marker replica.samsungOvenTest, line 14
+command "aReady" // library marker replica.samsungOvenTest, line 15
+command "aPaused" // library marker replica.samsungOvenTest, line 16
+command "aRunning" // library marker replica.samsungOvenTest, line 17
 
-	status = sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Bake"]) // library marker replica.samsungOvenTest, line 29
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 30
-	log.trace "TestOvenMode(1)B: [cap: samsungce.ovenMode, mode: Bake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 31
-	log.trace "===================== END TEST 1 =========================" // library marker replica.samsungOvenTest, line 32
-} // library marker replica.samsungOvenTest, line 33
+def aReady() { // library marker replica.samsungOvenTest, line 19
+	setEvent([attribute: "operatingState", value: "ready", unit: null]) // library marker replica.samsungOvenTest, line 20
+} // library marker replica.samsungOvenTest, line 21
+def aPaused() { // library marker replica.samsungOvenTest, line 22
+	setEvent([attribute: "operatingState", value: "paused", unit: null]) // library marker replica.samsungOvenTest, line 23
+} // library marker replica.samsungOvenTest, line 24
+def aRunning() { // library marker replica.samsungOvenTest, line 25
+	setEvent([attribute: "operatingState", value: "running", unit: null]) // library marker replica.samsungOvenTest, line 26
+} // library marker replica.samsungOvenTest, line 27
 
-def aTest2() { // library marker replica.samsungOvenTest, line 35
-//	Set oven setpoint.  Expected result: ovenSetpoint changes. // library marker replica.samsungOvenTest, line 36
-	log.trace "===== startTestSetpoint(2): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 37
-	def status = sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [333]) // library marker replica.samsungOvenTest, line 38
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 39
-	log.trace "TestSetpoint(2): [setpoint: 333, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 40
-	log.trace "===================== END TEST 2 =========================" // library marker replica.samsungOvenTest, line 41
-} // library marker replica.samsungOvenTest, line 42
+def aTest1() { // library marker replica.samsungOvenTest, line 29
+//	use samsungce.XX capabilities where available // library marker replica.samsungOvenTest, line 30
+//	Stop, mode: bake, setpoint: 333, operatingTime: 01:01:01 // library marker replica.samsungOvenTest, line 31
+	log.trace "===== start samsungce ControlTest: ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 32
+	if (device.currentValue("operatingState") != "ready") { // library marker replica.samsungOvenTest, line 33
+		sendRawCommand("main", "samsungce.ovenOperatingState", "stop") // library marker replica.samsungOvenTest, line 34
+	} // library marker replica.samsungOvenTest, line 35
+	runIn(10, samsungce_start) // library marker replica.samsungOvenTest, line 36
+} // library marker replica.samsungOvenTest, line 37
 
-def aTest3() { // library marker replica.samsungOvenTest, line 44
-//	Set operating time then START.  Expected result: operating time set to 01:01:01 and oven started. // library marker replica.samsungOvenTest, line 45
-	log.trace "===== startTestOpTime(3): [warning: should start the device, attrs: ${getTestAttrs()}] =====" // library marker replica.samsungOvenTest, line 46
-	def status = sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["02:02:02"]) // library marker replica.samsungOvenTest, line 47
-	pauseExecution(2000) // library marker replica.samsungOvenTest, line 48
-	deviceRefresh() // library marker replica.samsungOvenTest, line 49
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 50
-	log.trace "TestOpTime(3)A: [cap: samsungce.ovenOperatingState, opTime: 02:02:02, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 51
+def samsungce_start() { // library marker replica.samsungOvenTest, line 39
+	if (device.currentValue("operatingState") != "ready") { // library marker replica.samsungOvenTest, line 40
+		logWarn "samsungce STOP Failed.  Test Aborted" // library marker replica.samsungOvenTest, line 41
+		samsungce_completeTest() // library marker replica.samsungOvenTest, line 42
+	} else { // library marker replica.samsungOvenTest, line 43
+		sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Bake"]) // library marker replica.samsungOvenTest, line 44
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 45
+		sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [333]) // library marker replica.samsungOvenTest, line 46
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 47
+		sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["01:01:01"]) // library marker replica.samsungOvenTest, line 48
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 49
+		log.trace "samsungceSetParams: [priorToStart: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 50
+		sendRawCommand("main", "samsungce.ovenOperatingState", "start") // library marker replica.samsungOvenTest, line 51
+		runIn(30, samsungce_modifyParams) // library marker replica.samsungOvenTest, line 52
+	} // library marker replica.samsungOvenTest, line 53
+} // library marker replica.samsungOvenTest, line 54
 
-	status = sendRawCommand(getDataValue("componentId"), "ovenOperatingState", "start",[time: 4444]) // library marker replica.samsungOvenTest, line 53
-	pauseExecution(2000) // library marker replica.samsungOvenTest, line 54
-	deviceRefresh() // library marker replica.samsungOvenTest, line 55
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 56
-	log.trace "TestOpTime(3)C: [cap: ovenOperatingState, opTime: 4444, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 57
+def samsungce_modifyParams() { // library marker replica.samsungOvenTest, line 56
+	log.trace "samsungceStart: [FinishStartTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 57
+	if (device.currentValue("operatingState") != "running") { // library marker replica.samsungOvenTest, line 58
+		log.warn "samsungce START Failed.  TEST Aborted." // library marker replica.samsungOvenTest, line 59
+		samsungce_completeTest() // library marker replica.samsungOvenTest, line 60
+	} else { // library marker replica.samsungOvenTest, line 61
+//	set mode to convectionBake, setpoint to 388, and operation time to 00:35:00 // library marker replica.samsungOvenTest, line 62
+		sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["ConvectionBake"]) // library marker replica.samsungOvenTest, line 63
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 64
+		sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [380]) // library marker replica.samsungOvenTest, line 65
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 66
+		sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["00:35:00"]) // library marker replica.samsungOvenTest, line 67
+		runIn(30, samsungce_pauseTest) // library marker replica.samsungOvenTest, line 68
+	} // library marker replica.samsungOvenTest, line 69
+} // library marker replica.samsungOvenTest, line 70
 
-	status = sendRawCommand(getDataValue("componentId"), "ovenOperatingState", "start",[mode: "Bake", time: 3661, setpoint: 333]) // library marker replica.samsungOvenTest, line 59
-	pauseExecution(2000) // library marker replica.samsungOvenTest, line 60
-	deviceRefresh() // library marker replica.samsungOvenTest, line 61
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 62
-	log.trace "TestOpTime(3)C: [cap: ovenOperatingState, opTime: 3661, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 63
-	log.trace "===================== END TEST 3 =========================" // library marker replica.samsungOvenTest, line 64
-} // library marker replica.samsungOvenTest, line 65
+def samsungce_pauseTest() { // library marker replica.samsungOvenTest, line 72
+	log.trace "samsungceModify: [FinishModifyTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 73
+	if (device.currentValue("operatingState") != "running") { // library marker replica.samsungOvenTest, line 74
+		log.warn "MODIFY PARAMS CAUSED FAILURE.  TEST Aborted." // library marker replica.samsungOvenTest, line 75
+		samsungce_completeTest() // library marker replica.samsungOvenTest, line 76
+	} else { // library marker replica.samsungOvenTest, line 77
+//	set mode to convectionBake, setpoint to 388, and operation time to 00:35:00 // library marker replica.samsungOvenTest, line 78
+		sendRawCommand("main", "samsungce.ovenOperatingState", "pause") // library marker replica.samsungOvenTest, line 79
+		runIn(30, samsungce_restartTest) // library marker replica.samsungOvenTest, line 80
+	} // library marker replica.samsungOvenTest, line 81
+} // library marker replica.samsungOvenTest, line 82
 
-def aTest4() { // library marker replica.samsungOvenTest, line 67
-//	Change Operating time while running.  Expected result: operating time changes to 00:55:55. // library marker replica.samsungOvenTest, line 68
-	log.trace "===== startTestOpTime_2(4): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 69
-	def status = sendRawCommand("main", "samsungce.ovenOperatingState", "setOperationTime", ["00:55:55"]) // library marker replica.samsungOvenTest, line 70
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 71
-	log.trace "TestOpTime_2(4)A: [cap: samsungce.ovenOperatingState, opTime: 00:55:55, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 72
+def samsungce_restartTest() { // library marker replica.samsungOvenTest, line 84
+	log.trace "samsungcePause: [FinishPauseTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 85
+	if (device.currentValue("operatingState") != "paused") { // library marker replica.samsungOvenTest, line 86
+		log.warn "MODIFY PARAMS CAUSED FAILURE.  TEST Aborted." // library marker replica.samsungOvenTest, line 87
+		samsungce_completeTest() // library marker replica.samsungOvenTest, line 88
+	} else { // library marker replica.samsungOvenTest, line 89
+//	set mode to convectionBake, setpoint to 388, and operation time to 00:35:00 // library marker replica.samsungOvenTest, line 90
+		sendRawCommand("main", "samsungce.ovenOperatingState", "start") // library marker replica.samsungOvenTest, line 91
+		runIn(30, samsungce_completeTest) // library marker replica.samsungOvenTest, line 92
+	} // library marker replica.samsungOvenTest, line 93
+} // library marker replica.samsungOvenTest, line 94
 
-	def curMode = device.currentValue("ovenMode") // library marker replica.samsungOvenTest, line 74
-	def curSetpoint = device.currentValue("ovenSetpoint").toInteger() // library marker replica.samsungOvenTest, line 75
-	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: curMode, time: 4000, setpoint: curSetpoint]) // library marker replica.samsungOvenTest, line 76
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 77
-	log.trace "TestOpTime_2(4)B: [cap: ovenOperatingState, opTime: 4000, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 78
+def samsungce_completeTest() { // library marker replica.samsungOvenTest, line 96
+	log.trace "samsungceFinalAttrs: ${getTestAttrs()}" // library marker replica.samsungOvenTest, line 97
+	if (device.currentValue("operatingState") != "ready") { // library marker replica.samsungOvenTest, line 98
+		sendRawCommand("main", "samsungce.ovenOperatingState", "stop") // library marker replica.samsungOvenTest, line 99
+	} // library marker replica.samsungOvenTest, line 100
+	log.trace "===================== END samsungce Control Test =========================" // library marker replica.samsungOvenTest, line 101
+} // library marker replica.samsungOvenTest, line 102
 
-	status = sendRawCommand("main", "ovenOperatingState", "start",[time: 3000]) // library marker replica.samsungOvenTest, line 80
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 81
-	log.trace "TestOpTime_2(4)C: [cap: ovenOperatingState, opTime: 3000, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 82
-	log.trace "===================== END TEST 4 =========================" // library marker replica.samsungOvenTest, line 83
-} // library marker replica.samsungOvenTest, line 84
 
-def aTest5() { // library marker replica.samsungOvenTest, line 86
-//	Change Mode while running.  Expected result: Mode changes to AirFryer. // library marker replica.samsungOvenTest, line 87
-	log.trace "===== startTestOvenMode_2(6): ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 88
-	def status = sendRawCommand("main", "ovenMode", "setOvenMode", ["ConvectionRoast"]) // library marker replica.samsungOvenTest, line 89
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 90
-	log.trace "TestOvenMode(5)_2A: [cap: ovenMode, mode: ConvectionRoast, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 91
+def aTest2() { // library marker replica.samsungOvenTest, line 105
+//	use production capabilities and custom capabilities only // library marker replica.samsungOvenTest, line 106
+//	Stop, mode: ConvectionBake, setpoint: 355, operatingTime: 3600 // library marker replica.samsungOvenTest, line 107
+	log.trace "===== start basic ControlTest: ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 108
+	if (device.currentValue("operatingState") != "ready") { // library marker replica.samsungOvenTest, line 109
+		sendRawCommand("main", "ovenOperatingState", "stop") // library marker replica.samsungOvenTest, line 110
+	} // library marker replica.samsungOvenTest, line 111
+	runIn(10, basic_start) // library marker replica.samsungOvenTest, line 112
+} // library marker replica.samsungOvenTest, line 113
 
-	status = sendRawCommand("main", "samsungce.ovenMode", "setOvenMode", ["Broil"]) // library marker replica.samsungOvenTest, line 93
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 94
-	log.trace "TestOvenMode(5)_2B: [cap: samsungce.ovenMode, mode: Broil, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 95
+def basic_start() { // library marker replica.samsungOvenTest, line 115
+	if (device.currentValue("operatingState") != "ready") { // library marker replica.samsungOvenTest, line 116
+		logWarn "basic STOP Failed.  Test Aborted" // library marker replica.samsungOvenTest, line 117
+		basic_completeTest() // library marker replica.samsungOvenTest, line 118
+	} else { // library marker replica.samsungOvenTest, line 119
+		sendRawCommand("main", "ovenMode", "setOvenMode", ["ConvectionBake"]) // library marker replica.samsungOvenTest, line 120
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 121
+		sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [355]) // library marker replica.samsungOvenTest, line 122
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 123
+		log.trace "basicSetParams: [priorToStart: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 124
+		//	Test setting opTime with start command.  (may fail???) // library marker replica.samsungOvenTest, line 125
+		sendRawCommand("main", "ovenOperatingState", "start", [time: 3600]) // library marker replica.samsungOvenTest, line 126
+		runIn(30, basic_validateStart) // library marker replica.samsungOvenTest, line 127
+	} // library marker replica.samsungOvenTest, line 128
+} // library marker replica.samsungOvenTest, line 129
 
-	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: "Bake"]) // library marker replica.samsungOvenTest, line 97
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 98
-	log.trace "TestOvenMode(5)_2C: [cap: ovenOperatingState, mode: Bake, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 99
-	log.trace "===================== END TEST 5 =========================" // library marker replica.samsungOvenTest, line 100
-} // library marker replica.samsungOvenTest, line 101
+def basic_validateStart() { // library marker replica.samsungOvenTest, line 131
+	log.trace "basicStart: [FinishStartTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 132
+	if (device.currentValue("operatingState") != "running") { // library marker replica.samsungOvenTest, line 133
+		log.warn "basic START with opTime Failed.  Try full start command." // library marker replica.samsungOvenTest, line 134
+		sendRawCommand("main", "ovenOperatingState", "start", [mode: "ConvectionBake", time: 3600, setpoint: 355]) // library marker replica.samsungOvenTest, line 135
+		runIn(30, basic_modifyParams) // library marker replica.samsungOvenTest, line 136
+	} else { // library marker replica.samsungOvenTest, line 137
+		basic_modifyParams() // library marker replica.samsungOvenTest, line 138
+	} // library marker replica.samsungOvenTest, line 139
+} // library marker replica.samsungOvenTest, line 140
 
-def aTest6() { // library marker replica.samsungOvenTest, line 103
-//	Stop then Restart using Existing Parameters. // library marker replica.samsungOvenTest, line 104
-	log.trace "startTestResume(6): ${getTestAttrs()}" // library marker replica.samsungOvenTest, line 105
-	def halt = testStop() // library marker replica.samsungOvenTest, line 106
-	def status = sendRawCommand("main", "ovenOperatingState", "start", []) // library marker replica.samsungOvenTest, line 107
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 108
-	log.trace "TestResume(6)A: [type: noParams, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 109
+def basic_modifyParams() { // library marker replica.samsungOvenTest, line 142
+	log.trace "basicStart: [FinishStartTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 143
+	if (device.currentValue("operatingState") != "running") { // library marker replica.samsungOvenTest, line 144
+		log.warn "basic START Failed.  TEST Aborted." // library marker replica.samsungOvenTest, line 145
+		basic_completeTest() // library marker replica.samsungOvenTest, line 146
+	} else { // library marker replica.samsungOvenTest, line 147
+//	set mode to Bake, setpoint to 315, and operation time to 1800 // library marker replica.samsungOvenTest, line 148
+		sendRawCommand("main", "ovenMode", "setOvenMode", ["Bake"]) // library marker replica.samsungOvenTest, line 149
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 150
+		sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [325]) // library marker replica.samsungOvenTest, line 151
+		pauseExecution(9000) // library marker replica.samsungOvenTest, line 152
+		sendRawCommand("main", "ovenOperatingState", "start", [time: 1800]) // library marker replica.samsungOvenTest, line 153
+		runIn(30, basic_pauseTest) // library marker replica.samsungOvenTest, line 154
+	} // library marker replica.samsungOvenTest, line 155
+} // library marker replica.samsungOvenTest, line 156
 
-	status = sendRawCommand("main", "ovenOperatingState", "start",[mode: "Bake", time: 666, setpoint: 275]) // library marker replica.samsungOvenTest, line 111
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 112
-	log.trace "TestResume(8)A: [type: allParams, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 113
-	log.trace "===================== END TEST 6 =========================" // library marker replica.samsungOvenTest, line 114
-} // library marker replica.samsungOvenTest, line 115
+def basic_pauseTest() { // library marker replica.samsungOvenTest, line 158
+	log.trace "basicModify: [FinishModifyTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 159
+	if (device.currentValue("operatingState") != "running") { // library marker replica.samsungOvenTest, line 160
+		log.warn "MODIFY PARAMS CAUSED FAILURE.  TEST Aborted." // library marker replica.samsungOvenTest, line 161
+		basic_completeTest() // library marker replica.samsungOvenTest, line 162
+	} else { // library marker replica.samsungOvenTest, line 163
+//	set mode to convectionBake, setpoint to 388, and operation time to 00:35:00 // library marker replica.samsungOvenTest, line 164
+		sendRawCommand("main", "ovenOperatingState", "setMachineState", ["paused"]) // library marker replica.samsungOvenTest, line 165
+		runIn(30, basic_restartTest) // library marker replica.samsungOvenTest, line 166
+	} // library marker replica.samsungOvenTest, line 167
+} // library marker replica.samsungOvenTest, line 168
 
-def aTest7() { // library marker replica.samsungOvenTest, line 117
-//	Halt then try setting setpoint // library marker replica.samsungOvenTest, line 118
-	log.trace "===== startTestSetpoint(7)_2: ${getTestAttrs()} =====" // library marker replica.samsungOvenTest, line 119
-	def halt = testStop() // library marker replica.samsungOvenTest, line 120
-	def status = sendRawCommand("main", "ovenSetpoint", "setOvenSetpoint", [400]) // library marker replica.samsungOvenTest, line 121
-	pauseExecution(10000) // library marker replica.samsungOvenTest, line 122
-	log.trace "testSetpoint(7)_2: [setpoint: 400, cmdData: ${status}, attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 123
-	log.trace "===================== END TEST 7 =========================" // library marker replica.samsungOvenTest, line 124
-} // library marker replica.samsungOvenTest, line 125
+def basic_restartTest() { // library marker replica.samsungOvenTest, line 170
+	log.trace "basicPause: [FinishPauseTest: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 171
+	if (device.currentValue("operatingState") != "paused") { // library marker replica.samsungOvenTest, line 172
+		log.warn "PAUSE CAUSED FAILURE.  TEST Aborted." // library marker replica.samsungOvenTest, line 173
+		basic_completeTest() // library marker replica.samsungOvenTest, line 174
+	} else { // library marker replica.samsungOvenTest, line 175
+//	set mode to convectionBake, setpoint to 388, and operation time to 00:35:00 // library marker replica.samsungOvenTest, line 176
+		sendRawCommand("main", "ovenOperatingState", "setMachineState", ["running"]) // library marker replica.samsungOvenTest, line 177
+		runIn(30, basic_completeTest) // library marker replica.samsungOvenTest, line 178
+	} // library marker replica.samsungOvenTest, line 179
+} // library marker replica.samsungOvenTest, line 180
 
-def aTest8() { testStop() } // library marker replica.samsungOvenTest, line 127
+def basic_completeTest() { // library marker replica.samsungOvenTest, line 182
+	log.trace "basicFinalAttrs: ${getTestAttrs()}" // library marker replica.samsungOvenTest, line 183
+	if (device.currentValue("operatingState") != "ready") { // library marker replica.samsungOvenTest, line 184
+		sendRawCommand("main", "ovenOperatingState", "stop") // library marker replica.samsungOvenTest, line 185
+	} // library marker replica.samsungOvenTest, line 186
+	log.trace "===================== END basic Control Test =========================" // library marker replica.samsungOvenTest, line 187
+} // library marker replica.samsungOvenTest, line 188
 
-//	Test Utilities // library marker replica.samsungOvenTest, line 129
-def getTestAttrs() { // library marker replica.samsungOvenTest, line 130
-	def attrs = [ // library marker replica.samsungOvenTest, line 131
-		mode: device.currentValue("ovenMode"), // library marker replica.samsungOvenTest, line 132
-		setpoint: device.currentValue("ovenSetpoint"), // library marker replica.samsungOvenTest, line 133
-		opTime: device.currentValue("operationTime"), // library marker replica.samsungOvenTest, line 134
-		opState: device.currentValue("operatingState"), // library marker replica.samsungOvenTest, line 135
-		jobState: device.currentValue("ovenJobState"), // library marker replica.samsungOvenTest, line 136
-		remoteControl: device.currentValue("remoteControlEnabled"), // library marker replica.samsungOvenTest, line 137
-		kidsLock: device.currentValue("lockState"), // library marker replica.samsungOvenTest, line 138
-		door: device.currentValue("doorState") // library marker replica.samsungOvenTest, line 139
-		] // library marker replica.samsungOvenTest, line 140
-	return attrs // library marker replica.samsungOvenTest, line 141
-} // library marker replica.samsungOvenTest, line 142
+//	Test Utilities // library marker replica.samsungOvenTest, line 190
+def getTestAttrs() { // library marker replica.samsungOvenTest, line 191
+	def attrs = [ // library marker replica.samsungOvenTest, line 192
+		mode: device.currentValue("ovenMode"), // library marker replica.samsungOvenTest, line 193
+		setpoint: device.currentValue("ovenSetpoint"), // library marker replica.samsungOvenTest, line 194
+		opTime: device.currentValue("operationTime"), // library marker replica.samsungOvenTest, line 195
+		opState: device.currentValue("operatingState"), // library marker replica.samsungOvenTest, line 196
+		jobState: device.currentValue("ovenJobState"), // library marker replica.samsungOvenTest, line 197
+		remoteControl: device.currentValue("remoteControlEnabled"), // library marker replica.samsungOvenTest, line 198
+		kidsLock: device.currentValue("lockState"), // library marker replica.samsungOvenTest, line 199
+		door: device.currentValue("doorState") // library marker replica.samsungOvenTest, line 200
+		] // library marker replica.samsungOvenTest, line 201
+	return attrs // library marker replica.samsungOvenTest, line 202
+} // library marker replica.samsungOvenTest, line 203
 
-def testStop() { // library marker replica.samsungOvenTest, line 144
-	stop() // library marker replica.samsungOvenTest, line 145
-	pauseExecution(15000) // library marker replica.samsungOvenTest, line 146
-	log.trace "Stop: [attrs: ${getTestAttrs()}]" // library marker replica.samsungOvenTest, line 147
-	return // library marker replica.samsungOvenTest, line 148
-} // library marker replica.samsungOvenTest, line 149
-
-// ~~~~~ end include (1254) replica.samsungOvenTest ~~~~~
+// ~~~~~ end include (1257) replica.samsungOvenTest ~~~~~
