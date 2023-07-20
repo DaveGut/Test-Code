@@ -1,15 +1,18 @@
 # Test code based on user request.
 These files are temporary files to support testing as well as temporary capability provision pending final integration.
 
+
 ## Kasa Matter Energy Monitor Plug (KP125M) Interim Driver
 Provides on/off, energy monitor and ability to set various "settings"
 
+* Assure device is installed into the Kasa Phone app.
 * Driver Link:  https://raw.githubusercontent.com/DaveGut/Test-Code/master/man_kasaSmart_plug_em.groovy
 * Installation: see instructions below.
 
 ## Kasa H100 Hub Test (Data Collection) Driver
 Provides alarm functions as well as access to installed children (for data collection).  ON/OFF function allows toggleing alarm via voice systems such as Amazon/Google.
 
+* Asssure the KH100 is installed into the Phone app and the TRV is installed onto the KH100 Hub.
 * Objective:  obtain data on the child TRV device so I can develop TRV driver.
 * Driver Link: https://raw.githubusercontent.com/DaveGut/Test-Code/master/kasaSmart_hub_test.groovy
 * Installation: see instructions below
