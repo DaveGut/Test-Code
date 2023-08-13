@@ -12,41 +12,29 @@ Version 2.3.5-1
 ===================================================================================================*/
 def driverVer() { return "2.3.5-1" }
 
+//def type() { return "Plug Switch" }
+//def type() { return "EM Plug" }
+def type() { return "Multi Plug" }
+//def type() { return "EM Multi Plug" }
+def file() { return type().replaceAll(" ", "-") }
+
 metadata {
-	definition (name: "Kasa Color Bulb",
-				namespace: nameSpace(),
+	definition (name: "Kasa ${type()}",
+				namespace: "davegut",
 				author: "Dave Gutheinz",
-				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/ColorBulb.groovy"
+				importUrl: "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/${file()}.groovy"
 			   ) {
-		capability "Light"
 		capability "Switch"
-		capability "Switch Level"
-		capability "Change Level"
-		capability "Refresh"
 		capability "Actuator"
 		capability "Configuration"
-		command "setCircadian"
-		attribute "circadianState", "string"
-		capability "Color Temperature"
-		capability "Color Mode"
-		capability "Color Control"
-		command "setRGB", [[
-			name: "red,green,blue", 
-			type: "STRING"]]
-		command "bulbPresetCreate", [[
-			name: "Name for preset.", 
-			type: "STRING"]]
-		command "bulbPresetDelete", [[
-			name: "Name for preset.", 
-			type: "STRING"]]
-		command "bulbPresetSet", [[
-			name: "Name for preset.", 
-			type: "STRING"],[
-			name: "Transition Time (seconds).", 
-			type: "STRING"]]
+		capability "Refresh"
+		command "ledOn"
+		command "ledOff"
+		attribute "led", "string"
 		command "setPollInterval", [[
 			name: "Poll Interval in seconds",
-			constraints: ["default", "1 minute", "5 minutes",  "10 minutes",
+			constraints: ["default", "5 seconds", "10 seconds", "15 seconds",
+						  "30 seconds", "1 minute", "5 minutes",  "10 minutes",
 						  "30 minutes"],
 			type: "ENUM"]]
 		capability "Power Meter"
@@ -58,6 +46,7 @@ metadata {
 		attribute "connection", "string"
 		attribute "commsError", "string"
 	}
+//	6.7.2 Change B.  change logging names and titles to match other built-in drivers.
 	preferences {
 		input ("textEnable", "bool", 
 			   title: "Enable descriptionText logging",
@@ -65,20 +54,21 @@ metadata {
 		input ("logEnable", "bool",
 			   title: "Enable debug logging",
 			   defaultValue: false)
-		input ("transition_Time", "number",
-			   title: "Default Transition time (seconds)",
-			   defaultValue: 1)
-		input ("syncBulbs", "bool",
-			   title: "Sync Bulb Preset Data",
-			   defaultValue: false)
-		input ("emFunction", "bool", 
-			   title: "Enable Energy Monitor", 
-			   defaultValue: false)
-		if (emFunction) {
-			input ("energyPollInt", "enum",
-				   title: "Energy Poll Interval (minutes)",
-				   options: ["1 minute", "5 minutes", "30 minutes"],
-				   defaultValue: "30 minutes")
+		if (getDataValue("feature") == "TIM:ENE") {
+			input ("emFunction", "bool", 
+				   title: "Enable Energy Monitor", 
+				   defaultValue: false)
+			if (emFunction) {
+				input ("energyPollInt", "enum",
+					   title: "Energy Poll Interval (minutes)",
+					   options: ["1 minute", "5 minutes", "30 minutes"],
+					   defaultValue: "30 minutes")
+			}
+		}
+		if (getDataValue("deviceIP") != "CLOUD" && getDataValue("model") == "HS200") {
+			input ("altLan", "bool",
+			   	title: "Alternate LAN Comms (for comms problems only)",
+			   	defaultValue: false)
 		}
 		input ("bind", "bool",
 			   title: "Kasa Cloud Binding",
@@ -87,10 +77,10 @@ metadata {
 		 	  title: "Use Kasa Cloud for device control",
 		 	  defaultValue: false)
 		input ("nameSync", "enum", title: "Synchronize Names",
-			   defaultValue: "none",
 			   options: ["none": "Don't synchronize",
 						 "device" : "Kasa device name master", 
-						 "Hubitat" : "Hubitat label master"])
+						 "Hubitat" : "Hubitat label master"],
+			   defaultValue: "none")
 		input ("manualIp", "string",
 			   title: "Manual IP Update <b>[Caution]</b>",
 			   defaultValue: getDataValue("deviceIP"))
@@ -104,118 +94,74 @@ metadata {
 }
 
 def installed() {
-	def instStatus= installCommon()
-	state.bulbPresets = [:]
+		device.updateSetting("nameSync",[type:"enum", value:"device"])
+	def instStatus = installCommon()
 	logInfo("installed: ${instStatus}")
 }
 
 def updated() {
 	def updStatus = updateCommon()
-	if (syncBulbs) {
-		updStatus << [syncBulbs: syncBulbPresets()]
+	if (getDataValue("feature") == "TIM:ENE") {
+		updStatus << [emFunction: setupEmFunction()]
 	}
-	updStatus << [emFunction: setupEmFunction()]
-	def transTime = transition_Time
-	if (transTime == null) {
-		transTime = 1
-		device.updateSetting("transition_Time", [type:"number", value: 1])
-	}
-	updStatus << [transition_Time: transTime]
-	if (!state.bulbPresets) { state.bulbPresets = [:] }
 	logInfo("updated: ${updStatus}")
+	
+	if (getDataValue("model") == "HS300") {
+		updateDataValue("altComms", "false")
+		state.remove("response")
+	}
+	
 	refresh()
 }
 
-def setColorTemperature(colorTemp, level = device.currentValue("level"), transTime = transition_Time) {
-	def lowCt = 2500
-	def highCt = 9000
-	if (colorTemp < lowCt) { colorTemp = lowCt }
-	else if (colorTemp > highCt) { colorTemp = highCt }
-	setLightColor(level, colorTemp, 0, 0, transTime)
-}
-
-def distResp(response) {
-	if (response.system) {
-		if (response.system.get_sysinfo) {
-			setSysInfo(response.system.get_sysinfo)
-			if (nameSync == "device") {
-				updateName(response.system.get_sysinfo)
-			}
-		} else if (response.system.set_dev_alias) {
-			updateName(response.system.set_dev_alias)
-		} else {
-			logWarn("distResp: Unhandled response = ${response}")
-		}
-	} else if (response["smartlife.iot.smartbulb.lightingservice"]) {
-		setSysInfo([light_state:response["smartlife.iot.smartbulb.lightingservice"].transition_light_state])
-	} else if (response["smartlife.iot.common.emeter"]) {
-		distEmeter(response["smartlife.iot.common.emeter"])
-	} else if (response["smartlife.iot.common.cloud"]) {
-		setBindUnbind(response["smartlife.iot.common.cloud"])
-	} else if (response["smartlife.iot.common.system"]) {
-		if (response["smartlife.iot.common.system"].reboot) {
-			logWarn("distResp: Rebooting device")
-		} else {
-			logDebug("distResp: Unhandled reboot response: ${response}")
-		}
-	} else {
-		logWarn("distResp: Unhandled response = ${response}")
-	}
-}
-
 def setSysInfo(status) {
-	def lightStatus = status.light_state
-	if (state.lastStatus != lightStatus) {
-		state.lastStatus = lightStatus
-		logInfo("setSysinfo: [status: ${lightStatus}]")
-		def onOff
-		if (lightStatus.on_off == 0) {
-			onOff = "off"
-		} else {
-			onOff = "on"
-			int level = lightStatus.brightness
-			if (device.currentValue("level") != level) {
-				sendEvent(name: "level", value: level, unit: "%")
-			}
-			if (device.currentValue("circadianState") != lightStatus.mode) {
-				sendEvent(name: "circadianState", value: lightStatus.mode)
-			}
-
-			int colorTemp = lightStatus.color_temp
-			int hue = lightStatus.hue
-			int hubHue = (hue / 3.6).toInteger()
-			int saturation = lightStatus.saturation
-			def colorMode
-			def colorName = " "
-			def rgb = ""
-			def color = ""
-			if (colorTemp > 0) {
-				colorMode = "CT"
-				colorName = convertTemperatureToGenericColorName(colorTemp.toInteger())
-			} else {
-				colorMode = "RGB"
-				colorName = convertHueToGenericColorName(hubHue.toInteger())
-				color = "[hue: ${hubHue}, saturation: ${saturation}, level: ${level}]"
-				rgb = hubitat.helper.ColorUtils.hsvToRGB([hubHue, saturation, level])
-			}
-			if (device.currentValue("colorTemperature") != colorTemp) {
-				sendEvent(name: "colorTemperature", value: colorTemp)
-		    	sendEvent(name: "colorName", value: colorName)
-			}
-			if (device.currentValue("color") != color) {
-		    	sendEvent(name: "colorName", value: colorName)
-				sendEvent(name: "color", value: color)
-				sendEvent(name: "hue", value: hubHue)
-				sendEvent(name: "saturation", value: saturation)
-				sendEvent(name: "colorMode", value: colorMode)
-				sendEvent(name: "RGB", value: rgb)
-			}
+	def switchStatus = status.relay_state
+	def ledStatus = status.led_off
+	def logData = [:]
+	if (getDataValue("plugNo") != null) {
+		def childStatus = status.children.find { it.id == getDataValue("plugNo") }
+		if (childStatus == null) {
+			childStatus = status.children.find { it.id == getDataValue("plugId") }
 		}
-		sendEvent(name: "switch", value: onOff, type: "digital")
+		status = childStatus
+		switchStatus = status.state
 	}
-	runIn(1, getPower)
+	
+	def onOff = "on"
+	if (switchStatus == 0) { onOff = "off" }
+	if (device.currentValue("switch") != onOff) {
+		sendEvent(name: "switch", value: onOff, type: "digital")
+		logData << [switch: onOff]
+	}
+	def ledOnOff = "on"
+	if (ledStatus == 1) { ledOnOff = "off" }
+	if (device.currentValue("led") != ledOnOff) {
+		sendEvent(name: "led", value: ledOnOff)
+		logData << [led: ledOnOff]
+	}
+	
+	if (logData != [:]) {
+		logInfo("setSysinfo: ${logData}")
+	}
+	if (nameSync == "device" || nameSync == "Hubitat") {
+		updateName(status)
+	}
+	getPower()
 }
 
+def coordUpdate(cType, coordData) {
+	def msg = "coordinateUpdate: "
+	if (cType == "commsData") {
+		device.updateSetting("bind", [type:"bool", value: coordData.bind])
+		device.updateSetting("useCloud", [type:"bool", value: coordData.useCloud])
+		sendEvent(name: "connection", value: coordData.connection)
+		device.updateSetting("altLan", [type:"bool", value: coordData.altLan])
+		msg += "[commsData: ${coordData}]"
+	} else {
+		msg += "Not updated."
+	}
+	logInfo(msg)
+}
 
 
 
@@ -837,217 +783,73 @@ def logWarn(msg) { log.warn "${device.displayName}-${driverVer()}: ${msg}" } // 
 
 // ~~~~~ end include (1279) davegut.commonLogging ~~~~~
 
-// ~~~~~ start include (1284) davegut.kasaLights ~~~~~
-library ( // library marker davegut.kasaLights, line 1
-	name: "kasaLights", // library marker davegut.kasaLights, line 2
-	namespace: "davegut", // library marker davegut.kasaLights, line 3
-	author: "Dave Gutheinz", // library marker davegut.kasaLights, line 4
-	description: "Kasa Bulb and Light Common Methods", // library marker davegut.kasaLights, line 5
-	category: "utilities", // library marker davegut.kasaLights, line 6
-	documentationLink: "" // library marker davegut.kasaLights, line 7
-) // library marker davegut.kasaLights, line 8
+// ~~~~~ start include (1285) davegut.kasaPlugs ~~~~~
+library ( // library marker davegut.kasaPlugs, line 1
+	name: "kasaPlugs", // library marker davegut.kasaPlugs, line 2
+	namespace: "davegut", // library marker davegut.kasaPlugs, line 3
+	author: "Dave Gutheinz", // library marker davegut.kasaPlugs, line 4
+	description: "Kasa Plug and Switches Common Methods", // library marker davegut.kasaPlugs, line 5
+	category: "utilities", // library marker davegut.kasaPlugs, line 6
+	documentationLink: "" // library marker davegut.kasaPlugs, line 7
+) // library marker davegut.kasaPlugs, line 8
 
-def on() { setLightOnOff(1, transition_Time) } // library marker davegut.kasaLights, line 10
+def on() { setRelayState(1) } // library marker davegut.kasaPlugs, line 10
 
-def off() { setLightOnOff(0, transition_Time) } // library marker davegut.kasaLights, line 12
+def off() { setRelayState(0) } // library marker davegut.kasaPlugs, line 12
 
-def setLevel(level, transTime = transition_Time) { // library marker davegut.kasaLights, line 14
-	setLightLevel(level, transTime) // library marker davegut.kasaLights, line 15
-} // library marker davegut.kasaLights, line 16
+def ledOn() { setLedOff(0) } // library marker davegut.kasaPlugs, line 14
 
-def startLevelChange(direction) { // library marker davegut.kasaLights, line 18
-	unschedule(levelUp) // library marker davegut.kasaLights, line 19
-	unschedule(levelDown) // library marker davegut.kasaLights, line 20
-	if (direction == "up") { levelUp() } // library marker davegut.kasaLights, line 21
-	else { levelDown() } // library marker davegut.kasaLights, line 22
-} // library marker davegut.kasaLights, line 23
+def ledOff() { setLedOff(1) } // library marker davegut.kasaPlugs, line 16
 
-def stopLevelChange() { // library marker davegut.kasaLights, line 25
-	unschedule(levelUp) // library marker davegut.kasaLights, line 26
-	unschedule(levelDown) // library marker davegut.kasaLights, line 27
-} // library marker davegut.kasaLights, line 28
+def distResp(response) { // library marker davegut.kasaPlugs, line 18
+	if (response.system) { // library marker davegut.kasaPlugs, line 19
+		if (response.system.get_sysinfo) { // library marker davegut.kasaPlugs, line 20
+			setSysInfo(response.system.get_sysinfo) // library marker davegut.kasaPlugs, line 21
+		} else if (response.system.set_relay_state || // library marker davegut.kasaPlugs, line 22
+				   response.system.set_led_off) { // library marker davegut.kasaPlugs, line 23
+			if (getDataValue("model") == "HS210") { // library marker davegut.kasaPlugs, line 24
+				runIn(2, getSysinfo) // library marker davegut.kasaPlugs, line 25
+			} else { // library marker davegut.kasaPlugs, line 26
+				getSysinfo() // library marker davegut.kasaPlugs, line 27
+			} // library marker davegut.kasaPlugs, line 28
+		} else if (response.system.reboot) { // library marker davegut.kasaPlugs, line 29
+			logWarn("distResp: Rebooting device.") // library marker davegut.kasaPlugs, line 30
+		} else if (response.system.set_dev_alias) { // library marker davegut.kasaPlugs, line 31
+			updateName(response.system.set_dev_alias) // library marker davegut.kasaPlugs, line 32
+		} else { // library marker davegut.kasaPlugs, line 33
+			logDebug("distResp: Unhandled response = ${response}") // library marker davegut.kasaPlugs, line 34
+		} // library marker davegut.kasaPlugs, line 35
+	} else if (response["smartlife.iot.dimmer"]) { // library marker davegut.kasaPlugs, line 36
+		if (response["smartlife.iot.dimmer"].get_dimmer_parameters) { // library marker davegut.kasaPlugs, line 37
+			setDimmerConfig(response["smartlife.iot.dimmer"]) // library marker davegut.kasaPlugs, line 38
+		} else { // library marker davegut.kasaPlugs, line 39
+			logDebug("distResp: Unhandled response: ${response["smartlife.iot.dimmer"]}") // library marker davegut.kasaPlugs, line 40
+		} // library marker davegut.kasaPlugs, line 41
+	} else if (response.emeter) { // library marker davegut.kasaPlugs, line 42
+		distEmeter(response.emeter) // library marker davegut.kasaPlugs, line 43
+	} else if (response.cnCloud) { // library marker davegut.kasaPlugs, line 44
+		setBindUnbind(response.cnCloud) // library marker davegut.kasaPlugs, line 45
+	} else { // library marker davegut.kasaPlugs, line 46
+		logDebug("distResp: Unhandled response = ${response}") // library marker davegut.kasaPlugs, line 47
+	} // library marker davegut.kasaPlugs, line 48
+} // library marker davegut.kasaPlugs, line 49
 
-def levelUp() { // library marker davegut.kasaLights, line 30
-	def curLevel = device.currentValue("level").toInteger() // library marker davegut.kasaLights, line 31
-	if (curLevel == 100) { return } // library marker davegut.kasaLights, line 32
-	def newLevel = curLevel + 4 // library marker davegut.kasaLights, line 33
-	if (newLevel > 100) { newLevel = 100 } // library marker davegut.kasaLights, line 34
-	setLevel(newLevel, 0) // library marker davegut.kasaLights, line 35
-	runIn(1, levelUp) // library marker davegut.kasaLights, line 36
-} // library marker davegut.kasaLights, line 37
+def setRelayState(onOff) { // library marker davegut.kasaPlugs, line 51
+	logDebug("setRelayState: [switch: ${onOff}]") // library marker davegut.kasaPlugs, line 52
+	if (getDataValue("plugNo") == null) { // library marker davegut.kasaPlugs, line 53
+		sendCmd("""{"system":{"set_relay_state":{"state":${onOff}}}}""") // library marker davegut.kasaPlugs, line 54
+	} else { // library marker davegut.kasaPlugs, line 55
+		sendCmd("""{"context":{"child_ids":["${getDataValue("plugId")}"]},""" + // library marker davegut.kasaPlugs, line 56
+				""""system":{"set_relay_state":{"state":${onOff}}}}""") // library marker davegut.kasaPlugs, line 57
+	} // library marker davegut.kasaPlugs, line 58
+} // library marker davegut.kasaPlugs, line 59
 
-def levelDown() { // library marker davegut.kasaLights, line 39
-	def curLevel = device.currentValue("level").toInteger() // library marker davegut.kasaLights, line 40
-	if (curLevel == 0 || device.currentValue("switch") == "off") { return } // library marker davegut.kasaLights, line 41
-	def newLevel = curLevel - 4 // library marker davegut.kasaLights, line 42
-	if (newLevel < 0) { off() } // library marker davegut.kasaLights, line 43
-	else { // library marker davegut.kasaLights, line 44
-		setLevel(newLevel, 0) // library marker davegut.kasaLights, line 45
-		runIn(1, levelDown) // library marker davegut.kasaLights, line 46
-	} // library marker davegut.kasaLights, line 47
-} // library marker davegut.kasaLights, line 48
+def setLedOff(onOff) { // library marker davegut.kasaPlugs, line 61
+	logDebug("setLedOff: [ledOff: ${onOff}]") // library marker davegut.kasaPlugs, line 62
+		sendCmd("""{"system":{"set_led_off":{"off":${onOff}}}}""") // library marker davegut.kasaPlugs, line 63
+} // library marker davegut.kasaPlugs, line 64
 
-def service() { // library marker davegut.kasaLights, line 50
-	def service = "smartlife.iot.smartbulb.lightingservice" // library marker davegut.kasaLights, line 51
-	if (getDataValue("feature") == "lightStrip") { service = "smartlife.iot.lightStrip" } // library marker davegut.kasaLights, line 52
-	return service // library marker davegut.kasaLights, line 53
-} // library marker davegut.kasaLights, line 54
-
-def method() { // library marker davegut.kasaLights, line 56
-	def method = "transition_light_state" // library marker davegut.kasaLights, line 57
-	if (getDataValue("feature") == "lightStrip") { method = "set_light_state" } // library marker davegut.kasaLights, line 58
-	return method // library marker davegut.kasaLights, line 59
-} // library marker davegut.kasaLights, line 60
-
-def checkTransTime(transTime) { // library marker davegut.kasaLights, line 62
-	if (transTime == null || transTime < 0) { transTime = 0 } // library marker davegut.kasaLights, line 63
-	transTime = 1000 * transTime.toInteger() // library marker davegut.kasaLights, line 64
-	if (transTime > 8000) { transTime = 8000 } // library marker davegut.kasaLights, line 65
-	return transTime // library marker davegut.kasaLights, line 66
-} // library marker davegut.kasaLights, line 67
-
-def checkLevel(level) { // library marker davegut.kasaLights, line 69
-	if (level == null || level < 0) { // library marker davegut.kasaLights, line 70
-		level = device.currentValue("level") // library marker davegut.kasaLights, line 71
-		logWarn("checkLevel: Entered level null or negative. Level set to ${level}") // library marker davegut.kasaLights, line 72
-	} else if (level > 100) { // library marker davegut.kasaLights, line 73
-		level = 100 // library marker davegut.kasaLights, line 74
-		logWarn("checkLevel: Entered level > 100.  Level set to ${level}") // library marker davegut.kasaLights, line 75
-	} // library marker davegut.kasaLights, line 76
-	return level // library marker davegut.kasaLights, line 77
-} // library marker davegut.kasaLights, line 78
-
-def setLightOnOff(onOff, transTime = 0) { // library marker davegut.kasaLights, line 80
-	transTime = checkTransTime(transTime) // library marker davegut.kasaLights, line 81
-	sendCmd("""{"${service()}":{"${method()}":{"on_off":${onOff},""" + // library marker davegut.kasaLights, line 82
-			""""transition_period":${transTime}}}}""") // library marker davegut.kasaLights, line 83
-} // library marker davegut.kasaLights, line 84
-
-def setLightLevel(level, transTime = 0) { // library marker davegut.kasaLights, line 86
-	level = checkLevel(level) // library marker davegut.kasaLights, line 87
-	if (level == 0) { // library marker davegut.kasaLights, line 88
-		setLightOnOff(0, transTime) // library marker davegut.kasaLights, line 89
-	} else { // library marker davegut.kasaLights, line 90
-		transTime = checkTransTime(transTime) // library marker davegut.kasaLights, line 91
-		sendCmd("""{"${service()}":{"${method()}":{"ignore_default":1,"on_off":1,""" + // library marker davegut.kasaLights, line 92
-				""""brightness":${level},"transition_period":${transTime}}}}""") // library marker davegut.kasaLights, line 93
-	} // library marker davegut.kasaLights, line 94
-} // library marker davegut.kasaLights, line 95
-
-// ~~~~~ end include (1284) davegut.kasaLights ~~~~~
-
-// ~~~~~ start include (1280) davegut.kasaColorLights ~~~~~
-library ( // library marker davegut.kasaColorLights, line 1
-	name: "kasaColorLights", // library marker davegut.kasaColorLights, line 2
-	namespace: "davegut", // library marker davegut.kasaColorLights, line 3
-	author: "Dave Gutheinz", // library marker davegut.kasaColorLights, line 4
-	description: "Kasa Color/CT Bulb and Light Common Methods", // library marker davegut.kasaColorLights, line 5
-	category: "utilities", // library marker davegut.kasaColorLights, line 6
-	documentationLink: "" // library marker davegut.kasaColorLights, line 7
-) // library marker davegut.kasaColorLights, line 8
-
-def setCircadian() { // library marker davegut.kasaColorLights, line 10
-	sendCmd("""{"${service()}":{"${method()}":{"mode":"circadian"}}}""") // library marker davegut.kasaColorLights, line 11
-} // library marker davegut.kasaColorLights, line 12
-
-def setHue(hue) { setColor([hue: hue]) } // library marker davegut.kasaColorLights, line 14
-
-def setSaturation(saturation) { setColor([saturation: saturation]) } // library marker davegut.kasaColorLights, line 16
-
-def setColor(Map color, transTime = transition_Time) { // library marker davegut.kasaColorLights, line 18
-	if (color == null) { // library marker davegut.kasaColorLights, line 19
-		LogWarn("setColor: Color map is null. Command not executed.") // library marker davegut.kasaColorLights, line 20
-	} else { // library marker davegut.kasaColorLights, line 21
-		def level = device.currentValue("level") // library marker davegut.kasaColorLights, line 22
-		if (color.level) { level = color.level } // library marker davegut.kasaColorLights, line 23
-		def hue = device.currentValue("hue") // library marker davegut.kasaColorLights, line 24
-		if (color.hue || color.hue == 0) { hue = color.hue.toInteger() } // library marker davegut.kasaColorLights, line 25
-		def saturation = device.currentValue("saturation") // library marker davegut.kasaColorLights, line 26
-		if (color.saturation || color.saturation == 0) { saturation = color.saturation } // library marker davegut.kasaColorLights, line 27
-		hue = Math.round(0.49 + hue * 3.6).toInteger() // library marker davegut.kasaColorLights, line 28
-		if (hue < 0 || hue > 360 || saturation < 0 || saturation > 100 || level < 0 || level > 100) { // library marker davegut.kasaColorLights, line 29
-			logWarn("setColor: Entered hue, saturation, or level out of range! (H:${hue}, S:${saturation}, L:${level}") // library marker davegut.kasaColorLights, line 30
- 		} else { // library marker davegut.kasaColorLights, line 31
-			setLightColor(level, 0, hue, saturation, transTime) // library marker davegut.kasaColorLights, line 32
-		} // library marker davegut.kasaColorLights, line 33
-	} // library marker davegut.kasaColorLights, line 34
-} // library marker davegut.kasaColorLights, line 35
-
-def setRGB(rgb) { // library marker davegut.kasaColorLights, line 37
-	logDebug("setRGB: ${rgb}")  // library marker davegut.kasaColorLights, line 38
-	def rgbArray = rgb.split('\\,') // library marker davegut.kasaColorLights, line 39
-	def hsvData = hubitat.helper.ColorUtils.rgbToHSV([rgbArray[0].toInteger(), rgbArray[1].toInteger(), rgbArray[2].toInteger()]) // library marker davegut.kasaColorLights, line 40
-	def hue = (0.5 + hsvData[0]).toInteger() // library marker davegut.kasaColorLights, line 41
-	def saturation = (0.5 + hsvData[1]).toInteger() // library marker davegut.kasaColorLights, line 42
-	def level = (0.5 + hsvData[2]).toInteger() // library marker davegut.kasaColorLights, line 43
-	def Map hslData = [ // library marker davegut.kasaColorLights, line 44
-		hue: hue, // library marker davegut.kasaColorLights, line 45
-		saturation: saturation, // library marker davegut.kasaColorLights, line 46
-		level: level // library marker davegut.kasaColorLights, line 47
-		] // library marker davegut.kasaColorLights, line 48
-	setColor(hslData) // library marker davegut.kasaColorLights, line 49
-} // library marker davegut.kasaColorLights, line 50
-
-def setLightColor(level, colorTemp, hue, saturation, transTime = 0) { // library marker davegut.kasaColorLights, line 52
-	level = checkLevel(level) // library marker davegut.kasaColorLights, line 53
-	if (level == 0) { // library marker davegut.kasaColorLights, line 54
-		setLightOnOff(0, transTime) // library marker davegut.kasaColorLights, line 55
-	} else { // library marker davegut.kasaColorLights, line 56
-		transTime = checkTransTime(transTime) // library marker davegut.kasaColorLights, line 57
-		sendCmd("""{"${service()}":{"${method()}":{"ignore_default":1,"on_off":1,""" + // library marker davegut.kasaColorLights, line 58
-				""""brightness":${level},"color_temp":${colorTemp},""" + // library marker davegut.kasaColorLights, line 59
-				""""hue":${hue},"saturation":${saturation},"transition_period":${transTime}}}}""") // library marker davegut.kasaColorLights, line 60
-	} // library marker davegut.kasaColorLights, line 61
-} // library marker davegut.kasaColorLights, line 62
-
-def bulbPresetCreate(psName) { // library marker davegut.kasaColorLights, line 64
-	if (!state.bulbPresets) { state.bulbPresets = [:] } // library marker davegut.kasaColorLights, line 65
-	psName = psName.trim().toLowerCase() // library marker davegut.kasaColorLights, line 66
-	logDebug("bulbPresetCreate: ${psName}") // library marker davegut.kasaColorLights, line 67
-	def psData = [:] // library marker davegut.kasaColorLights, line 68
-	psData["hue"] = device.currentValue("hue") // library marker davegut.kasaColorLights, line 69
-	psData["saturation"] = device.currentValue("saturation") // library marker davegut.kasaColorLights, line 70
-	psData["level"] = device.currentValue("level") // library marker davegut.kasaColorLights, line 71
-	def colorTemp = device.currentValue("colorTemperature") // library marker davegut.kasaColorLights, line 72
-	if (colorTemp == null) { colorTemp = 0 } // library marker davegut.kasaColorLights, line 73
-	psData["colTemp"] = colorTemp // library marker davegut.kasaColorLights, line 74
-	state.bulbPresets << ["${psName}": psData] // library marker davegut.kasaColorLights, line 75
-} // library marker davegut.kasaColorLights, line 76
-
-def bulbPresetDelete(psName) { // library marker davegut.kasaColorLights, line 78
-	psName = psName.trim() // library marker davegut.kasaColorLights, line 79
-	logDebug("bulbPresetDelete: ${psName}") // library marker davegut.kasaColorLights, line 80
-	def presets = state.bulbPresets // library marker davegut.kasaColorLights, line 81
-	if (presets.toString().contains(psName)) { // library marker davegut.kasaColorLights, line 82
-		presets.remove(psName) // library marker davegut.kasaColorLights, line 83
-	} else { // library marker davegut.kasaColorLights, line 84
-		logWarn("bulbPresetDelete: ${psName} is not a valid name.") // library marker davegut.kasaColorLights, line 85
-	} // library marker davegut.kasaColorLights, line 86
-} // library marker davegut.kasaColorLights, line 87
-
-def syncBulbPresets() { // library marker davegut.kasaColorLights, line 89
-	device.updateSetting("syncBulbs", [type:"bool", value: false]) // library marker davegut.kasaColorLights, line 90
-	parent.syncBulbPresets(state.bulbPresets) // library marker davegut.kasaColorLights, line 91
-	return "Syncing" // library marker davegut.kasaColorLights, line 92
-} // library marker davegut.kasaColorLights, line 93
-
-def updatePresets(bulbPresets) { // library marker davegut.kasaColorLights, line 95
-	logInfo("updatePresets: ${bulbPresets}") // library marker davegut.kasaColorLights, line 96
-	state.bulbPresets = bulbPresets // library marker davegut.kasaColorLights, line 97
-} // library marker davegut.kasaColorLights, line 98
-
-def bulbPresetSet(psName, transTime = transition_Time) { // library marker davegut.kasaColorLights, line 100
-	psName = psName.trim() // library marker davegut.kasaColorLights, line 101
-	if (state.bulbPresets."${psName}") { // library marker davegut.kasaColorLights, line 102
-		def psData = state.bulbPresets."${psName}" // library marker davegut.kasaColorLights, line 103
-		def hue = Math.round(0.49 + psData.hue.toInteger() * 3.6).toInteger() // library marker davegut.kasaColorLights, line 104
-		setLightColor(psData.level, psData.colTemp, hue, psData.saturation, transTime) // library marker davegut.kasaColorLights, line 105
-	} else { // library marker davegut.kasaColorLights, line 106
-		logWarn("bulbPresetSet: ${psName} is not a valid name.") // library marker davegut.kasaColorLights, line 107
-	} // library marker davegut.kasaColorLights, line 108
-} // library marker davegut.kasaColorLights, line 109
-
-// ~~~~~ end include (1280) davegut.kasaColorLights ~~~~~
+// ~~~~~ end include (1285) davegut.kasaPlugs ~~~~~
 
 // ~~~~~ start include (1283) davegut.kasaEnergyMonitor ~~~~~
 library ( // library marker davegut.kasaEnergyMonitor, line 1
