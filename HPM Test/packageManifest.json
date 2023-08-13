@@ -1,14 +1,14 @@
 {
   "packageName": "Kasa Plugs, Switches and Bulbs",
   "author": "David Gutheinz",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "minimumHEVersion": "2.3.5",
   "documentationLink": "https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/Documentation.pdf",
   "communityLink": "https://community.hubitat.com/t/re-release-tp-link-plug-switch-and-bulb-integration/39341",
-  "dateReleased": "2023-6-30",
+  "dateReleased": "2023-08-11",
   "apps": [
     {
-      "id": "fc25e57a-cb53-4032-a788-e7b0051bfe57",
+      "id": "fac0a9f7-0484-46d9-b5b0-fadc200bc9ae",
       "name": "Kasa Integration",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/Application/KasaIntegrationApp.groovy",
@@ -19,45 +19,80 @@
   ],
   "drivers": [
     {
-      "id": "b58f22ba-a55c-4cad-b2c3-04bee63f2781",
+      "id": "a81ee8cf-765e-4cba-ab6f-d95f23a6e3be",
       "name": "Kasa Color Bulb",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/ColorBulb.groovy",
       "required": false
     },
     {
-      "id": "52e79a06-2b77-4f63-98da-ba5a6a1784ec",
+      "id": "92855f3c-32f9-496b-a4b9-6f6036489d7e",
       "name": "Kasa CT Bulb",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/CTBulb.groovy",
       "required": false
     },
     {
-      "id": "720d14bf-af9c-43bf-b9ab-d5826cbc20ed",
+      "id": "167a311b-6b5b-4a0c-80c3-f44a187d8d8a",
       "name": "Kasa Mono Bulb",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/WhiteBulb.groovy",
       "required": false
     },
     {
-      "id": "24fbd037-b9c4-4ced-b97c-143ba3a681aa",
+      "id": "b02877e2-90a6-4acb-a20b-71143fed02bc",
       "name": "Kasa Light Strip",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/LightStrip.groovy",
       "required": false
     },
     {
-      "id": "4705af08-e09f-4156-a966-ca1f408b5792",
+      "id": "6e651da8-3558-486a-b118-a12dfceb742d",
       "name": "Kasa Plug Switch",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/Plug-Switch.groovy",
       "required": false
     },
     {
-      "id": "07ed238e-2424-43b0-b100-30a35d0daebb",
+      "id": "0262d1e7-5613-4111-8340-bef179d7da56",
       "name": "Kasa Dimming Switch",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/DimmingSwitch.groovy",
+      "required": false
+    },
+    {
+      "id": "7ed8689d-efe9-4c96-b4a3-19f1b539bbc5",
+      "name": "kasaSmart_hub",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_hub.groovy",
+      "required": false
+    },
+    {
+      "id": "59bdda55-1f3c-474b-ad86-62549f57205e",
+      "name": "kasaSmart_newType",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_newType.groovy",
+      "required": false
+    },
+    {
+      "id": "aceae0e9-f0ae-4286-928c-5efdd5444e2c",
+      "name": "kasaSmart_plug",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_plug.groovy",
+      "required": false
+    },
+    {
+      "id": "5977c4d4-79dd-4304-8fe3-c8a14b1acd71",
+      "name": "kasaSmart_plug_dimmer",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_plug_dimmer.groovy",
+      "required": false
+    },
+    {
+      "id": "151a8ad6-56ed-4174-a47d-4096479e9adc",
+      "name": "kasaSmart_plug_em",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_plug_em.groovy",
       "required": false
     }
   ]
