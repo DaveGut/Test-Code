@@ -119,7 +119,7 @@
       "name": "kasaSmart_newType",
       "namespace": "davegut",
       "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_newType.groovy",
-      "required": true
+      "required": false
     },
     {
       "id": "4f7a26f7-2c54-4a79-9744-3a6fa4daeca4",
