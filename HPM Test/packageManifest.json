@@ -106,59 +106,6 @@
           "namespace": "davegut"
         }
       ]
-    },
-    {
-      "id": "d634e290-f005-428e-91b4-4d99c1f4a078",
-      "name": "kasaSmart_hub",
-      "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_hub.groovy",
-      "required": false
-    },
-    {
-      "id": "ce3bd057-c2c3-43db-b25e-1b37a0c8269d",
-      "name": "kasaSmart_newType",
-      "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_newType.groovy",
-      "required": false
-    },
-    {
-      "id": "4f7a26f7-2c54-4a79-9744-3a6fa4daeca4",
-      "name": "Matter kasaSmart_plug",
-      "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_plug.groovy",
-      "required": false,
-      "alternateNames" : [
-        {
-          "name": "kasaSmart_plug",
-          "namespace": "davegut"
-        }
-      ]
-    },
-    {
-      "id": "2699935d-f53c-4cd3-a7a4-2c71009cc78f",
-      "name": "Matter kasaSmart_plug_dimmer",
-      "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_plug_dimmer.groovy",
-      "required": false,
-      "alternateNames" : [
-        {
-          "name": "kasaSmart_plug_dimmer",
-          "namespace": "davegut"
-        }
-      ]
-    },
-    {
-      "id": "6f0eb185-8e21-416e-9e4c-5ddd6d725a06",
-      "name": "Matter kasaSmart_plug_em",
-      "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/kasaSmart_plug_em.groovy",
-      "required": false,
-      "alternateNames" : [
-        {
-          "name": "kasaSmart_plug_em",
-          "namespace": "davegut"
-        }
-      ]
     }
   ]
 }
