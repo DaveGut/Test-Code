@@ -1,17 +1,19 @@
 {
-  "packageName": "Kasa Plugs, Switches and Bulbs",
+  "packageName": "Tapo Plugs, Switches and Bulbs",
   "author": "David Gutheinz",
-  "version": "2.3.6",
-  "minimumHEVersion": "2.3.5",
-  "documentationLink": "https://github.com/DaveGut/HubitatActive/tree/master/KasaDevices#readme",
-  "communityLink": "https://community.hubitat.com/t/re-release-tp-link-plug-switch-and-bulb-integration/39341",
-  "dateReleased": "2023-08-11","releaseNotes": "Added: energyToday pollInterval option, manual IP and Port update.","licenseFile": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/License",
+  "version": "2.3.7a",
+  "minimumHEVersion": "2.3.6",
+  "documentationLink": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/App/tapo_device_install.groovy",
+  "communityLink": "https://community.hubitat.com/t/tp-link-tapo-devices/121084",
+  "dateReleased": "2023-10-27",
+  "releaseNotes": "Added battery state to sensors.  Added setLed to plug/switch preferences. Logging cleanup.",
+  "licenseFile": "https://github.com/DaveGut/HubitatActive/blob/master/KasaDevices/License.md",
   "apps": [
     {
-      "id": "16027445-4f62-4714-9af9-82fb6c330366",
-      "name": "Kasa Integration",
+      "id": "79f31830-a697-40c5-9c87-76f9db0c63b7",
+      "name": "tapo_device_install",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/Application/KasaIntegrationApp.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/App/tapo_device_install.groovy",
       "required": true,
       "oauth": false,
       "primary": true
@@ -19,66 +21,94 @@
   ],
   "drivers": [
     {
-      "id": "bfcc31f8-8f99-4b2a-9606-9935470be1a8",
+      "id": "da263b7d-5b17-468a-836e-86ef98b11187",
       "name": "Color Bulb",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/ColorBulb.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_bulb_color.groovy",
       "required": false
     },
     {
-      "id": "0ad65cbc-b996-49ae-8586-bfe0b4883db1",
-      "name": "Color Temp Bulb",
+      "id": "53b8a000-57cc-4b31-bade-3b157b8774e9",
+      "name": "Dimming Bulb",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/CTBulb.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_bulb_dimmer.groovy",
       "required": false
     },
     {
-      "id": "cc145de3-2a51-48e2-b562-59dc7ada533c",
-      "name": "Mono/White Bulb",
-      "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/WhiteBulb.groovy",
-      "required": false
-    },
-    {
-      "id": "5ee29fb2-8f8e-4478-ae3b-8e5d5024f8ed",
+      "id": "ec486eae-0c27-4e79-bcd2-77afbb4013f0",
       "name": "Light Strip",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/LightStrip.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_bulb_lightStrip.groovy",
       "required": false
     },
     {
-      "id": "fc669da3-d9ef-4452-9a8e-53be2b4f214b",
-      "name": "All Plug-Switches (except Dimmer)",
+      "id": "17c01a4b-34f7-4cb5-b6e3-10f6259b06c2",
+      "name": "HUB",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/Plug-Switch.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_hub.groovy",
       "required": false
     },
     {
-      "id": "0b4cf809-2f00-4e5b-935b-47ca694c5124",
-      "name": "Dimming Switch",
+      "id": "b9c64b4a-8b7e-4aca-b575-c1248e7976b4",
+      "name": "HUB-Button",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/DimmingSwitch.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_hub_button.groovy",
       "required": false
     },
     {
-      "id": "e40aa2f0-d715-4583-bcf8-6bb6cad697f3",
-      "name": "DEPRECATED EM Multi Plug",
+      "id": "504c09cc-d955-4b16-8baa-89ce9f4c4542",
+      "name": "HUB-Contact Sensor",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Multi-Plug.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_hub_contact.groovy",
       "required": false
     },
     {
-      "id": "20b1ec51-ad69-49a6-85ec-f22497acd6d0",
-      "name": "DEPRECATED EM Plug",
+      "id": "09d5b8d6-d645-42f8-b982-2e113832841d",
+      "name": "HUB-Motion Sensor",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/EM-Plug.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_hub_motion.groovy",
       "required": false
     },
     {
-      "id": "63876fc9-ba9d-4ff7-bf21-d58432a1c594",
-      "name": "DEPRECATED Multi Plug",
+      "id": "52a4c55d-5e1b-4094-951d-1bfa6d760e61",
+      "name": "HUB-Temp Humidity Sensor",
       "namespace": "davegut",
-      "location": "https://raw.githubusercontent.com/DaveGut/HubitatActive/master/KasaDevices/DeviceDrivers/Multi-Plug.groovy",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_hub_tempHumidity.groovy",
+      "required": false
+    },
+    {
+      "id": "afdc84ce-c66e-46b9-a6c2-ea3a7e44a5c5",
+      "name": "Plug-Switch",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_plug.groovy",
+      "required": false
+    },
+    {
+      "id": "19a7fb5c-195f-4dbc-abdc-7bddff78c79d",
+      "name": "Dimming Plug-Switch",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_plug_dimmer.groovy",
+      "required": false
+    },
+    {
+      "id": "e3cd85e6-3da7-4576-a95a-f99ac0266b54",
+      "name": "Energy Monitor Plug",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_plug_em.groovy",
+      "required": false
+    },
+    {
+      "id": "0dc4415c-4f7d-4fc8-a8d3-ce9c14f86462",
+      "name": "MultiPlug (requires child)",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_plug_multi.groovy",
+      "required": false
+    },
+    {
+      "id": "136c0b05-d6d8-49bb-9177-16263786d290",
+      "name": "MultiPlug Child",
+      "namespace": "davegut",
+      "location": "https://raw.githubusercontent.com/DaveGut/tpLink_Hubitat/main/Drivers/tpLink_plug_multi_child.groovy",
       "required": false
     }
   ]
